@@ -14,6 +14,7 @@ os.environ["DEMO_MODE"] = "true"
 os.environ["FANOLAB_URL"] = "http://127.0.0.1:8765/sse"
 os.environ["MODE"] = "sse"
 os.environ["CLEANER_MODE"] = "identity"
+os.environ["dedup_key_parts"] = "session_id,processing_id"
 
 async def _run_mock_server() -> None:
     """Run mock server in background."""
