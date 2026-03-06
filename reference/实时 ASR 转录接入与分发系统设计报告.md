@@ -55,7 +55,7 @@ sequenceDiagram
         App->>App: asyncio.loads 解析数据
 
         Note right of App: 【核心防抖】利用 Redis 原子操作去重
-        App->>Redis: SETNX dedup:session_id:timestamp 1 (设置过期时间 10s)
+        App->>Redis: SETNX dedup:session_id:transcription_seq 1 (设置过期时间 10s)
 
         alt 发生网络重传，数据已存在 (返回 0)
             Redis-->>App: 返回 0 (已存在)

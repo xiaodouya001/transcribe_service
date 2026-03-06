@@ -1,0 +1,41 @@
+"""RedisBuffer - push raw payloads to Redis Stream for persistence."""
+
+import json
+from redis.asyncio import Redis
+
+
+class RedisBuffer:
+    """Push raw vendor payloads to Redis Stream. XADD asr:ingest:buffer."""
+
+    def __init__(
+        self,
+        redis_url: str = "redis://localhost:6379/0",
+        stream: str = "asr:ingest:buffer",
+        maxlen: int | None = 10000,
+    ) -> None:
+        self._redis_url = redis_url
+        self._stream = stream
+        self._maxlen = maxlen
+        self._client: Redis | None = None
+
+    async def _get_client(self) -> Redis:
+        if self._client is None:
+            self._client = Redis.from_url(self._redis_url, decode_responses=True)
+        return self._client
+
+    async def push(self, payload: dict) -> str:
+        """Push raw payload to Stream. Returns message id."""
+        client = await self._get_client()
+        payload_str = json.dumps(payload, ensure_ascii=False)
+        kwargs: dict = {"payload": payload_str}
+        if self._maxlen is not None:
+            kwargs["maxlen"] = self._maxlen
+            kwargs["approximate"] = True
+        msg_id = await client.xadd(self._stream, kwargs)
+        return msg_id
+
+    async def close(self) -> None:
+        """Close Redis connection."""
+        if self._client:
+            await self._client.aclose()
+            self._client = None
