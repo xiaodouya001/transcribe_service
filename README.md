@@ -472,6 +472,6 @@ docker build -f docker/Dockerfile -t asr-ingest:latest .
 
 | 文档 | 说明 |
 |------|------|
+| [docs/pyproject-config.md](docs/pyproject-config.md) | pyproject.toml 配置说明及 Local/Dev/Production 使用指南 |
 | [development-plan.md](development-plan.md) | 开发计划 |
 | [reference/design.md](reference/design.md) | 架构设计 |
-| docs/ | 优化方案、部署指南等 |
