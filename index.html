@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS 实时 ASR 转录接入架构交互式指南</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Chosen Palette: AWS Light Theme (Slate 50 background, Slate 800 text, Sky 600 primary, Orange 500 accents) -->
+    <!-- Application Structure Plan: The SPA is structured as a vertical interactive scroll-through dashboard. It begins with a high-level system overview and architecture diagram, followed by deep-dives into specific technical challenges addressed in the report: Connection protocols (WebSocket vs SSE), Redis Deduplication (Interactive Simulation), Kafka Producer Tuning (Interactive Chart), and Graceful Shutdown (State sequence). This flow guides the user from the macro "what it is" to the micro "how it works and is optimized," making complex backend engineering concepts tangible and easy to understand. -->
+    <!-- Visualization & Content Choices: 
+         1. Architecture: HTML/CSS Grid with Unicode + Pulse animation -> Goal: Show system components -> Justification: Meets NO SVG rule while clearly depicting AWS infrastructure.
+         2. Protocol Selection: JS Toggle Tabs -> Goal: Compare WebSocket/SSE -> Justification: Cleans up text density, allows side-by-side comparison.
+         3. Redis Deduplication: JS Interactive Log/Simulation -> Goal: Demonstrate sub-millisecond SETNX deduplication -> Justification: Active learning; user sees how network jitter is handled in real-time.
+         4. Kafka Tuning: Chart.js Bar/Line combo with Range Slider -> Goal: Explain linger_ms tradeoff -> Justification: Visualizes the complex relationship between latency and throughput.
+         5. Monitoring: Chart.js dynamic line charts -> Goal: Show system observability -> Justification: Simulates the CloudWatch experience mentioned in the report. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+
+    <style>
+        html { scroll-behavior: smooth; }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 350px;
+            max-height: 400px;
+        }
+        @media (max-width: 640px) {
+            .chart-container { height: 250px; }
+        }
+        .data-packet {
+            animation: movePacket 3s infinite linear;
+        }
+        @keyframes movePacket {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            50% { transform: translateY(50px) scale(1.2); opacity: 0.8; }
+            100% { transform: translateY(100px) scale(1); opacity: 0; }
+        }
+        .pulse-border {
+            animation: pulseBorder 2s infinite;
+        }
+        @keyframes pulseBorder {
+            0% { border-color: rgba(249, 115, 22, 0.4); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.4); }
+            70% { border-color: rgba(249, 115, 22, 1); box-shadow: 0 0 0 10px rgba(249, 115, 22, 0); }
+            100% { border-color: rgba(249, 115, 22, 0.4); box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
+        }
+        .hide { display: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased">
+
+    <nav class="fixed top-0 w-full bg-white shadow-sm z-50 border-b border-slate-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <span class="text-xl font-bold text-sky-700">☁️ 实时 ASR 接入架构</span>
+                </div>
+                <div class="hidden md:flex items-center space-x-6 text-sm font-medium text-slate-600">
+                    <a href="#overview" class="hover:text-sky-600 transition">架构总览</a>
+                    <a href="#connection" class="hover:text-sky-600 transition">接入模式</a>
+                    <a href="#dedup" class="hover:text-sky-600 transition">防抖去重</a>
+                    <a href="#tuning" class="hover:text-sky-600 transition">性能调优</a>
+                    <a href="#monitoring" class="hover:text-sky-600 transition">实时监控</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto space-y-20">
+
+        <header class="text-center max-w-4xl mx-auto">
+            <h1 class="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight mb-4">AWS Kafka Producer 实时接入方案</h1>
+            <p class="text-lg text-slate-600 leading-relaxed">
+                本交互式指南基于 Fanolab ASR 引擎的接入需求，展示了一套部署在 AWS 上的实时转录结果接收与分发系统。探索该系统如何利用无服务器架构、异步 I/O 以及精密的防抖机制，打造极致稳定、高吞吐的“纯数据搬运与清洗”中间层。
+            </p>
+        </header>
+
+        <section id="overview" class="scroll-mt-24">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 border-l-4 border-sky-500 pl-3 mb-4">1. 架构愿景与宏观设计</h2>
+                <p class="text-slate-600 leading-relaxed">
+                    本节展示系统的整体物理与逻辑架构。系统采用高度解耦的设计，不触碰原始音频，仅专注于文本流的即时性和原子性。它利用 ECS Fargate 进行弹性计算，Redis 作为状态机和数据过滤器，最后由 Amazon MSK 作为企业级消息总线进行数据分发。
+                </p>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-10">
+                <div class="flex flex-col md:flex-row items-center justify-center gap-8 md:gap-16">
+                    
+                    <div class="flex flex-col items-center w-48">
+                        <div class="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center text-4xl mb-3 border-2 border-slate-300 shadow-inner">
+                            🎙️
+                        </div>
+                        <h3 class="font-semibold text-slate-800 text-center">Fanolab ASR</h3>
+                        <p class="text-xs text-slate-500 text-center mt-1">外部语音引擎<br>推送 JSON 转录结果</p>
+                    </div>
+
+                    <div class="text-sky-500 text-3xl font-bold hidden md:block">➔</div>
+                    <div class="text-sky-500 text-3xl font-bold block md:hidden mb-4 rotate-90">➔</div>
+
+                    <div class="flex flex-col items-center border-2 border-dashed border-sky-300 p-6 rounded-2xl bg-sky-50 w-full md:w-auto relative">
+                        <span class="absolute -top-3 left-4 bg-sky-100 text-sky-700 text-xs font-bold px-2 py-1 rounded">AWS Cloud (VPC)</span>
+                        
+                        <div class="w-48 bg-white border-2 border-sky-400 rounded-lg p-4 shadow-md flex flex-col items-center mb-8 pulse-border z-10">
+                            <span class="text-3xl mb-2">⚙️</span>
+                            <h3 class="font-bold text-sky-800 text-center text-sm">ECS Fargate</h3>
+                            <p class="text-xs text-slate-500 text-center mt-1">Python Asyncio<br>自动弹性伸缩接收端</p>
+                        </div>
+
+                        <div class="flex w-full justify-between gap-4">
+                            <div class="w-32 bg-white border-2 border-orange-400 rounded-lg p-3 shadow-md flex flex-col items-center">
+                                <span class="text-2xl mb-1">🗄️</span>
+                                <h3 class="font-bold text-orange-700 text-center text-xs">ElastiCache (Redis)</h3>
+                                <p class="text-[10px] text-slate-500 text-center mt-1">亚毫秒去重<br>会话状态</p>
+                            </div>
+                            <div class="w-32 bg-white border-2 border-emerald-400 rounded-lg p-3 shadow-md flex flex-col items-center">
+                                <span class="text-2xl mb-1">📊</span>
+                                <h3 class="font-bold text-emerald-700 text-center text-xs">Amazon MSK</h3>
+                                <p class="text-[10px] text-slate-500 text-center mt-1">Kafka 消息总线<br>异步分发</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="text-sky-500 text-3xl font-bold hidden md:block">➔</div>
+                    <div class="text-sky-500 text-3xl font-bold block md:hidden mt-4 rotate-90">➔</div>
+
+                    <div class="flex flex-col items-center w-48">
+                        <div class="w-24 h-24 bg-slate-100 rounded-lg flex items-center justify-center text-4xl mb-3 border-2 border-slate-300 shadow-inner">
+                            🏢
+                        </div>
+                        <h3 class="font-semibold text-slate-800 text-center">下游业务线</h3>
+                        <p class="text-xs text-slate-500 text-center mt-1">NLP / 意图识别 / 质检<br>异步订阅消费</p>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <section id="connection" class="scroll-mt-24">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 border-l-4 border-sky-500 pl-3 mb-4">2. 接入模式选型</h2>
+                <p class="text-slate-600 leading-relaxed">
+                    根据 Fanolab 接口要求，系统支持两种长连接模式。点击下方按钮，查看 WebSocket 与 SSE (Server-Sent Events) 在当前架构下的不同优势与适用场景。
+                </p>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="flex border-b border-slate-200">
+                    <button id="btn-ws" class="flex-1 py-4 text-center font-semibold text-sky-700 bg-sky-50 border-b-2 border-sky-500 transition-colors">WebSocket 模式</button>
+                    <button id="btn-sse" class="flex-1 py-4 text-center font-semibold text-slate-500 hover:bg-slate-50 transition-colors">SSE 模式</button>
+                </div>
+                <div class="p-6 md:p-8 min-h-[250px] flex items-center">
+                    <div id="content-ws" class="w-full">
+                        <div class="flex items-center mb-4">
+                            <span class="text-3xl mr-4">🔄</span>
+                            <h3 class="text-xl font-bold text-slate-800">全双工即时通信</h3>
+                        </div>
+                        <p class="text-slate-600 mb-4">适用于需要心跳维持或配置指令下发的双向通信场景。客户端与服务端保持持久连接。</p>
+                        <ul class="space-y-2">
+                            <li class="flex items-start"><span class="text-green-500 mr-2">✓</span> <span class="text-sm text-slate-700"><strong>极低报头开销：</strong> 握手后数据帧极小，适合高频短文本传输。</span></li>
+                            <li class="flex items-start"><span class="text-green-500 mr-2">✓</span> <span class="text-sm text-slate-700"><strong>双向通信：</strong> 允许系统向 ASR 引擎实时发送动态配置或控制指令。</span></li>
+                            <li class="flex items-start"><span class="text-orange-500 mr-2">!</span> <span class="text-sm text-slate-700"><strong>架构挑战：</strong> 需要自行实现复杂的断线重连与心跳保活（Ping/Pong）机制。</span></li>
+                        </ul>
+                    </div>
+                    <div id="content-sse" class="w-full hide">
+                        <div class="flex items-center mb-4">
+                            <span class="text-3xl mr-4">⬇️</span>
+                            <h3 class="text-xl font-bold text-slate-800">轻量级单向数据流</h3>
+                        </div>
+                        <p class="text-slate-600 mb-4">若仅需单向接收 JSON 流，基于标准 HTTP 协议的 SSE 是更轻量、对云原生网关更友好的选择。</p>
+                        <ul class="space-y-2">
+                            <li class="flex items-start"><span class="text-green-500 mr-2">✓</span> <span class="text-sm text-slate-700"><strong>天然重连机制：</strong> 浏览器/客户端内置 Last-Event-ID 支持，断线自动恢复。</span></li>
+                            <li class="flex items-start"><span class="text-green-500 mr-2">✓</span> <span class="text-sm text-slate-700"><strong>极佳兼容性：</strong> 完全基于 HTTP/1.1，与 AWS ALB (Application Load Balancer) 等网关组件完美兼容。</span></li>
+                            <li class="flex items-start"><span class="text-slate-400 mr-2">✗</span> <span class="text-sm text-slate-700"><strong>单向限制：</strong> 只能由服务端向客户端推数据，无法用于发送控制指令。</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="dedup" class="scroll-mt-24">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 border-l-4 border-orange-500 pl-3 mb-4">3. 核心处理链路：防抖去重演示</h2>
+                <p class="text-slate-600 leading-relaxed">
+                    在真实网络环境下，ASR 引擎由于网络抖动，经常会将同一时间戳的片段重复推送。本节模拟了利用 Redis <code>SETNX</code> 指令实现的亚毫秒级精准去重机制。只有抢到“锁”的数据才会被放行至 Kafka。
+                </p>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col md:flex-row gap-8">
+                <div class="w-full md:w-1/3 flex flex-col justify-center space-y-4">
+                    <div class="bg-slate-50 p-4 rounded border border-slate-200">
+                        <h4 class="font-bold text-slate-800 text-sm mb-2">模拟控制面板</h4>
+                        <p class="text-xs text-slate-500 mb-4">点击下方按钮，模拟网络抖动导致 ASR 引擎瞬间发送两条完全相同的转录 JSON。</p>
+                        <button id="btn-simulate" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded transition shadow">
+                            模拟并发重复推送 ⚡
+                        </button>
+                    </div>
+                    <div class="text-xs text-slate-500 bg-sky-50 p-3 rounded border border-sky-100">
+                        <strong>Redis 逻辑:</strong><br>
+                        <code>SETNX dedup:{session}:{timestamp} 1</code><br>
+                        如果返回 1 (成功): 数据放行 Kafka。<br>
+                        如果返回 0 (失败): 判定为重复，直接丢弃。
+                    </div>
+                </div>
+
+                <div class="w-full md:w-2/3 bg-slate-900 rounded-lg p-4 font-mono text-xs md:text-sm text-green-400 h-64 overflow-y-auto shadow-inner relative" id="log-terminal">
+                    <div class="text-slate-500 mb-2"># 系统已就绪，等待数据接入...</div>
+                </div>
+            </div>
+        </section>
+
+        <section id="tuning" class="scroll-mt-24">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 border-l-4 border-emerald-500 pl-3 mb-4">4. 生产端分发：吞吐量与延迟的权衡</h2>
+                <p class="text-slate-600 leading-relaxed">
+                    为了保证高吞吐下的低延迟，<code>aiokafka</code> 异步 Producer 需进行严格调优。调节 <code>linger_ms</code> 参数（等待更多消息打包发送的时间）是关键。观察下方图表，了解增加 <code>linger_ms</code> 如何在提升整体吞吐量的同时，略微增加单条消息的延迟。
+                </p>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div class="mb-6 bg-slate-50 p-4 rounded border border-slate-200 flex flex-col md:flex-row items-center gap-6">
+                    <div class="flex-1 w-full">
+                        <label for="linger-slider" class="block text-sm font-bold text-slate-700 mb-2">
+                            Kafka <code>linger_ms</code> 调优 (当前: <span id="linger-val" class="text-sky-600">5</span> ms)
+                        </label>
+                        <input type="range" id="linger-slider" min="0" max="100" value="5" class="w-full h-2 bg-slate-300 rounded-lg appearance-none cursor-pointer">
+                        <div class="flex justify-between text-xs text-slate-400 mt-1">
+                            <span>0ms (极致低迟)</span>
+                            <span>100ms (高吞吐批量)</span>
+                        </div>
+                    </div>
+                    <div class="text-sm text-slate-600 max-w-xs">
+                        报告建议设定为 <strong>10-20ms</strong>，在单条消息即时性与批量吞吐量间取得最佳平衡。并开启 <code>lz4</code> 压缩。
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <canvas id="tuningChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <section id="ha" class="scroll-mt-24">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 border-l-4 border-red-500 pl-3 mb-4">5. 容灾与优雅停机 (Graceful Shutdown)</h2>
+                <p class="text-slate-600 leading-relaxed">
+                    长连接业务在发布更新时最怕强杀进程。当 ECS Fargate 收到 <code>SIGTERM</code> 信号准备缩容时，系统严格遵循以下状态机流转，确保正在进行中的客服转录不会丢失。
+                </p>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 relative">
+                    <div class="hidden md:block absolute top-1/2 left-0 w-full h-1 bg-slate-200 -z-10 -translate-y-1/2"></div>
+                    
+                    <div class="bg-white border-2 border-sky-400 p-4 rounded-lg text-center relative shadow-sm cursor-pointer hover:shadow-md transition" onclick="showStateDetail('state1')">
+                        <div class="w-8 h-8 bg-sky-500 text-white rounded-full flex items-center justify-center font-bold absolute -top-4 left-1/2 -translate-x-1/2">1</div>
+                        <h4 class="font-bold text-slate-800 mt-2">触发下线</h4>
+                        <p class="text-xs text-slate-500 mt-1">收到 SIGTERM</p>
+                    </div>
+
+                    <div class="bg-white border-2 border-slate-300 p-4 rounded-lg text-center relative shadow-sm cursor-pointer hover:shadow-md transition" onclick="showStateDetail('state2')">
+                        <div class="w-8 h-8 bg-slate-400 text-white rounded-full flex items-center justify-center font-bold absolute -top-4 left-1/2 -translate-x-1/2">2</div>
+                        <h4 class="font-bold text-slate-800 mt-2">Draining 摘流</h4>
+                        <p class="text-xs text-slate-500 mt-1">拒绝新连接</p>
+                    </div>
+
+                    <div class="bg-white border-2 border-slate-300 p-4 rounded-lg text-center relative shadow-sm cursor-pointer hover:shadow-md transition" onclick="showStateDetail('state3')">
+                        <div class="w-8 h-8 bg-slate-400 text-white rounded-full flex items-center justify-center font-bold absolute -top-4 left-1/2 -translate-x-1/2">3</div>
+                        <h4 class="font-bold text-slate-800 mt-2">等待存量结束</h4>
+                        <p class="text-xs text-slate-500 mt-1">120s 宽限期</p>
+                    </div>
+
+                    <div class="bg-white border-2 border-slate-300 p-4 rounded-lg text-center relative shadow-sm cursor-pointer hover:shadow-md transition" onclick="showStateDetail('state4')">
+                        <div class="w-8 h-8 bg-slate-400 text-white rounded-full flex items-center justify-center font-bold absolute -top-4 left-1/2 -translate-x-1/2">4</div>
+                        <h4 class="font-bold text-slate-800 mt-2">强制接管与销毁</h4>
+                        <p class="text-xs text-slate-500 mt-1">状态刷入 Redis</p>
+                    </div>
+                </div>
+
+                <div class="mt-8 bg-slate-50 p-4 rounded border border-slate-200 min-h-[100px]" id="state-detail-box">
+                    <p class="text-slate-600 text-sm">点击上方的各个阶段，查看优雅停机的具体执行逻辑。</p>
+                </div>
+            </div>
+        </section>
+
+        <section id="monitoring" class="scroll-mt-24">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 border-l-4 border-indigo-500 pl-3 mb-4">6. 云原生实时监控指标</h2>
+                <p class="text-slate-600 leading-relaxed">
+                    系统深度集成 AWS CloudWatch，实时追踪核心链路健康度。若活跃连接数激增，将触发 Fargate 自动扩容。下图模拟了生产环境中核心指标的实时波动情况。
+                </p>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                    <h3 class="font-bold text-slate-700 text-sm mb-4 text-center">活跃连接数与扩容阈值 (ActiveConnections)</h3>
+                    <div class="chart-container" style="height: 250px;">
+                        <canvas id="connectionsChart"></canvas>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="font-bold text-slate-700 text-sm mb-4 text-center">端到端平均延迟 (End-to-End Latency)</h3>
+                    <div class="chart-container" style="height: 250px;">
+                        <canvas id="latencyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="bg-slate-900 text-slate-400 py-8 text-center text-sm">
+        <p>架构设计基于 AWS 最佳实践与 Python Asyncio 高性能并发模型。</p>
+    </footer>
+
+    <script>
+        // --- Tab Logic (Connection Modes) ---
+        const btnWs = document.getElementById('btn-ws');
+        const btnSse = document.getElementById('btn-sse');
+        const contentWs = document.getElementById('content-ws');
+        const contentSse = document.getElementById('content-sse');
+
+        function switchTab(mode) {
+            if (mode === 'ws') {
+                btnWs.className = "flex-1 py-4 text-center font-semibold text-sky-700 bg-sky-50 border-b-2 border-sky-500 transition-colors";
+                btnSse.className = "flex-1 py-4 text-center font-semibold text-slate-500 hover:bg-slate-50 transition-colors border-b border-slate-200";
+                contentWs.classList.remove('hide');
+                contentSse.classList.add('hide');
+            } else {
+                btnSse.className = "flex-1 py-4 text-center font-semibold text-sky-700 bg-sky-50 border-b-2 border-sky-500 transition-colors";
+                btnWs.className = "flex-1 py-4 text-center font-semibold text-slate-500 hover:bg-slate-50 transition-colors border-b border-slate-200";
+                contentSse.classList.remove('hide');
+                contentWs.classList.add('hide');
+            }
+        }
+        btnWs.addEventListener('click', () => switchTab('ws'));
+        btnSse.addEventListener('click', () => switchTab('sse'));
+
+
+        // --- Redis Deduplication Simulation ---
+        const btnSimulate = document.getElementById('btn-simulate');
+        const logTerminal = document.getElementById('log-terminal');
+        let simCount = 0;
+
+        function addLog(msg, colorClass) {
+            const time = new Date().toISOString().split('T')[1].slice(0, 12);
+            const line = document.createElement('div');
+            line.className = `mb-1 ${colorClass}`;
+            line.innerHTML = `<span class="text-slate-500">[${time}]</span> ${msg}`;
+            logTerminal.appendChild(line);
+            logTerminal.scrollTop = logTerminal.scrollHeight;
+        }
+
+        btnSimulate.addEventListener('click', () => {
+            simCount++;
+            const sessionId = `sess_${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+            const timestamp = Date.now();
+            
+            btnSimulate.disabled = true;
+            btnSimulate.classList.add('opacity-50');
+            
+            addLog(`>> Fanolab 推送片段 [尝试 1] - session:${sessionId}`, 'text-blue-300');
+            
+            setTimeout(() => {
+                addLog(`Redis 执行 SETNX dedup:${sessionId}:${timestamp} 1`, 'text-yellow-300');
+                addLog(`✓ Redis 返回 1. 缓存未命中，获取锁成功！`, 'text-green-400');
+                addLog(`➔ Asyncio 转发至 MSK topic: asr_realtime_text`, 'text-white');
+                
+                setTimeout(() => {
+                    addLog(`>> Fanolab 网络重传 [尝试 2] - session:${sessionId} (完全相同的数据)`, 'text-red-300');
+                    addLog(`Redis 执行 SETNX dedup:${sessionId}:${timestamp} 1`, 'text-yellow-300');
+                    addLog(`✗ Redis 返回 0. 数据已存在！触发去重逻辑，丢弃脏数据。`, 'text-orange-500 font-bold');
+                    
+                    addLog(`-----------------------------------`, 'text-slate-600');
+                    btnSimulate.disabled = false;
+                    btnSimulate.classList.remove('opacity-50');
+                }, 400); 
+
+            }, 200);
+        });
+
+
+        // --- Kafka Tuning Chart ---
+        const ctxTuning = document.getElementById('tuningChart').getContext('2d');
+        const lingerSlider = document.getElementById('linger-slider');
+        const lingerValDisplay = document.getElementById('linger-val');
+
+        let tuningChart = new Chart(ctxTuning, {
+            type: 'bar',
+            data: {
+                labels: ['当前配置预测'],
+                datasets: [
+                    {
+                        label: '系统吞吐量 (msg/sec)',
+                        data: [1500],
+                        backgroundColor: 'rgba(56, 189, 248, 0.7)',
+                        yAxisID: 'y',
+                        barThickness: 100
+                    },
+                    {
+                        label: '单条延迟追加 (ms)',
+                        data: [5],
+                        type: 'line',
+                        borderColor: 'rgba(249, 115, 22, 1)',
+                        backgroundColor: 'rgba(249, 115, 22, 1)',
+                        borderWidth: 3,
+                        pointRadius: 6,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'top' } },
+                scales: {
+                    y: {
+                        type: 'linear', display: true, position: 'left',
+                        title: { display: true, text: '吞吐量' },
+                        min: 0, max: 10000
+                    },
+                    y1: {
+                        type: 'linear', display: true, position: 'right',
+                        title: { display: true, text: '延迟 (ms)' },
+                        min: 0, max: 150,
+                        grid: { drawOnChartArea: false }
+                    }
+                }
+            }
+        });
+
+        lingerSlider.addEventListener('input', (e) => {
+            const ms = parseInt(e.target.value);
+            lingerValDisplay.textContent = ms;
+            
+            const throughput = ms === 0 ? 1000 : Math.min(9500, 1000 + (ms * 150) - (ms * ms * 0.5));
+            const latency = ms;
+
+            tuningChart.data.datasets[0].data = [throughput];
+            tuningChart.data.datasets[1].data = [latency];
+            tuningChart.update();
+        });
+
+
+        // --- Graceful Shutdown Logic ---
+        const stateDetails = {
+            state1: "<strong class='text-slate-800'>触发下线:</strong> ALB 停止路由新流量，实例接收到操作系统发出的 <code>SIGTERM</code> 信号。此时程序设置退出标志位，进入关停准备。",
+            state2: "<strong class='text-slate-800'>Draining 摘流:</strong> 立即停止向 Fanolab 发起新的连接请求。HTTP/WebSocket 监听端口不再接受任何新客户端。现有连接不受影响。",
+            state3: "<strong class='text-slate-800'>等待存量结束:</strong> 启动一个 <code>stopTimeout</code> 计时器（例如 120 秒）。在此窗口内，允许已连接的转录任务继续执行，直到 ASR 引擎发送完毕主动断开。",
+            state4: "<strong class='text-slate-800'>强制接管与销毁:</strong> 如果 120 秒后仍有未完成的长连接，系统将当前消费的 <code>offset</code> 和会话关键上下文刷入 Redis。随后安全销毁容器。新启动的容器会从 Redis 读取断点并接管任务。"
+        };
+
+        function showStateDetail(stateId) {
+            document.getElementById('state-detail-box').innerHTML = `<p class="text-sm leading-relaxed">${stateDetails[stateId]}</p>`;
+        }
+
+
+        // --- Monitoring Charts (Simulated Live Data) ---
+        const ctxConn = document.getElementById('connectionsChart').getContext('2d');
+        const ctxLat = document.getElementById('latencyChart').getContext('2d');
+
+        const initialDataCount = 20;
+        let labels = Array.from({length: initialDataCount}, (_, i) => i.toString());
+        
+        let connData = Array.from({length: initialDataCount}, () => 800 + Math.random() * 200);
+        let latData = Array.from({length: initialDataCount}, () => 40 + Math.random() * 15);
+
+        const connChart = new Chart(ctxConn, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '活跃连接',
+                    data: connData,
+                    borderColor: 'rgba(56, 189, 248, 1)',
+                    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                animation: false,
+                scales: { x: { display: false }, y: { min: 0, max: 2000 } },
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        const latChart = new Chart(ctxLat, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '平均延迟 (ms)',
+                    data: latData,
+                    borderColor: 'rgba(16, 185, 129, 1)',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                animation: false,
+                scales: { x: { display: false }, y: { min: 0, max: 100 } },
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        setInterval(() => {
+            const spike = Math.random() > 0.9 ? 500 : 0; // Simulate occasional load spikes
+            
+            connData.shift();
+            connData.push(800 + Math.random() * 200 + spike);
+            connChart.update();
+
+            latData.shift();
+            latData.push(40 + Math.random() * 15 + (spike > 0 ? 20 : 0));
+            latChart.update();
+        }, 2000);
+
+    </script>
+</body>
+</html>
