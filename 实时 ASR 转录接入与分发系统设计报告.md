@@ -29,11 +29,6 @@ graph TD
     ECS -- "2. 读写状态 / SETNX 去重<br/>亚毫秒级" --> Redis
     ECS -- "3. aiokafka 异步生产<br/>lz4压缩, 保证幂等性" --> MSK
     MSK -- "4. 异步订阅消费" --> Downstream
-
-    style Fanolab fill:#f9f,stroke:#333,stroke-width:2px
-    style ECS fill:#ff9,stroke:#333,stroke-width:2px
-    style Redis fill:#f96,stroke:#333,stroke-width:2px
-    style MSK fill:#9f9,stroke:#333,stroke-width:2px
 ```
 
 **架构大白话解析：**
@@ -53,25 +48,23 @@ sequenceDiagram
     participant Redis as ElastiCache (Redis)
     participant MSK as Amazon MSK (Kafka)
 
-    Note over Fanolab, App: 客户端发起连接，握手成功 (WebSocket/SSE)
+    Note over Fanolab, App: 客户端发起连接，握手成功(WebSocket/SSE)
 
     loop 持续的音频转录流
         Fanolab->>App: 推送转录 JSON (含 session_id, timestamp, text)
         App->>App: asyncio.loads 解析数据
 
-        rect rgb(240, 248, 255)
-            Note right of App: 【核心防抖】利用 Redis 原子操作去重
-            App->>Redis: SETNX dedup:session_id:timestamp 1 (设置过期时间 10s)
+        Note right of App: 【核心防抖】利用 Redis 原子操作去重
+        App->>Redis: SETNX dedup:session_id:timestamp 1 (设置过期时间 10s)
 
-            alt 发生网络重传，数据已存在 (返回 0)
-                Redis-->>App: 返回 0 (已存在)
-                App-->>App: 丢弃重复的转录片段，避免下游污染
-            else 首次到达的干净数据 (返回 1)
-                Redis-->>App: 返回 1 (写入成功)
-                Note right of App: 组装 Kafka Message，交由底层异步发送
-                App->>MSK: aiokafka.send() Topic: asr_realtime_text Key: session_id
-                MSK-->>App: ACK (返回 Partition Offset)
-            end
+        alt 发生网络重传，数据已存在 (返回 0)
+            Redis-->>App: 返回 0 (已存在)
+            App-->>App: 丢弃重复的转录片段，避免下游污染
+        else 首次到达的干净数据 (返回 1)
+            Redis-->>App: 返回 1 (写入成功)
+            Note right of App: 组装 Kafka Message，交由底层异步发送
+            App->>MSK: aiokafka.send() Topic: asr_realtime_text Key: session_id
+            MSK-->>App: ACK (返回 Partition Offset)
         end
     end
 
