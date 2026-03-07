@@ -21,8 +21,6 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "fakeredis>=2.20.0",
-    "streamlit>=1.28.0",
-    "streamlit-mermaid>=0.3.0",
 ]
 
 [tool.pytest.ini_options]
@@ -61,5 +59,3 @@ aiohttp = ">=3.9.0"
 pytest = ">=7.0.0"
 pytest-asyncio = ">=0.21.0"
 fakeredis = ">=2.20.0"
-streamlit = ">=1.28.0"
-streamlit-mermaid = ">=0.3.0"

@@ -1,4 +1,4 @@
-"""Mock Vendor SSE server - streams transcripts.json or directory of JSONs."""
+"""Minimal mock ASR server for local demo - inject queue + SSE + frontend. Not used by main."""
 
 import asyncio
 import json
@@ -7,55 +7,46 @@ from pathlib import Path
 import structlog
 from aiohttp import web
 
-log = structlog.get_logger()
+log = structlog.get_logger(__name__)
 
-# Default path: scenarios > project root > example
-# __file__ = demo/mock_server.py, .parent = demo/
 _DEMO_ROOT = Path(__file__).resolve().parent
-_PROJECT_ROOT = _DEMO_ROOT.parents[2]  # demo -> asr_ingest -> src -> project_root
-_SCENARIOS_SINGLE = _DEMO_ROOT / "scenarios" / "single_response_multi_transcriptions" / "transcripts.json"
-_EXAMPLE = _DEMO_ROOT / "example" / "transcripts.json"
-DEFAULT_TRANSCRIPTS_PATH = (
-    _SCENARIOS_SINGLE
-    if _SCENARIOS_SINGLE.exists()
-    else (_PROJECT_ROOT / "transcripts.json" if (_PROJECT_ROOT / "transcripts.json").exists() else _EXAMPLE)
-)
-# Legacy: directory for multi-JSON streaming
-TRANSCRIPTS_DIR = _DEMO_ROOT / "transcripts"
-STREAM_DELAY_SEC = 0.15
+QUEUE_WAIT_TIMEOUT = 120.0
+KEEPALIVE_INTERVAL = 30.0
 
 
-def _load_payloads(path: Path) -> list[dict]:
-    """Load payload(s): single file or directory of JSONs (sorted by name)."""
-    if path.is_dir():
-        files = sorted(path.glob("*.json"))
-        if not files:
-            raise web.HTTPBadRequest(text=f"No .json files in {path}")
-        return [json.loads(f.read_text(encoding="utf-8")) for f in files]
-    data = json.loads(path.read_text(encoding="utf-8"))
+def _validate_payload(data: dict) -> None:
+    """Validate payload for TranscriptionEvent.from_vendor_payload."""
     if not data.get("success") or "result" not in data:
-        raise web.HTTPBadRequest(text="Invalid transcripts.json")
-    return [data]
+        raise ValueError("Payload must have success and result")
+    r = data["result"]
+    if "callStatus" not in r or "sessionId" not in r.get("callStatus", {}):
+        raise ValueError("result.callStatus.sessionId required")
+    if "transcripts" not in r or not isinstance(r["transcripts"], list):
+        raise ValueError("result.transcripts must be an array")
 
 
-def _shuffle_payloads(payloads: list[dict], shuffle: bool) -> list[dict]:
-    """Optionally shuffle payload order to simulate out-of-order arrival."""
-    if not shuffle or len(payloads) <= 1:
-        return payloads
-    import random
-    out = payloads.copy()
-    random.shuffle(out)
-    return out
+async def inject_handler(request: web.Request) -> web.Response:
+    """POST /inject: accept JSON, put into queue."""
+    queue: asyncio.Queue = request.app["inject_queue"]
+    try:
+        data = await request.json()
+    except json.JSONDecodeError as e:
+        raise web.HTTPBadRequest(text=f"Invalid JSON: {e}")
+    try:
+        _validate_payload(data)
+    except ValueError as e:
+        raise web.HTTPBadRequest(text=str(e))
+    await queue.put(data)
+    sid = data.get("result", {}).get("callStatus", {}).get("sessionId", "")
+    log.info("Mock: 收到前端注入的 JSON payload", session_id=sid)
+    return web.json_response({"ok": True})
 
 
 async def sse_handler(request: web.Request) -> web.StreamResponse:
-    """Stream SSE events from transcripts.json or transcripts/ directory."""
-    path = request.app.get("transcripts_path", DEFAULT_TRANSCRIPTS_PATH)
-    payloads = _load_payloads(path)
-    inject_duplicates = request.query.get("inject_duplicates", "").lower() in ("1", "true", "yes")
-    shuffle_order = request.query.get("shuffle", "").lower() in ("1", "true", "yes")
-    payloads = _shuffle_payloads(payloads, shuffle_order)
+    """GET /sse?source=queue: stream from inject queue with keepalive."""
+    import time
 
+    queue: asyncio.Queue = request.app["inject_queue"]
     response = web.StreamResponse()
     response.headers["Content-Type"] = "text/event-stream"
     response.headers["Cache-Control"] = "no-cache"
@@ -63,77 +54,60 @@ async def sse_handler(request: web.Request) -> web.StreamResponse:
     await response.prepare(request)
 
     event_id = 0
-    for data in payloads:
-        payload = json.dumps(data, ensure_ascii=False)
-        await response.write(f"id: {event_id}\ndata: {payload}\n\n".encode("utf-8"))
-        event_id += 1
-        if len(payloads) > 1:
-            await asyncio.sleep(STREAM_DELAY_SEC)
-
-    if inject_duplicates:
-        for data in payloads:
-            payload = json.dumps(data, ensure_ascii=False)
-            await response.write(f"id: {event_id}\ndata: {payload}\n\n".encode("utf-8"))
-            event_id += 1
-            if len(payloads) > 1:
-                await asyncio.sleep(STREAM_DELAY_SEC)
-
-    await response.write(f"data: [DONE]\n\n".encode("utf-8"))
-    await response.write_eof()
+    last_payload_time = time.monotonic()
+    try:
+        while True:
+            try:
+                data = await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_INTERVAL)
+                last_payload_time = time.monotonic()
+                payload = json.dumps(data, ensure_ascii=False)
+                await response.write(f"id: {event_id}\ndata: {payload}\n\n".encode("utf-8"))
+                event_id += 1
+            except asyncio.TimeoutError:
+                if time.monotonic() - last_payload_time >= QUEUE_WAIT_TIMEOUT:
+                    break
+                await response.write(b": keepalive\n\n")
+    except asyncio.CancelledError:
+        raise
+    finally:
+        await response.write(b"data: [DONE]\n\n")
+        await response.write_eof()
     return response
 
 
-async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
-    """WebSocket: send JSON payloads one by one (same logic as SSE)."""
-    path = request.app.get("transcripts_path", DEFAULT_TRANSCRIPTS_PATH)
-    payloads = _load_payloads(path)
-    inject_duplicates = request.query.get("inject_duplicates", "").lower() in ("1", "true", "yes")
-    shuffle_order = request.query.get("shuffle", "").lower() in ("1", "true", "yes")
-    payloads = _shuffle_payloads(payloads, shuffle_order)
-
-    ws = web.WebSocketResponse()
-    await ws.prepare(request)
-
-    try:
-        for data in payloads:
-            await ws.send_str(json.dumps(data, ensure_ascii=False))
-            if len(payloads) > 1:
-                await asyncio.sleep(STREAM_DELAY_SEC)
-        if inject_duplicates:
-            for data in payloads:
-                await ws.send_str(json.dumps(data, ensure_ascii=False))
-                if len(payloads) > 1:
-                    await asyncio.sleep(STREAM_DELAY_SEC)
-    finally:
-        await ws.close()
-    return ws
+async def index_handler(request: web.Request) -> web.Response:
+    """GET /: serve frontend."""
+    path = _DEMO_ROOT / "static" / "index.html"
+    if not path.exists():
+        raise web.HTTPNotFound(text="index.html not found")
+    return web.FileResponse(path)
 
 
-def create_app(transcripts_path: Path | None = None) -> web.Application:
-    """Create aiohttp app with SSE and WebSocket endpoints."""
+def create_app() -> web.Application:
+    """Create app with inject queue, POST /inject, GET /sse, GET /."""
     app = web.Application()
-    if transcripts_path:
-        app["transcripts_path"] = transcripts_path
+    app["inject_queue"] = asyncio.Queue()
+    app.router.add_post("/inject", inject_handler)
     app.router.add_get("/sse", sse_handler)
-    app.router.add_get("/ws", websocket_handler)
+    app.router.add_get("/", index_handler)
     return app
 
 
-async def run_server(host: str = "127.0.0.1", port: int = 8765, transcripts_path: Path | None = None) -> None:
-    """Run mock server with SSE and WebSocket endpoints."""
-    app = create_app(transcripts_path)
+async def run(host: str = "127.0.0.1", port: int = 8765) -> None:
+    """Run mock server until cancelled."""
+    app = create_app()
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host, port)
     await site.start()
-    log.info("Mock server started", sse_url=f"http://{host}:{port}/sse", ws_url=f"ws://{host}:{port}/ws")
+    log.info(
+        "Mock: 本地 Demo 服务已启动",
+        frontend=f"http://{host}:{port}/",
+        sse=f"http://{host}:{port}/sse",
+    )
     try:
-        await asyncio.Event().wait()  # Run until cancelled
+        await asyncio.Event().wait()
     except asyncio.CancelledError:
         pass
     finally:
         await runner.cleanup()
-
-
-if __name__ == "__main__":
-    asyncio.run(run_server())

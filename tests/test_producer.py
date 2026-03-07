@@ -1,55 +1,44 @@
 """Tests for producer layer."""
 
-import json
-import tempfile
-from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from asr_ingest.producer import EchoProducer, get_producer_backend
+from asr_ingest.producer import KafkaProducer, get_producer_backend
 
 
 @pytest.mark.asyncio
-async def test_echo_producer_send() -> None:
-    """EchoProducer should write to file and print."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-        path = f.name
-    try:
-        producer = EchoProducer(output_file=path)
+async def test_get_producer_backend() -> None:
+    """get_producer_backend returns KafkaProducer."""
+    backend = get_producer_backend(
+        kafka_bootstrap="localhost:9092",
+        kafka_topic="asr_realtime_text",
+    )
+    assert isinstance(backend, KafkaProducer)
+
+
+@pytest.mark.asyncio
+async def test_kafka_producer_send_payload_structure() -> None:
+    """KafkaProducer.send builds correct payload with raw and cleaned."""
+    mock_producer = AsyncMock()
+    mock_producer.send_and_wait = AsyncMock(return_value=MagicMock())
+
+    with patch.object(KafkaProducer, "_get_producer", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_producer
+        producer = KafkaProducer(bootstrap_servers="localhost:9092", topic="test_topic")
+
         await producer.send(
             session_id="s1",
             seq_no=0,
             transcript="hello",
             role="Agent",
+            raw_payload={"foo": "bar"},
+            cleaned={"session_id": "s1", "seq_no": 0, "transcript": "hello"},
         )
-        await producer.flush()
-        producer.close()
-        content = Path(path).read_text(encoding="utf-8")
-        data = json.loads(content.strip())
-        assert "raw" in data and "cleaned" in data
-        c = data["cleaned"]
-        assert c["session_id"] == "s1"
-        assert c["seq_no"] == 0
-        assert c["transcript"] == "hello"
-        assert c["role"] == "Agent"
-    finally:
-        Path(path).unlink(missing_ok=True)
 
-
-@pytest.mark.asyncio
-async def test_get_producer_backend_demo() -> None:
-    """Demo mode returns EchoProducer."""
-    backend = get_producer_backend(demo_mode=True)
-    assert isinstance(backend, EchoProducer)
-
-
-@pytest.mark.asyncio
-async def test_get_producer_backend_prod() -> None:
-    """Non-demo returns KafkaProducer."""
-    from asr_ingest.producer import KafkaProducer
-
-    backend = get_producer_backend(
-        demo_mode=False,
-        kafka_bootstrap="localhost:9092",
-        kafka_topic="asr_realtime_text",
-    )
-    assert isinstance(backend, KafkaProducer)
+        mock_producer.send_and_wait.assert_called_once()
+        call_kwargs = mock_producer.send_and_wait.call_args[1]
+        assert call_kwargs["key"] == b"s1"
+        import json
+        value = json.loads(call_kwargs["value"].decode("utf-8"))
+        assert value["raw"] == {"foo": "bar"}
+        assert value["cleaned"]["transcript"] == "hello"

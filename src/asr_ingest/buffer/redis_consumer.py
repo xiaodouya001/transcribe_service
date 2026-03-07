@@ -4,9 +4,21 @@ import asyncio
 import json
 from typing import Any
 
+import structlog
 from redis.asyncio import Redis
 
 from asr_ingest.connector.base import TranscriptionEvent
+
+log = structlog.get_logger(__name__)
+
+
+def _log_kafka_failure(msg_id: str, err: BaseException) -> None:
+    """Log with clear hint. Producer.send 失败时消息未 XACK，会保留在 Buffer 自动重试。"""
+    log.exception(
+        "Buffer Consumer: 处理消息失败（Kafka 不可用，消息已保留在 Buffer，将自动重试）",
+        msg_id=msg_id,
+        error=str(err),
+    )
 
 
 class RedisBufferConsumer:
@@ -21,6 +33,8 @@ class RedisBufferConsumer:
         dedup: Any = None,
         cleaner: Any = None,
         producer: Any = None,
+        *,
+        send_timeout_sec: float = 10.0,
     ) -> None:
         self._redis_url = redis_url
         self._stream = stream
@@ -29,6 +43,7 @@ class RedisBufferConsumer:
         self._dedup = dedup
         self._cleaner = cleaner
         self._producer = producer
+        self._send_timeout = send_timeout_sec
         self._client: Redis | None = None
         self._running = False
 
@@ -57,6 +72,13 @@ class RedisBufferConsumer:
             payload = json.loads(payload_str)
         except json.JSONDecodeError:
             return
+        r = payload.get("result") or {}
+        cs = r.get("callStatus") or {}
+        log.info(
+            "Buffer Consumer: 正在处理消息",
+            msg_id=msg_id,
+            session_id=cs.get("sessionId", ""),
+        )
         for event in TranscriptionEvent.from_vendor_payload(payload):
             if await self._dedup.should_emit(
                 event.session_id,
@@ -65,25 +87,71 @@ class RedisBufferConsumer:
                 created_at=event.created_at,
             ):
                 cleaned_result = self._cleaner.clean(payload, event)
-                await self._producer.send(
+                log.info(
+                    "Buffer Consumer: 发送 transcript 到 Kafka",
                     session_id=event.session_id,
                     seq_no=event.seq_no,
-                    transcript=event.transcript,
-                    role=event.role,
-                    created_at=event.created_at,
-                    processing_status=event.processing_status,
-                    processing_id=event.processing_id,
-                    raw_payload=cleaned_result.get("raw"),
-                    cleaned=cleaned_result.get("cleaned"),
+                    transcript=event.transcript[:30] + "..." if len(event.transcript) > 30 else event.transcript,
                 )
+                try:
+                    await asyncio.wait_for(
+                        self._producer.send(
+                            session_id=event.session_id,
+                            seq_no=event.seq_no,
+                            transcript=event.transcript,
+                            role=event.role,
+                            created_at=event.created_at,
+                            processing_status=event.processing_status,
+                            processing_id=event.processing_id,
+                            raw_payload=cleaned_result.get("raw"),
+                            cleaned=cleaned_result.get("cleaned"),
+                        ),
+                        timeout=self._send_timeout,
+                    )
+                except (asyncio.TimeoutError, Exception) as e:
+                    # 发送失败时撤销 dedup 记录，以便重试时再次尝试发送
+                    if hasattr(self._dedup, "remove"):
+                        await self._dedup.remove(
+                            event.session_id,
+                            event.seq_no,
+                            processing_id=event.processing_id,
+                            created_at=event.created_at,
+                        )
+                    if isinstance(e, asyncio.TimeoutError):
+                        raise RuntimeError(
+                            f"Kafka 不可用：发送超时({self._send_timeout}s)，消息已保留在 Buffer"
+                        ) from None
+                    raise
         client = await self._get_client()
         await client.xack(self._stream, self._consumer_group, msg_id)
+        await client.xdel(self._stream, msg_id)
 
     async def consume_once(self) -> int:
         """Process one batch. Returns number of messages processed."""
         client = await self._get_client()
         processed = 0
-        # First try pending (unacked from previous run)
+        # Prefer new messages first (block 200ms) so we process injects quickly
+        new = await client.xreadgroup(
+            self._consumer_group,
+            self._consumer,
+            {self._stream: ">"},
+            count=10,
+            block=200,
+        )
+        if new:
+            n = sum(len(m) for _, m in new)
+            log.info("Buffer Consumer: 从 Redis 收到消息", count=n)
+            for _stream_name, messages in new:
+                for msg_id, fields in messages:
+                    payload_str = fields.get("payload") or "{}"
+                    try:
+                        await self._process_message(msg_id, payload_str)
+                    except Exception as e:
+                        _log_kafka_failure(msg_id, e)
+                        raise
+                    processed += 1
+            return processed
+        # Then pending (unacked from previous run)
         pending = await client.xreadgroup(
             self._consumer_group,
             self._consumer,
@@ -91,25 +159,17 @@ class RedisBufferConsumer:
             count=10,
         )
         if pending:
+            n = sum(len(m) for _, m in pending)
+            if n > 0:
+                log.info("Buffer Consumer: 处理未确认的旧消息", count=n)
             for _stream_name, messages in pending:
                 for msg_id, fields in messages:
                     payload_str = fields.get("payload") or "{}"
-                    await self._process_message(msg_id, payload_str)
-                    processed += 1
-            return processed
-        # Then new messages
-        new = await client.xreadgroup(
-            self._consumer_group,
-            self._consumer,
-            {self._stream: ">"},
-            count=10,
-            block=1000,
-        )
-        if new:
-            for _stream_name, messages in new:
-                for msg_id, fields in messages:
-                    payload_str = fields.get("payload") or "{}"
-                    await self._process_message(msg_id, payload_str)
+                    try:
+                        await self._process_message(msg_id, payload_str)
+                    except Exception as e:
+                        _log_kafka_failure(msg_id, e)
+                        raise
                     processed += 1
         return processed
 
@@ -117,12 +177,24 @@ class RedisBufferConsumer:
         """Run consume loop until stopped."""
         self._running = True
         await self._ensure_group()
+        log.info("Buffer Consumer: 已启动", stream=self._stream, group=self._consumer_group)
+        empty_polls = 0
         while self._running:
             try:
-                await self.consume_once()
+                n = await self.consume_once()
+                if n == 0:
+                    empty_polls += 1
+                    if empty_polls % 200 == 1 and empty_polls > 1:
+                        log.debug("Buffer Consumer: 空闲轮询", empty_polls=empty_polls)
+                else:
+                    empty_polls = 0
             except asyncio.CancelledError:
                 break
-            except Exception:
+            except Exception as e:
+                log.exception(
+                    "Buffer Consumer: 消费循环异常（Kafka 不可用，消息已保留在 Buffer，将自动重试）",
+                    error=str(e),
+                )
                 await asyncio.sleep(0.5)
 
     def stop(self) -> None:

@@ -27,7 +27,7 @@ ASR Ingest 是一个轻量级数据搬运服务，负责：
 2. **去重**：基于 Redis SETNX 对 `session_id`、`processing_id`、`seq_no` 进行去重
 3. **分发**：将去重后的数据写入 Kafka，供下游 NLP、质检等业务消费
 
-支持 Demo 模式（无需 Redis/Kafka）和 Redis Buffer 模式（断点恢复）。
+支持 Demo 模式（Mock + 前端注入）和 Redis Buffer 模式（断点恢复、Kafka 不可用时消息保留在 Buffer 自动重试）。
 
 ---
 
@@ -35,139 +35,63 @@ ASR Ingest 是一个轻量级数据搬运服务，负责：
 
 ### 2.1 模块调用图
 
-**直连模式（Demo / 未启用 Buffer）**：
+**直连模式**（`REDIS_BUFFER_ENABLED=false`）：
 
 ```mermaid
 flowchart TB
     subgraph Main [main.py]
-        direction TB
         Connector[Connector SSE/WebSocket]
-        Dedup[Dedup Redis/Memory]
+        Dedup[Dedup Redis]
         Cleaner[Cleaner Transform]
-        Producer[Producer Kafka/Echo]
-        Connector -->|"connect() yield event"| Dedup
-        Dedup -->|"should_emit pass"| Cleaner
-        Cleaner -->|"clean(raw, event)"| Producer
-        Dedup -->|"filtered"| Drop[丢弃]
+        Producer[Producer Kafka]
+        Connector --> Dedup
+        Dedup --> Cleaner
+        Cleaner --> Producer
     end
     ASR[Fanolab ASR] --> Connector
     Producer --> Kafka[(Kafka)]
 ```
 
-**生产模式（Redis Buffer 启用）**：
+**Buffer 模式**（`REDIS_BUFFER_ENABLED=true`，默认）：
 
 ```mermaid
 flowchart TB
     subgraph Main [main.py]
-        direction TB
         Connector[Connector]
         Buffer[RedisBuffer]
         Consumer[RedisBufferConsumer]
         Dedup[Dedup]
         Cleaner[Cleaner]
         Producer[Producer]
-        Connector -->|"connect_and_push()"| Buffer
+        Connector --> Buffer
         Buffer --> Redis[(Redis Stream)]
-        Redis -->|"XREADGROUP"| Consumer
+        Redis --> Consumer
         Consumer --> Dedup
-        Dedup -->|"pass"| Cleaner
+        Dedup --> Cleaner
         Cleaner --> Producer
-        Dedup -->|"filtered"| Drop[丢弃]
     end
     ASR[Fanolab ASR] --> Connector
     Producer --> Kafka[(Kafka)]
 ```
 
-### 2.2 时序图
-
-**直连模式：单条转录从接收到写入 Kafka**：
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant ASR as Fanolab ASR
-    participant Connector as Connector
-    participant Dedup as Dedup
-    participant Cleaner as Cleaner
-    participant Producer as Producer
-    participant Kafka as Kafka
-
-    ASR->>Connector: 推送 JSON (SSE/WebSocket)
-    Connector->>Connector: 解析 JSON，展开 transcripts
-    Connector->>Dedup: event (session_id, seq_no, processing_id)
-    Dedup->>Dedup: SETNX dedup:key 1 EX 10
-
-    alt 首次到达 (SETNX 成功)
-        Dedup-->>Cleaner: pass
-        Cleaner->>Cleaner: clean(raw, event) -> {raw, cleaned}
-        Cleaner->>Producer: send(raw_payload, cleaned)
-        Producer->>Kafka: send_and_wait(key=session_id)
-    else 重复 (SETNX 失败)
-        Dedup-->>Dedup: filtered，丢弃
-    end
-```
-
-**Redis Buffer 模式：写入与消费分离**：
-
-*接收阶段*
-
-```mermaid
-sequenceDiagram
-    participant ASR as Fanolab ASR
-    participant Connector as Connector
-    participant Buffer as RedisBuffer
-    participant Redis as Redis Stream
-
-    ASR->>Connector: 推送 JSON
-    Connector->>Buffer: push(payload)
-    Buffer->>Redis: XADD asr:ingest:buffer payload
-```
-
-*消费阶段（异步）*
-
-```mermaid
-sequenceDiagram
-    participant Redis as Redis Stream
-    participant Consumer as RedisBufferConsumer
-    participant Dedup as Dedup
-    participant Producer as Producer
-    participant Kafka as Kafka
-
-    Consumer->>Redis: XREADGROUP
-    Redis-->>Consumer: 消息列表
-    Consumer->>Consumer: 解析 payload，展开 transcripts
-    Consumer->>Dedup: should_emit(event)
-    Dedup->>Redis: SETNX dedup:key
-    alt pass
-        Dedup-->>Consumer: True
-        Consumer->>Consumer: cleaner.clean()
-        Consumer->>Producer: send()
-        Producer->>Kafka: send_and_wait()
-        Consumer->>Redis: XACK
-    else filtered
-        Dedup-->>Consumer: False
-        Consumer->>Redis: XACK
-    end
-```
-
-### 2.3 数据流概览
+### 2.2 数据流
 
 | 模式 | 数据流 |
 |------|--------|
 | 直连 | ASR → Connector → Dedup → Cleaner → Producer → Kafka |
 | Buffer | ASR → Connector → Redis Stream → Consumer → Dedup → Cleaner → Producer → Kafka |
 
-收到数据先落 Redis Stream，再异步消费，服务中断时可从 Pending 恢复。
+Buffer 模式下，数据先落 Redis Stream，再异步消费；服务中断或 Kafka 不可用时，消息保留在 Buffer，恢复后自动重试。
 
-### 2.4 核心模块
+### 2.3 核心模块
 
 | 模块 | 职责 |
 |------|------|
 | Connector | SSE/WebSocket 长连接，解析 Vendor JSON |
-| Dedup | 可配置 Key 去重（默认 session_id:processing_id:seq_no） |
-| Transform | 数据清洗，输出 raw + cleaned |
+| Dedup | 可配置 Key 去重（默认 `session_id:processing_id:seq_no`），发送失败时撤销记录以支持重试 |
+| Transform | 数据清洗，输出 `raw` + `cleaned` |
 | Buffer | Redis Stream 缓冲（可选） |
-| Producer | Kafka 或 EchoProducer（Demo） |
+| Producer | Kafka 输出 |
 
 ---
 
@@ -177,7 +101,7 @@ sequenceDiagram
 |------|------|
 | Python | 3.11+ |
 | 生产环境 | Redis (ElastiCache)、Kafka (MSK) |
-| Demo 模式 | 无需 Redis/Kafka |
+| 本地开发 | Redis、Kafka（`docker compose up -d`） |
 
 ---
 
@@ -186,30 +110,20 @@ sequenceDiagram
 ### 4.1 使用 Poetry（推荐）
 
 ```bash
-# 安装依赖
 poetry install
-
-# 安装开发依赖（含 pytest、streamlit）
-poetry install --with dev
-
-# 激活虚拟环境
+poetry install --with dev   # 含 pytest
 poetry shell
 ```
 
 ### 4.2 使用 pip + venv
 
 ```bash
-# 创建虚拟环境
 python -m venv .venv
-
-# 激活（Windows PowerShell）
-.\.venv\Scripts\Activate.ps1
-
-# 安装
+.\.venv\Scripts\Activate.ps1   # Windows
 pip install -e ".[dev]"
 ```
 
-### 4.3 验证安装
+### 4.3 验证
 
 ```bash
 python -c "import asr_ingest; print('OK')"
@@ -221,7 +135,7 @@ python -c "import asr_ingest; print('OK')"
 
 ### 5.1 环境变量
 
-复制 `.env.example` 为 `.env` 并修改：
+复制 `.env.example` 为 `.env` 并修改。**环境变量统一使用 UPPER_SNAKE_CASE**。
 
 ```bash
 cp .env.example .env
@@ -229,175 +143,119 @@ cp .env.example .env
 
 ### 5.2 配置项一览
 
+#### Fanolab ASR
+
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| DEMO_MODE | true | 使用 MemoryDedup + EchoProducer，无需 Redis/Kafka |
-| FANOLAB_URL | http://localhost:8765/sse | Fanolab SSE/WebSocket 地址 |
-| MODE | sse | 传输协议：`sse` 或 `websocket` |
-| REDIS_URL | redis://localhost:6379/0 | Redis 连接地址 |
-| KAFKA_BOOTSTRAP_SERVERS | localhost:9092 | Kafka 集群地址 |
-| KAFKA_TOPIC | asr_realtime_text | Kafka Topic 名称 |
-| STOP_TIMEOUT | 120 | 优雅停机超时（秒） |
-| dedup_key_parts | session_id,processing_id,seq_no | 去重 Key 组成 |
-| redis_buffer_enabled | true | 是否启用 Redis Stream 缓冲 |
-| redis_buffer_stream | asr:ingest:buffer | Redis Stream 名称 |
-| redis_buffer_consumer_group | asr:ingest:consumer | 消费组名称 |
-| redis_buffer_maxlen | 10000 | Stream 最大长度 |
-| cleaner_mode | default | 数据清洗模式：`default`、`identity` |
+| `FANOLAB_URL` | http://localhost:8765/sse | Fanolab SSE/WebSocket 地址 |
+| `MODE` | sse | 传输协议：`sse` 或 `websocket` |
+| `SSE_READ_TIMEOUT` | 空 | SSE 读超时（秒），空=无限制 |
+| `WS_PING_INTERVAL` | 20.0 | WebSocket ping 间隔（秒） |
+| `WS_PING_TIMEOUT` | 20.0 | WebSocket pong 超时（秒） |
 
-### 5.3 cleaner_mode 详细说明
+#### Redis
 
-`cleaner_mode` 控制 Transform 层的数据清洗行为，决定写入 Kafka 的 payload 结构。
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `REDIS_URL` | redis://localhost:6379/0 | Redis 连接地址 |
+| `DEDUP_KEY_PARTS` | session_id,processing_id,seq_no | 去重 Key 组成 |
+| `DEDUP_TTL_SECONDS` | 60 | 去重 Key 过期时间（秒） |
 
-| 模式 | 说明 | 输出结构 |
-|------|------|----------|
-| `default` | 提取结构化字段，同时保留原始 payload | `{raw, cleaned}` |
-| `identity` | 透传原始 payload，不做字段提取 | `{raw}` |
+#### Redis Buffer
 
-#### default 模式
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `REDIS_BUFFER_ENABLED` | true | 是否启用 Redis Stream 缓冲 |
+| `REDIS_BUFFER_STREAM` | asr:ingest:buffer | Redis Stream 名称 |
+| `REDIS_BUFFER_CONSUMER_GROUP` | asr:ingest:consumer | 消费组名称 |
+| `REDIS_BUFFER_MAXLEN` | 10000 | Stream 最大长度 |
 
-从 `TranscriptionEvent` 提取标准化字段，便于下游消费；同时保留 `raw` 供审计或回放。
+#### Kafka
 
-**输入示例**（Vendor 原始 JSON）：
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `KAFKA_BOOTSTRAP_SERVERS` | localhost:9092 | Kafka 集群地址 |
+| `KAFKA_TOPIC` | asr_realtime_text | Topic 名称 |
+| `KAFKA_COMPRESSION_TYPE` | none | 压缩：`none`、`gzip`、`snappy`、`lz4` |
+| `KAFKA_SEND_TIMEOUT_SEC` | 10 | 发送超时（秒），Kafka 不可用时超时并输出错误日志 |
 
-```json
-{
-  "result": {
-    "callStatus": { "sessionId": "sess-001" },
-    "processingStatus": "completed",
-    "processingId": "proc-123",
-    "transcripts": [
-      {
-        "seqNo": 0,
-        "transcript": "你好，请问有什么可以帮您？",
-        "role": "Agent",
-        "createdAt": "2025-03-06T10:00:00Z"
-      }
-    ]
-  }
-}
-```
+#### 长连接与重连
 
-**输出示例**（Producer 写入 Kafka 的 payload）：
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `RECONNECT_ENABLED` | true | 自动重连 |
+| `RECONNECT_MAX_RETRIES` | 0 | 最大重试次数，0=无限 |
+| `RECONNECT_INITIAL_DELAY` | 1.0 | 初始退避延迟（秒） |
+| `RECONNECT_MAX_DELAY` | 60.0 | 最大退避延迟（秒） |
+| `RECONNECT_BACKOFF_FACTOR` | 2.0 | 退避因子 |
 
-```json
-{
-  "raw": { "result": { "callStatus": { "sessionId": "sess-001" }, "transcripts": [...] } },
-  "cleaned": {
-    "session_id": "sess-001",
-    "seq_no": 0,
-    "transcript": "你好，请问有什么可以帮您？",
-    "role": "Agent",
-    "created_at": "2025-03-06T10:00:00Z",
-    "processing_status": "completed",
-    "processing_id": "proc-123"
-  }
-}
-```
+#### 其它
 
-#### identity 模式
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `CLEANER_MODE` | default | 数据清洗：`default`（raw+cleaned）、`identity`（透传） |
+| `STOP_TIMEOUT` | 120 | 优雅停机超时（秒） |
+| `LOG_LEVEL` | INFO | 日志级别 |
+| `LOG_FORMAT` | auto | 日志格式：`json`、`console`、`auto` |
 
-仅透传原始 payload，不提取 `cleaned` 字段。适用于下游直接消费 Vendor 格式、或需要完整原始数据的场景。
+### 5.3 配置示例
 
-**输入示例**（同上）
-
-**输出示例**：
-
-```json
-{
-  "raw": {
-    "result": {
-      "callStatus": { "sessionId": "sess-001" },
-      "processingStatus": "completed",
-      "processingId": "proc-123",
-      "transcripts": [
-        {
-          "seqNo": 0,
-          "transcript": "你好，请问有什么可以帮您？",
-          "role": "Agent",
-          "createdAt": "2025-03-06T10:00:00Z"
-        }
-      ]
-    }
-  }
-}
-```
-
-#### 使用建议
-
-| 场景 | 推荐模式 |
-|------|----------|
-| 下游需要标准化字段（session_id、seq_no、transcript 等） | `default` |
-| 下游直接解析 Vendor 原始结构 | `identity` |
-| 需要审计/回放原始数据 | `default`（同时保留 raw） |
-| 仅需透传、不关心结构化 | `identity` |
-
-**配置示例**：
+**本地开发**：
 
 ```env
-# 使用默认清洗（raw + cleaned）
-cleaner_mode=default
-
-# 透传原始数据
-cleaner_mode=identity
-```
-
-### 5.4 配置示例
-
-**Demo 模式（本地开发）**：
-
-```env
-DEMO_MODE=true
 FANOLAB_URL=http://localhost:8765/sse
 MODE=sse
+REDIS_URL=redis://localhost:6379/0
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 ```
 
-**生产模式**：
+**生产**：
 
 ```env
-DEMO_MODE=false
 FANOLAB_URL=https://your-fanolab.example.com/sse
 MODE=sse
 REDIS_URL=redis://your-elasticache:6379/0
 KAFKA_BOOTSTRAP_SERVERS=your-msk:9092
+KAFKA_COMPRESSION_TYPE=gzip
+LOG_FORMAT=json
 ```
+
+### 5.4 CLEANER_MODE 说明
+
+| 值 | 说明 | Kafka 输出 |
+|------|------|------------|
+| `default` | 提取结构化字段 + 保留原始 | `{raw, cleaned}` |
+| `identity` | 透传原始 payload | `{raw}` |
 
 ---
 
 ## 6. 使用教程
 
-### 6.1 运行 E2E Demo（零依赖）
-
-无需 Redis、Kafka，Mock 服务器自动启动：
+### 6.1 本地 Demo（Mock + 前端注入）
 
 ```bash
-python -m asr_ingest.demo.run_e2e
+docker compose up -d
+python -m asr_ingest.demo.run_local
 ```
 
-输出：`demo_output.jsonl` 及控制台日志。
+浏览器打开 `http://127.0.0.1:8765/`，输入 JSON 点击「发送」，控制台打印完整链路日志。
 
-### 6.2 运行 Streamlit Demo（可视化）
-
-```bash
-streamlit run src/asr_ingest/demo/streamlit_app.py
-```
-
-提供：
-
-- 输入源预览
-- 对话记录
-- Redis 去重视图
-- Kafka 消息视图
-- 注入重复、乱序场景验证
-
-### 6.3 运行生产服务
+### 6.2 生产服务
 
 ```bash
-# 确保 DEMO_MODE=false，并配置 Redis、Kafka
+docker compose up -d
 python -m asr_ingest.main
 ```
 
-### 6.4 运行测试
+### 6.3 服务地址（docker compose）
+
+| 服务 | 地址 |
+|------|------|
+| Redis | localhost:6379 |
+| Kafka | localhost:9092 |
+| Kafka UI | http://localhost:8080（详见 [docs/kafka-ui-usage.md](docs/kafka-ui-usage.md)） |
+
+### 6.4 测试
 
 ```bash
 pytest tests/ -v
@@ -409,21 +267,23 @@ pytest tests/ -v
 
 ```
 transcribe_service/
-├── config/                 # 配置
-│   └── settings.py         # Pydantic Settings
-├── src/asr_ingest/        # 主包
-│   ├── main.py             # 入口
-│   ├── connector/          # SSE/WebSocket 接入
-│   ├── dedup/              # 去重（Redis/Memory）
-│   ├── transform/          # 数据清洗
-│   ├── buffer/             # Redis Stream 缓冲
-│   ├── producer/            # Kafka/Echo 输出
-│   ├── shutdown/           # 优雅停机
-│   └── demo/               # E2E Demo、Streamlit
-├── tests/                  # 测试
-├── docker/                 # Dockerfile
-├── docs/                   # 文档
-├── reference/              # 设计参考
+├── config/
+│   └── settings.py           # Pydantic Settings
+├── src/asr_ingest/
+│   ├── main.py               # 入口
+│   ├── connector/            # SSE/WebSocket 接入
+│   ├── dedup/                # 去重（Redis）
+│   ├── transform/            # 数据清洗
+│   ├── buffer/               # Redis Stream 缓冲
+│   ├── producer/              # Kafka 输出
+│   ├── shutdown/              # 优雅停机
+│   └── demo/                  # run_local（Mock + 前端）
+├── tests/
+├── docker/
+│   └── Dockerfile
+├── docs/
+├── reference/
+├── docker-compose.yml        # Redis + Kafka + Kafka UI
 ├── pyproject.toml
 ├── requirements.txt
 └── .env.example
@@ -433,38 +293,40 @@ transcribe_service/
 
 ## 8. 部署指南
 
-### 8.1 Docker 构建
-
 ```bash
 docker build -f docker/Dockerfile -t asr-ingest:latest .
 ```
 
-### 8.2 目标环境
-
-- **AWS ECS Fargate**
-- 需 VPC、ElastiCache Redis、MSK
-
-详细步骤见项目内 `docs/` 目录下的部署文档。
+目标环境：AWS ECS Fargate，需 VPC、ElastiCache Redis、MSK。详见 `docs/` 目录。
 
 ---
 
 ## 9. 常见问题
 
-### Q1：Demo 模式下连接失败，提示 502？
+### Q1：启动报 Redis/Kafka 不可用？
 
-确保先启动 Mock 服务器。运行 `python -m asr_ingest.demo.run_e2e` 会自动启动；若单独运行 Streamlit，需先执行一次 E2E 或手动启动 Mock。
+启动前会校验 Redis、Kafka 连通性，失败则输出 `Pipeline: 启动失败（Redis 不可用）` 或 `Pipeline: 启动失败（Kafka 不可用）` 并退出。确保 `docker compose up -d` 已执行。
 
-### Q2：生产模式如何启用 Redis Buffer？
+### Q2：连接 ASR 失败，502？
 
-设置 `DEMO_MODE=false` 且 `redis_buffer_enabled=true`（默认）。数据会先写入 Redis Stream，再异步消费到 Kafka。
+配置 `FANOLAB_URL` 为真实 ASR 地址。若服务未就绪，会输出 `Reconnect: 连接 ASR 失败（Fanolab 服务未就绪，将自动重试）`。
 
-### Q3：如何修改去重 Key？
+### Q3：Kafka 挂了会怎样？
 
-通过 `dedup_key_parts` 配置，支持 `session_id`、`processing_id`、`seq_no`、`created_at` 的组合，逗号分隔。
+Buffer 模式下，发送失败时消息保留在 Redis Stream，不执行 XACK；约 10 秒超时后输出 `Buffer Consumer: 处理消息失败（Kafka 不可用，消息已保留在 Buffer，将自动重试）`。Kafka 恢复后自动重试。
 
-### Q4：Kafka 消息顺序如何保证？
+### Q4：如何修改去重 Key？
 
-使用 `session_id` 作为 Kafka 消息 Key，相同 session 会落入同一分区，分区内严格有序。
+通过 `DEDUP_KEY_PARTS` 配置，支持 `session_id`、`processing_id`、`seq_no`、`created_at` 的组合，逗号分隔。
+
+### Q5：Kafka 消息顺序？
+
+使用 `session_id` 作为 Kafka 消息 Key，相同 session 落入同一分区，分区内有序。
+
+### Q6：Buffer 和 Dedup 如何配合？
+
+- **Buffer**：Redis Stream 持久化 raw payload，Consumer 消费后 XACK + XDEL。发送失败不 XACK，消息保留。
+- **Dedup**：按 `(session_id, processing_id, seq_no)` 去重。发送失败时撤销 dedup 记录，重试时可再次发送。
 
 ---
 
@@ -472,6 +334,6 @@ docker build -f docker/Dockerfile -t asr-ingest:latest .
 
 | 文档 | 说明 |
 |------|------|
-| [docs/pyproject-config.md](docs/pyproject-config.md) | pyproject.toml 配置说明及 Local/Dev/Production 使用指南 |
-| [development-plan.md](development-plan.md) | 开发计划 |
-| [reference/design.md](reference/design.md) | 架构设计 |
+| [docs/pyproject-config.md](docs/pyproject-config.md) | pyproject.toml 配置说明 |
+| [docs/kafka-ui-usage.md](docs/kafka-ui-usage.md) | Kafka UI 使用说明 |
+| [reference/](reference/) | 设计参考 |

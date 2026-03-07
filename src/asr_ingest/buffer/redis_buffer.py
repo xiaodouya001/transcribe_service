@@ -1,7 +1,10 @@
 """RedisBuffer - push raw payloads to Redis Stream for persistence."""
 
 import json
+import structlog
 from redis.asyncio import Redis
+
+log = structlog.get_logger(__name__)
 
 
 class RedisBuffer:
@@ -27,11 +30,21 @@ class RedisBuffer:
         """Push raw payload to Stream. Returns message id."""
         client = await self._get_client()
         payload_str = json.dumps(payload, ensure_ascii=False)
-        kwargs: dict = {"payload": payload_str}
+        fields = {"payload": payload_str}
         if self._maxlen is not None:
-            kwargs["maxlen"] = self._maxlen
-            kwargs["approximate"] = True
-        msg_id = await client.xadd(self._stream, kwargs)
+            msg_id = await client.xadd(
+                self._stream, fields, maxlen=self._maxlen, approximate=True
+            )
+        else:
+            msg_id = await client.xadd(self._stream, fields)
+        r = payload.get("result") or {}
+        cs = r.get("callStatus") or {}
+        log.info(
+            "Buffer: 已写入 Redis Stream",
+            msg_id=msg_id,
+            session_id=cs.get("sessionId", ""),
+            stream=self._stream,
+        )
         return msg_id
 
     async def close(self) -> None:

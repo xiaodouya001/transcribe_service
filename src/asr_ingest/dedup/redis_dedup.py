@@ -1,9 +1,10 @@
 """Redis-backed deduplication using SETNX."""
 
 from redis.asyncio import Redis
+import structlog
 
+log = structlog.get_logger(__name__)
 DEDUP_KEY_PREFIX = "dedup"
-DEDUP_TTL_SECONDS = 10
 
 
 def _build_key(
@@ -31,17 +32,22 @@ def _build_key(
     return f"{DEDUP_KEY_PREFIX}:{':'.join(parts)}"
 
 
-class RedisDedup:
-    """Deduplication via Redis SETNX. Key format configurable via dedup_key_parts, TTL 10s."""
+class RedisDeduplication:
+    """Deduplication via Redis SETNX. Key format and TTL configurable via settings."""
 
     def __init__(
         self,
         redis_url: str = "redis://localhost:6379/0",
         dedup_key_parts: str = "session_id,processing_id,seq_no",
+        dedup_ttl_seconds: int = 60,
+        *,
+        client: Redis | None = None,
     ) -> None:
         self._redis_url = redis_url
         self._dedup_key_parts = dedup_key_parts
-        self._client: Redis | None = None
+        self._dedup_ttl_seconds = dedup_ttl_seconds
+        self._client: Redis | None = client
+        self._client_injected = client is not None
 
     async def _get_client(self) -> Redis:
         if self._client is None:
@@ -84,8 +90,42 @@ class RedisDedup:
             created_at=created_at,
             **kwargs,
         )
-        ok = await client.set(key, "1", nx=True, ex=DEDUP_TTL_SECONDS)
+        ok = await client.set(key, "1", nx=True, ex=self._dedup_ttl_seconds)
+        if ok:
+            log.info(
+                "Dedup: 通过（新 transcript）",
+                session_id=session_id,
+                seq_no=seq_no,
+                processing_id=processing_id,
+            )
+        else:
+            log.info(
+                "Dedup: 已过滤重复",
+                session_id=session_id,
+                seq_no=seq_no,
+                processing_id=processing_id,
+            )
         return bool(ok)
+
+    async def remove(
+        self,
+        session_id: str,
+        seq_no: int,
+        *,
+        processing_id: str = "",
+        created_at: str = "",
+        **kwargs: str,
+    ) -> None:
+        """Remove dedup key so event can be retried (e.g. after send failure)."""
+        client = await self._get_client()
+        key = self._key(
+            session_id,
+            seq_no,
+            processing_id=processing_id,
+            created_at=created_at,
+            **kwargs,
+        )
+        await client.delete(key)
 
     async def cleanup_session(self, session_id: str) -> None:
         """Scan and delete keys for session. Optional; TTL will expire them anyway."""
@@ -100,7 +140,7 @@ class RedisDedup:
                 break
 
     async def close(self) -> None:
-        """Close Redis connection."""
-        if self._client:
+        """Close Redis connection. Skips if client was injected (e.g. fakeredis for tests)."""
+        if self._client is not None and not self._client_injected:
             await self._client.aclose()
-            self._client = None
+        self._client = None

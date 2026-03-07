@@ -24,7 +24,7 @@ PEP 621 标准项目元数据，供 pip、Poetry 等工具读取。
 
 | 组名 | 说明 | 包含 |
 |------|------|------|
-| `dev` | 开发/测试/演示 | pytest、pytest-asyncio、fakeredis、streamlit、streamlit-mermaid |
+| `dev` | 开发/测试/演示 | pytest、pytest-asyncio、fakeredis |
 
 安装方式：`pip install -e ".[dev]"` 或 `poetry install --with dev`
 
@@ -55,7 +55,7 @@ Poetry 专用配置（与 pip/venv 二选一）。`packages` 定义包结构，`
 
 ### 2.1 Local（本地快速体验）
 
-无需 Redis/Kafka，使用 Mock 服务器 + EchoProducer。
+需 Redis + Kafka（`docker compose up -d`），使用 Mock 服务器。
 
 ```bash
 # 安装（仅运行时依赖）
@@ -63,16 +63,16 @@ pip install -e .
 # 或
 poetry install
 
-# 运行 E2E Demo
-python -m asr_ingest.demo.run_e2e
+# 运行生产服务（配置 FANOLAB_URL 后）
+python -m asr_ingest.main
 ```
 
 - **依赖**：`[project].dependencies`（不含 dev）
-- **配置**：`.env` 中 `DEMO_MODE=true`（默认）
+- **配置**：`.env` 中 `REDIS_URL`、`KAFKA_BOOTSTRAP_SERVERS`（默认 localhost）
 
 ### 2.2 Dev（开发 / 测试 / 演示）
 
-需要运行测试、Streamlit Demo、使用 fakeredis 等。
+需要运行测试、使用 fakeredis 等。
 
 ```bash
 # 安装（含 dev 依赖）
@@ -83,16 +83,14 @@ poetry install --with dev
 # 运行测试
 pytest tests/ -v
 
-# 运行 Streamlit Demo
-streamlit run src/asr_ingest/demo/streamlit_app.py
 ```
 
 - **依赖**：`[project].dependencies` + `[project.optional-dependencies].dev`
-- **配置**：`.env` 中 `DEMO_MODE=true`，本地 Mock 或真实 Fanolab URL
+- **配置**：`.env` 中 Redis、Kafka 地址，本地 Mock 或真实 Fanolab URL
 
 ### 2.3 Production（生产部署）
 
-连接真实 Redis、Kafka，可选 Redis Buffer。
+连接真实 Redis、Kafka，可选 Redis Buffer。生产模式下自动启用长连接重连、WebSocket 心跳与优雅停机。
 
 ```bash
 # 安装（仅运行时依赖，不要 dev）
@@ -106,7 +104,6 @@ python -m asr_ingest.main
 
 - **依赖**：仅 `[project].dependencies`
 - **配置**：`.env` 或环境变量：
-  - `DEMO_MODE=false`
   - `FANOLAB_URL`：真实 ASR 地址
   - `REDIS_URL`：ElastiCache 等
   - `KAFKA_BOOTSTRAP_SERVERS`：MSK 等
@@ -119,7 +116,7 @@ python -m asr_ingest.main
 | 环境 | 命令 | 包含 |
 |------|------|------|
 | Local | `pip install -e .` | 运行时 |
-| Dev | `pip install -e ".[dev]"` | 运行时 + pytest、streamlit 等 |
+| Dev | `pip install -e ".[dev]"` | 运行时 + pytest、fakeredis 等 |
 | Production | `pip install .` | 仅运行时（无 -e，非可编辑） |
 
 Poetry 用户：`poetry install`（默认含 dev）、`poetry install --with dev`、`poetry install --no-dev`。

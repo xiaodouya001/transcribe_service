@@ -1,9 +1,9 @@
-"""DedupBackend protocol - abstract interface for deduplication."""
+"""DeduplicationBackend protocol - abstract interface for deduplication."""
 
 from typing import Protocol
 
 
-class DedupBackend(Protocol):
+class DeduplicationBackend(Protocol):
     """Protocol for deduplication backends."""
 
     async def should_emit(
