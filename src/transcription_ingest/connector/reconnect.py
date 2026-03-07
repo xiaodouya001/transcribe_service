@@ -62,6 +62,7 @@ async def run_with_reconnect(
     last_event_id: str | None = None
     attempt = 0
     last_error: BaseException | None = None
+    failed = False  # True only when connect_fn raised
 
     while True:
         if shutdown and getattr(shutdown, "draining", False):
@@ -72,10 +73,12 @@ async def run_with_reconnect(
             last_event_id = await connect_fn(last_event_id)
             if last_event_id is None:
                 break
+            failed = False  # connection ended normally (e.g. stream closed)
         except asyncio.CancelledError:
             raise
         except Exception as e:
             last_error = e
+            failed = True
             _log_connection_failure(e, settings)
 
         attempt += 1
@@ -85,16 +88,33 @@ async def run_with_reconnect(
                 raise last_error
             raise RuntimeError("Max retries reached")
 
-        delay = min(
-            initial_delay * (backoff_factor ** (attempt - 1)),
-            max_delay,
-        )
-        log.info(
-            "Reconnect: 即将重连",
-            attempt=attempt,
-            delay_sec=round(delay, 1),
-            last_event_id=last_event_id,
-        )
+        # 若已收到停机信号（如 Ctrl+C 主动断开），直接退出，不重连、不 sleep
+        if shutdown and getattr(shutdown, "draining", False):
+            log.info("Reconnect: 收到关闭信号，退出重连循环")
+            break
+
+        # 仅连接失败时做指数退让；正常结束（如 SSE 流关闭）则短延迟或立即重连
+        if failed:
+            delay = min(
+                initial_delay * (backoff_factor ** (attempt - 1)),
+                max_delay,
+            )
+            log.info(
+                "Reconnect: 连接失败，即将重连（退让）",
+                attempt=attempt,
+                delay_sec=round(delay, 1),
+                last_event_id=last_event_id,
+            )
+        else:
+            delay = min(initial_delay, 1.0)  # 正常结束时至多等 1 秒，避免 tight loop
+            if delay > 0:
+                log.info(
+                    "Reconnect: 连接已结束，即将重连",
+                    attempt=attempt,
+                    delay_sec=round(delay, 1),
+                    last_event_id=last_event_id,
+                )
+
         # Sleep in small chunks so we can exit quickly on Ctrl+C / draining
         elapsed = 0.0
         while elapsed < delay:

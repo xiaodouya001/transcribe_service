@@ -41,11 +41,14 @@ async def main() -> None:
     try:
         await _run_ingest()
     finally:
+        # Ingest 已退出，收尾 Mock 服务（runner.cleanup() 会关闭端口与连接）
+        print("Local demo: 正在关闭 Mock 服务…", flush=True)
         server_task.cancel()
         try:
             await server_task
         except asyncio.CancelledError:
             pass
+        print("Local demo: 已退出", flush=True)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """SSE connector - stream from STT provider via Server-Sent Events."""
 
 import json
+import time
 from typing import AsyncIterator, Protocol
 
 import httpx
@@ -78,6 +79,7 @@ class SseConnector:
                                 payload = json.loads(data_str)
                             except json.JSONDecodeError:
                                 continue
+                            payload["_ingest_received_at"] = time.monotonic()
                             _log_payload(payload, "connect")
                             for event in TranscriptionEvent.from_vendor_payload(payload):
                                 yield event, payload
@@ -110,5 +112,6 @@ class SseConnector:
                                 payload = json.loads(data_str)
                             except json.JSONDecodeError:
                                 continue
+                            payload["_ingest_received_at"] = time.monotonic()
                             _log_payload(payload, "connect_and_push")
                             await buffer.push(payload)

@@ -1,6 +1,7 @@
 """WebSocket connector - stream from STT provider via WebSocket."""
 
 import json
+import time
 from typing import AsyncIterator
 
 import structlog
@@ -39,6 +40,7 @@ class WebSocketConnector:
                     payload = json.loads(message)
                 except json.JSONDecodeError:
                     continue
+                payload["_ingest_received_at"] = time.monotonic()
                 _log_payload(payload, "connect")
                 for event in TranscriptionEvent.from_vendor_payload(payload):
                     yield event, payload
@@ -56,5 +58,6 @@ class WebSocketConnector:
                     payload = json.loads(message)
                 except json.JSONDecodeError:
                     continue
+                payload["_ingest_received_at"] = time.monotonic()
                 _log_payload(payload, "connect_and_push")
                 await buffer.push(payload)

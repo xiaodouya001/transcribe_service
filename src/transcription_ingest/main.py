@@ -2,6 +2,7 @@
 
 import asyncio
 import sys
+import time
 from pathlib import Path
 
 # Add project root for config import
@@ -110,11 +111,31 @@ async def run_ingest(redis_buffer_enabled: bool | None = None) -> None:
                     cleaner=cleaner,
                     producer=producer,
                     send_timeout_sec=settings.kafka_send_timeout_sec,
+                    block_ms=getattr(settings, "redis_buffer_block_ms", 50),
                 )
                 connector_task = asyncio.create_task(connector.connect_and_push(buffer))
                 consumer_task = asyncio.create_task(consumer.consume_loop())
+                shutdown_waiter = asyncio.create_task(shutdown._shutdown_event.wait())
                 try:
-                    await connector_task
+                    # 先完成者胜出：Connector 自然结束，或收到 Ctrl+C 立即断开
+                    done, pending = await asyncio.wait(
+                        [connector_task, shutdown_waiter],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if shutdown_waiter in done:
+                        connector_task.cancel()
+                        try:
+                            await connector_task
+                        except asyncio.CancelledError:
+                            pass
+                        log.info("Transcription Ingest: 已断开 STT 连接（优雅停机）")
+                    else:
+                        shutdown_waiter.cancel()
+                        try:
+                            await shutdown_waiter
+                        except asyncio.CancelledError:
+                            pass
+                        await connector_task  # 可能抛连接异常
                     await asyncio.sleep(0.5)  # Allow consumer to process pushed messages
                 except Exception as e:
                     log.exception("Connector: 连接 SSE 失败", error=str(e))
@@ -137,6 +158,7 @@ async def run_ingest(redis_buffer_enabled: bool | None = None) -> None:
                 async for event, payload in connector.connect():
                     if shutdown.draining:
                         break
+                    received_at = payload.pop("_ingest_received_at", None)
                     if await dedup.should_emit(
                         event.session_id,
                         event.seq_no,
@@ -161,6 +183,13 @@ async def run_ingest(redis_buffer_enabled: bool | None = None) -> None:
                             raw_payload=cleaned.get("raw"),
                             cleaned=cleaned.get("cleaned"),
                         )
+                        if received_at is not None:
+                            log.debug(
+                                "Transcription Ingest: STT 收到到发送 Kafka 耗时",
+                                duration_ms=round((time.monotonic() - received_at) * 1000),
+                                session_id=event.session_id,
+                                seq_no=event.seq_no,
+                            )
                     else:
                         log.info("Dedup: 已过滤重复", session_id=event.session_id, seq_no=event.seq_no)
         except Exception as e:

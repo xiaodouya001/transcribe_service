@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     redis_buffer_stream: str = "transcription:ingest:buffer"
     redis_buffer_consumer_group: str = "transcription:ingest:consumer"
     redis_buffer_maxlen: int = 10000
+    redis_buffer_block_ms: int = 50  # XREADGROUP block 时长(毫秒)，越小延迟越低、空闲时 Redis 往返越多
 
     # Transform
     cleaner_mode: str = "default"

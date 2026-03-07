@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from typing import Any
 
 import structlog
@@ -35,6 +36,7 @@ class RedisBufferConsumer:
         producer: Any = None,
         *,
         send_timeout_sec: float = 10.0,
+        block_ms: int = 50,
     ) -> None:
         self._redis_url = redis_url
         self._stream = stream
@@ -44,6 +46,7 @@ class RedisBufferConsumer:
         self._cleaner = cleaner
         self._producer = producer
         self._send_timeout = send_timeout_sec
+        self._block_ms = block_ms
         self._client: Redis | None = None
         self._running = False
 
@@ -72,6 +75,8 @@ class RedisBufferConsumer:
             payload = json.loads(payload_str)
         except json.JSONDecodeError:
             return
+        received_at = payload.pop("_ingest_received_at", None)
+        sent_any = False
         r = payload.get("result") or {}
         cs = r.get("callStatus") or {}
         log.info(
@@ -108,6 +113,7 @@ class RedisBufferConsumer:
                         ),
                         timeout=self._send_timeout,
                     )
+                    sent_any = True
                 except (asyncio.TimeoutError, Exception) as e:
                     # 发送失败时撤销 dedup 记录，以便重试时再次尝试发送
                     if hasattr(self._dedup, "remove"):
@@ -122,6 +128,13 @@ class RedisBufferConsumer:
                             f"Kafka 不可用：发送超时({self._send_timeout}s)，消息已保留在 Buffer"
                         ) from None
                     raise
+        if received_at is not None and sent_any:
+            log.debug(
+                "Buffer Consumer: STT 收到到发送 Kafka 耗时",
+                duration_ms=round((time.monotonic() - received_at) * 1000),
+                msg_id=msg_id,
+                session_id=cs.get("sessionId", ""),
+            )
         client = await self._get_client()
         await client.xack(self._stream, self._consumer_group, msg_id)
         await client.xdel(self._stream, msg_id)
@@ -130,13 +143,13 @@ class RedisBufferConsumer:
         """Process one batch. Returns number of messages processed."""
         client = await self._get_client()
         processed = 0
-        # Prefer new messages first (block 200ms) so we process injects quickly
+        # Prefer new messages first (block 可配置，越小延迟越低)
         new = await client.xreadgroup(
             self._consumer_group,
             self._consumer,
             {self._stream: ">"},
             count=10,
-            block=200,
+            block=self._block_ms,
         )
         if new:
             n = sum(len(m) for _, m in new)

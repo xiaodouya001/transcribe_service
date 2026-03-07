@@ -189,6 +189,8 @@ sequenceDiagram
 
 由 `connector.reconnect.run_with_reconnect` 驱动：每次循环调用 `connect_fn(last_event_id)`，`connect_fn` 内通过 `get_connector(settings, last_event_id)` 得到 Connector 后连接 STT。断连时 `connect_fn` **抛出异常**，不返回值；`last_event_id` 仅在一次**正常返回**时更新，断连后重试沿用上一轮的值（SSE 重连时带该值作为 `Last-Event-ID`）。
 
+**退让策略**：**仅当连接失败**（异常，如 502、超时）时使用指数退避；**连接正常结束**（如 SSE 流被服务端关闭）时只做短延迟（至多 1 秒）再重连，避免网络正常时也长时间等待。
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -202,12 +204,20 @@ sequenceDiagram
     Conn->>STT: 建立 SSE/WebSocket 连接
     STT-->>Conn: 连接成功，开始推送
     Note over Conn, STT: ...正常传输...
-    STT--xConn: 连接断开（502/网络异常）
-    Conn-->>Fn: 抛出异常
-    Fn-->>Reconnect: 抛出异常（不返回，last_event_id 保持上一轮）
 
-    Reconnect->>Reconnect: 记录日志，计算退避延迟
-    Reconnect->>Reconnect: sleep(delay)
+    alt 连接失败（502、超时等）
+        STT--xConn: 异常断开
+        Conn-->>Fn: 抛出异常
+        Fn-->>Reconnect: 抛出异常（last_event_id 保持上一轮）
+        Reconnect->>Reconnect: 记录日志，计算指数退避延迟
+        Reconnect->>Reconnect: sleep(退避时间)
+    else 连接正常结束（流关闭）
+        STT-->>Conn: 流结束
+        Conn-->>Fn: 正常返回 last_event_id
+        Fn-->>Reconnect: 返回 last_event_id
+        Reconnect->>Reconnect: 短延迟（至多 1s）
+        Reconnect->>Reconnect: sleep(短延迟)
+    end
 
     Reconnect->>Fn: connect_fn(last_event_id)
     Fn->>Conn: get_connector(settings, last_event_id)
@@ -217,7 +227,10 @@ sequenceDiagram
 
 ### 4.5 优雅停机
 
-收到 SIGTERM/SIGINT 后 `GracefulShutdown` 置 `draining=True`。直连模式下主循环（`async for connector.connect()`）检测到 `draining` 即 break；Buffer 模式下需等当前 Connector 连接结束，随后在 `connect_fn` 的 **finally** 中执行：`consumer.stop()`、取消消费任务、最多 10 轮 `consume_once()`、`producer.flush()`、`consumer.close()`、`buffer.close()`。然后 `run_with_reconnect` 在下一轮循环发现 `draining` 后退出，进入 **main 的 finally**：再次 `producer.flush()`、`producer.close()`、`dedup.close()`，打日志「已安全退出」。直连模式无 Consumer，仅 break 后执行 main 的 finally。
+收到 SIGTERM/SIGINT 后 `GracefulShutdown` 置 `draining=True` 并 set `_shutdown_event`。
+
+- **直连模式**：主循环（`async for connector.connect()`）每次迭代检查 `shutdown.draining`，为 True 即 break，不再从 STT 读新数据。
+- **Buffer 模式**：主流程用 `asyncio.wait([connector_task, shutdown_waiter], FIRST_COMPLETED)` 等待「Connector 自然结束」或「收到停机信号」。**一旦收到信号**，立即 **cancel(connector_task)**，从而断开 SSE/WebSocket，不再从 STT 接收新数据；然后进入 **finally**：`consumer.stop()`、取消消费任务、最多 10 轮 `consume_once()` 消化 Buffer 中已有消息、`producer.flush()`、`consumer.close()`、`buffer.close()`。随后 `run_with_reconnect` 发现 `draining` 退出，进入 **main 的 finally**：再次 `producer.flush()`、`producer.close()`、`dedup.close()`，打日志「已安全退出」。
 
 ```mermaid
 sequenceDiagram
@@ -229,9 +242,9 @@ sequenceDiagram
     participant Prod as Producer
 
     OS->>Shutdown: SIGTERM / SIGINT
-    Shutdown->>Shutdown: draining = True
-    Note over Main: 直连模式：async for 检测 draining 即 break
-    Note over Main: Buffer 模式：等 connector 结束后进入 finally
+    Shutdown->>Shutdown: draining = True，set shutdown_event
+    Note over Main: 直连：async for 检测 draining 即 break
+    Note over Main: Buffer：收到信号即 cancel(connector_task)，断开 STT
     Main->>Consumer: stop（并 cancel 消费任务）
     Main->>Consumer: 消费剩余消息（最多 10 轮 consume_once）
     Main->>Prod: flush()
@@ -258,7 +271,7 @@ sequenceDiagram
 
 **断点续传**：SSE 模式下，`last_event_id` 在重连时传给 `connect_fn`，下次重连会带上 `Last-Event-ID` 请求头，STT Provider 可从该位置继续推送。
 
-**重连策略**：由 `reconnect.run_with_reconnect` 统一管理，指数退避（`initial_delay * backoff_factor^attempt`）。
+**重连策略**：由 `reconnect.run_with_reconnect` 统一管理。**连接失败**（异常）时使用指数退避（`initial_delay * backoff_factor^attempt`，上限 `max_delay`）；**连接正常结束**（如 SSE 流关闭）时仅短延迟（至多 1 秒）后重连，避免网络正常时也长时间等待。
 
 ---
 
@@ -273,9 +286,9 @@ sequenceDiagram
 
 **消费端**（`RedisBufferConsumer`）：
 
-- `XREADGROUP` 消费组消费：先读新消息（`>`），再读未 ACK 的 pending（`0`）。
+- `XREADGROUP` 消费组消费：先**阻塞等待**新消息（`>`，`block` 毫秒），再读未 ACK 的 pending（`0`）。不是忙轮询，有数据时 Redis 会立即唤醒。
 - 处理成功：`XACK` + `XDEL`；失败则**不** XACK，消息保留在 Stream，下次重试。
-- `block=200` 毫秒轮询，兼顾新消息与 pending。
+- **延迟与 block**：`redis_buffer_block_ms`（默认 50ms）为单次阻塞时长；越小则「写入 Stream → 被消费」的尾延迟越低，空闲时 Redis 往返次数越多。对 STT 等延迟敏感场景可设为 20～50ms。
 
 **与 Dedup 的关系**：消费端在发送 Kafka 前做 dedup；发送失败时调用 `dedup.remove()` 撤销 dedup 记录，保证重试时能再次发送。
 
@@ -322,8 +335,9 @@ sequenceDiagram
 | Redis 不可用 | 启动时 `ping()` 失败，立即退出 | `Transcription Ingest: 启动失败（Redis 不可用）` |
 | Kafka 不可用 | 启动时 `ensure_ready()` 失败，立即退出 | `Transcription Ingest: 启动失败（Kafka 不可用）` |
 | Kafka 发送超时 | Buffer 消费端不 XACK，消息保留；调用 `dedup.remove()` | `Buffer Consumer: 处理消息失败（Kafka 不可用，消息已保留在 Buffer，将自动重试）` |
-| STT 断连 | 重连循环按指数退避重试 | `Reconnect: 连接 STT 失败（STT 提供商服务未就绪，将自动重试）` |
-| STT 502/503/504 | 同上，视为 STT 不可用 | 同上 |
+| STT 断连（异常） | 重连循环按指数退避重试 | `Reconnect: 连接失败，即将重连（退让）` |
+| STT 连接正常结束 | 短延迟（至多 1s）后重连 | `Reconnect: 连接已结束，即将重连` |
+| STT 502/503/504 | 同「STT 断连（异常）」指数退避 | 同上 |
 
 ---
 
