@@ -310,7 +310,7 @@ version = "7.13.4"
 description = "Code coverage measurement for Python"
 optional = false
 python-versions = ">=3.10"
-groups = ["dev"]
+groups = ["main", "dev"]
 files = [
     {file = "coverage-7.13.4-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:0fc31c787a84f8cd6027eba44010517020e0d18487064cd3d8968941856d1415"},
     {file = "coverage-7.13.4-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:a32ebc02a1805adf637fc8dec324b5cdacd2e493515424f70ee33799573d661b"},
@@ -419,6 +419,7 @@ files = [
     {file = "coverage-7.13.4-py3-none-any.whl", hash = "sha256:1af1641e57cf7ba1bd67d677c9abdbcd6cc2ab7da3bca7fa1e2b7e50e65f2ad0"},
     {file = "coverage-7.13.4.tar.gz", hash = "sha256:e5c8f6ed1e61a8b2dcdf31eb0b9bbf0130750ca79c1c49eb898e2ad86f5ccc91"},
 ]
+markers = {main = "extra == \"dev\""}
 
 [package.extras]
 toml = ["tomli ; python_full_version <= \"3.11.0a6\""]
@@ -1238,11 +1239,12 @@ version = "7.0.0"
 description = "Pytest plugin for measuring coverage."
 optional = false
 python-versions = ">=3.9"
-groups = ["dev"]
+groups = ["main", "dev"]
 files = [
     {file = "pytest_cov-7.0.0-py3-none-any.whl", hash = "sha256:3b8e9558b16cc1479da72058bdecf8073661c7f57f7d3c5f22a1c23507f2d861"},
     {file = "pytest_cov-7.0.0.tar.gz", hash = "sha256:33c97eda2e049a0c5298e91f519302a1334c26ac65c1a483d6206fd458361af1"},
 ]
+markers = {main = "extra == \"dev\""}
 
 [package.dependencies]
 coverage = {version = ">=7.10.6", extras = ["toml"]}
@@ -1558,9 +1560,9 @@ multidict = ">=4.0"
 propcache = ">=0.2.1"
 
 [extras]
-dev = ["fakeredis", "pytest", "pytest-asyncio"]
+dev = ["fakeredis", "pytest", "pytest-asyncio", "pytest-cov"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11"
-content-hash = "e87515e981cb6da52fe1eb0e000bf4bf8b49efe7ccce6e1ca944423c4de35bab"
+content-hash = "c5b16a8b77a3fe04a538d7636850a39cea88f9f83b76df759a9e1e71dceb5f54"
