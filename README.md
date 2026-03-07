@@ -33,17 +33,30 @@ ASR Ingest 是一个轻量级数据搬运服务，负责：
 
 ## 2. 架构设计
 
-### 2.1 模块调用图
+### 2.1 角色说明
 
-**直连模式**（`REDIS_BUFFER_ENABLED=false`）：
+| 角色 | 代码模块 | 职责 |
+|------|----------|------|
+| **Connector** | connector/ | 连接 Fanolab ASR，接收 SSE/WebSocket 推送的 JSON |
+| **Buffer 写入端** | buffer/RedisBuffer | 将 Connector 收到的 payload 写入 Redis Stream |
+| **Buffer 消费端** | buffer/RedisBufferConsumer | 从 Redis Stream 读取 → 去重 → 清洗 → 写入 Kafka |
+| **Dedup** | dedup/ | 按 Key 去重，发送失败时撤销记录以支持重试 |
+| **Cleaner** | transform/ | 数据清洗，输出 `raw` + `cleaned` |
+| **Producer** | producer/ | 写入 Kafka |
+
+> 说明：本服务只**生产** Kafka 消息，不消费 Kafka。下游业务（NLP、质检等）自行消费 Kafka。
+
+### 2.2 模块调用图
+
+**直连模式**（`REDIS_BUFFER_ENABLED=false`）：Connector 收到数据后直接去重、清洗、写 Kafka。
 
 ```mermaid
 flowchart TB
     subgraph Main [main.py]
-        Connector[Connector SSE/WebSocket]
-        Dedup[Dedup Redis]
-        Cleaner[Cleaner Transform]
-        Producer[Producer Kafka]
+        Connector[Connector]
+        Dedup[Dedup]
+        Cleaner[Cleaner]
+        Producer[Producer]
         Connector --> Dedup
         Dedup --> Cleaner
         Cleaner --> Producer
@@ -52,21 +65,21 @@ flowchart TB
     Producer --> Kafka[(Kafka)]
 ```
 
-**Buffer 模式**（`REDIS_BUFFER_ENABLED=true`，默认）：
+**Buffer 模式**（`REDIS_BUFFER_ENABLED=true`，默认）：数据先落 Redis Stream，由 Buffer 消费端异步读取并写入 Kafka。
 
 ```mermaid
 flowchart TB
     subgraph Main [main.py]
         Connector[Connector]
-        Buffer[RedisBuffer]
-        Consumer[RedisBufferConsumer]
+        BufferWrite[Buffer 写入端]
+        BufferRead[Buffer 消费端]
         Dedup[Dedup]
         Cleaner[Cleaner]
         Producer[Producer]
-        Connector --> Buffer
-        Buffer --> Redis[(Redis Stream)]
-        Redis --> Consumer
-        Consumer --> Dedup
+        Connector --> BufferWrite
+        BufferWrite --> Redis[(Redis Stream)]
+        Redis --> BufferRead
+        BufferRead --> Dedup
         Dedup --> Cleaner
         Cleaner --> Producer
     end
@@ -74,24 +87,14 @@ flowchart TB
     Producer --> Kafka[(Kafka)]
 ```
 
-### 2.2 数据流
+### 2.3 数据流
 
 | 模式 | 数据流 |
 |------|--------|
 | 直连 | ASR → Connector → Dedup → Cleaner → Producer → Kafka |
-| Buffer | ASR → Connector → Redis Stream → Consumer → Dedup → Cleaner → Producer → Kafka |
+| Buffer | ASR → Connector → Buffer 写入端 → Redis Stream → Buffer 消费端 → Dedup → Cleaner → Producer → Kafka |
 
-Buffer 模式下，数据先落 Redis Stream，再异步消费；服务中断或 Kafka 不可用时，消息保留在 Buffer，恢复后自动重试。
-
-### 2.3 核心模块
-
-| 模块 | 职责 |
-|------|------|
-| Connector | SSE/WebSocket 长连接，解析 Vendor JSON |
-| Dedup | 可配置 Key 去重（默认 `session_id:processing_id:seq_no`），发送失败时撤销记录以支持重试 |
-| Transform | 数据清洗，输出 `raw` + `cleaned` |
-| Buffer | Redis Stream 缓冲（可选） |
-| Producer | Kafka 输出 |
+Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读取并写入 Kafka；服务中断或 Kafka 不可用时，消息保留在 Stream，恢复后自动重试。
 
 ---
 
@@ -274,8 +277,8 @@ transcribe_service/
 │   ├── connector/            # SSE/WebSocket 接入
 │   ├── dedup/                # 去重（Redis）
 │   ├── transform/            # 数据清洗
-│   ├── buffer/               # Redis Stream 缓冲
-│   ├── producer/              # Kafka 输出
+│   ├── buffer/               # Redis Stream（写入端 + 消费端）
+│   ├── producer/             # Kafka 输出
 │   ├── shutdown/              # 优雅停机
 │   └── demo/                  # run_local（Mock + 前端）
 ├── tests/
@@ -313,7 +316,7 @@ docker build -f docker/Dockerfile -t asr-ingest:latest .
 
 ### Q3：Kafka 挂了会怎样？
 
-Buffer 模式下，发送失败时消息保留在 Redis Stream，不执行 XACK；约 10 秒超时后输出 `Buffer Consumer: 处理消息失败（Kafka 不可用，消息已保留在 Buffer，将自动重试）`。Kafka 恢复后自动重试。
+Buffer 模式下，Buffer 消费端发送失败时消息保留在 Redis Stream，不执行 XACK；约 10 秒超时后输出 `Buffer Consumer: 处理消息失败（Kafka 不可用，消息已保留在 Buffer，将自动重试）`。Kafka 恢复后自动重试。
 
 ### Q4：如何修改去重 Key？
 
@@ -325,7 +328,7 @@ Buffer 模式下，发送失败时消息保留在 Redis Stream，不执行 XACK�
 
 ### Q6：Buffer 和 Dedup 如何配合？
 
-- **Buffer**：Redis Stream 持久化 raw payload，Consumer 消费后 XACK + XDEL。发送失败不 XACK，消息保留。
+- **Buffer**：Redis Stream 持久化 raw payload。Buffer 消费端读取后，成功写入 Kafka 则 XACK + XDEL；发送失败则不 XACK，消息保留在 Stream 待重试。
 - **Dedup**：按 `(session_id, processing_id, seq_no)` 去重。发送失败时撤销 dedup 记录，重试时可再次发送。
 
 ---
