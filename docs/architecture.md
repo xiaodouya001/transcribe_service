@@ -191,24 +191,24 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Loop as run_with_reconnect
+    participant Reconnect as run_with_reconnect
     participant Fn as connect_fn
     participant Conn as Connector
     participant STT as STT Provider
 
-    Loop->>Fn: connect_fn(last_event_id)
+    Reconnect->>Fn: connect_fn(last_event_id)
     Fn->>Conn: get_connector(settings, last_event_id)
     Conn->>STT: 建立 SSE/WebSocket 连接
     STT-->>Conn: 连接成功，开始推送
     Note over Conn, STT: ...正常传输...
     STT--xConn: 连接断开（502/网络异常）
     Conn-->>Fn: 抛出异常
-    Fn-->>Loop: 抛出异常（不返回；last_event_id 保持上一轮）
+    Fn-->>Reconnect: 抛出异常（不返回，last_event_id 保持上一轮）
 
-    Loop->>Loop: 记录日志，计算退避延迟
-    Loop->>Loop: sleep(delay)
+    Reconnect->>Reconnect: 记录日志，计算退避延迟
+    Reconnect->>Reconnect: sleep(delay)
 
-    Loop->>Fn: connect_fn(last_event_id)
+    Reconnect->>Fn: connect_fn(last_event_id)
     Fn->>Conn: get_connector(settings, last_event_id)
     Conn->>STT: 重连（SSE 时带 Last-Event-ID）
     STT-->>Conn: 连接成功，从断点继续推送
