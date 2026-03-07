@@ -65,9 +65,175 @@ Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读�
 
 ---
 
-## 4. 关键模块设计原理
+## 4. 时序图
 
-### 4.1 Connector
+### 4.1 启动阶段
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Main as main.py
+    participant Redis as Redis
+    participant Kafka as Kafka
+
+    Main->>Main: 加载配置（Settings）
+    Main->>Main: 初始化 Dedup / Producer / Cleaner
+    Main->>Main: 注册 SIGTERM/SIGINT 信号
+
+    Main->>Redis: ping()
+    alt Redis 不可用
+        Redis-->>Main: 连接失败
+        Main->>Main: 退出（日志：启动失败）
+    else Redis 正常
+        Redis-->>Main: PONG
+    end
+
+    Main->>Kafka: ensure_ready()
+    alt Kafka 不可用
+        Kafka-->>Main: 连接失败
+        Main->>Main: 退出（日志：启动失败）
+    else Kafka 正常
+        Kafka-->>Main: 就绪
+    end
+
+    Main->>Main: 进入 connect_fn 循环
+```
+
+### 4.2 Buffer 模式（默认）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant STT as STT Provider
+    participant Conn as Connector
+    participant Buf as Buffer 写入端
+    participant Stream as Redis Stream
+    participant Consumer as Buffer 消费端
+    participant Dedup as Dedup
+    participant Clean as Cleaner
+    participant Prod as Producer
+    participant Kafka as Kafka
+
+    Note over Conn, STT: SSE/WebSocket 长连接
+
+    loop 持续推送转录
+        STT->>Conn: 推送 JSON payload
+        Conn->>Conn: 解析 JSON
+        Conn->>Buf: push(payload)
+        Buf->>Stream: XADD（写入 Stream）
+    end
+
+    loop 消费循环（异步并行）
+        Consumer->>Stream: XREADGROUP（读取新消息）
+        Stream-->>Consumer: msg_id + payload
+        Consumer->>Consumer: JSON 解析，展开 transcripts
+        loop 每条 transcript
+            Consumer->>Dedup: should_emit(session_id, seq_no)
+            alt 首次到达（SETNX 返回 1）
+                Dedup-->>Consumer: True
+                Consumer->>Clean: clean(payload, event)
+                Clean-->>Consumer: raw + cleaned
+                Consumer->>Prod: send(session_id, transcript, ...)
+                Prod->>Kafka: send_and_wait(topic, key, value)
+                alt 发送成功
+                    Kafka-->>Prod: ACK
+                    Prod-->>Consumer: 完成
+                    Consumer->>Stream: XACK + XDEL
+                else 发送超时/失败
+                    Kafka-->>Prod: 超时
+                    Consumer->>Dedup: remove(session_id, seq_no)
+                    Note over Consumer: 不 XACK，消息保留在 Stream 待重试
+                end
+            else 重复数据（SETNX 返回 0）
+                Dedup-->>Consumer: False
+                Note over Consumer: 跳过，不发送
+            end
+        end
+    end
+```
+
+### 4.3 直连模式
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant STT as STT Provider
+    participant Conn as Connector
+    participant Dedup as Dedup
+    participant Clean as Cleaner
+    participant Prod as Producer
+    participant Kafka as Kafka
+
+    loop 持续推送转录
+        STT->>Conn: 推送 JSON payload
+        Conn->>Conn: 解析 JSON，展开 transcripts
+        loop 每条 transcript
+            Conn->>Dedup: should_emit(session_id, seq_no)
+            alt 首次到达
+                Dedup-->>Conn: True
+                Conn->>Clean: clean(payload, event)
+                Clean-->>Conn: raw + cleaned
+                Conn->>Prod: send(session_id, transcript, ...)
+                Prod->>Kafka: send_and_wait(topic, key, value)
+                Kafka-->>Prod: ACK
+            else 重复
+                Dedup-->>Conn: False
+                Note over Conn: 跳过
+            end
+        end
+    end
+```
+
+### 4.4 STT 断连与重连
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Main as run_with_reconnect
+    participant Conn as Connector
+    participant STT as STT Provider
+
+    Main->>Conn: connect_fn(last_event_id=None)
+    Conn->>STT: 建立 SSE/WebSocket 连接
+    STT-->>Conn: 连接成功，开始推送
+    Note over Conn, STT: ...正常传输...
+    STT--xConn: 连接断开（502/网络异常）
+    Conn-->>Main: 抛出异常，返回 last_event_id
+
+    Main->>Main: 记录日志，计算退避延迟
+    Main->>Main: sleep(delay)
+
+    Main->>Conn: connect_fn(last_event_id)
+    Conn->>STT: 重连（带 Last-Event-ID）
+    STT-->>Conn: 连接成功，从断点继续推送
+```
+
+### 4.5 优雅停机
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OS as 操作系统
+    participant Shutdown as GracefulShutdown
+    participant Main as main.py
+    participant Consumer as Buffer 消费端
+    participant Prod as Producer
+
+    OS->>Shutdown: SIGTERM / SIGINT
+    Shutdown->>Shutdown: draining = True
+    Main->>Main: 检测 draining，退出主循环
+    Main->>Consumer: stop()
+    Main->>Consumer: 消费剩余消息（最多 10 轮）
+    Main->>Prod: flush()
+    Main->>Prod: close()
+    Main->>Main: 日志：已安全退出
+```
+
+---
+
+## 5. 关键模块设计原理
+
+### 5.1 Connector
 
 **职责**：建立与 STT Provider 的长连接，解析推送的 JSON，按 `result.transcripts` 展开为 `TranscriptionEvent`。
 
@@ -82,7 +248,7 @@ Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读�
 
 ---
 
-### 4.2 Buffer（Redis Stream）
+### 5.2 Buffer（Redis Stream）
 
 **选型理由**：Redis Stream 支持持久化、消费组、ACK 机制，适合 Kafka 不可用时暂存消息。
 
@@ -101,7 +267,7 @@ Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读�
 
 ---
 
-### 4.3 Dedup
+### 5.3 Dedup
 
 **原理**：Redis `SET key "1" NX EX ttl`，key 不存在则设置成功返回 True，否则返回 False。
 
@@ -113,7 +279,7 @@ Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读�
 
 ---
 
-### 4.4 Producer
+### 5.4 Producer
 
 **Key 设计**：使用 `session_id` 作为 Kafka 消息 Key，相同 session 落入同一分区，分区内有序。
 
@@ -125,7 +291,7 @@ Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读�
 
 ---
 
-### 4.5 Shutdown
+### 5.5 Shutdown
 
 **SIGTERM/SIGINT**：注册信号处理器，收到后设置 `draining=True`，主循环检查 `draining` 后退出。
 
@@ -135,7 +301,7 @@ Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读�
 
 ---
 
-## 5. 异常与恢复
+## 6. 异常与恢复
 
 | 场景 | 行为 | 日志 |
 |------|------|------|
@@ -147,7 +313,7 @@ Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读�
 
 ---
 
-## 6. 与下游关系
+## 7. 与下游关系
 
 本服务只**生产** Kafka 消息，不消费 Kafka。下游业务（NLP、质检等）需自行订阅 Topic `transcription_topic` 消费。
 
