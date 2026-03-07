@@ -6,6 +6,36 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from transcription_ingest.connector.base import TranscriptionEvent
 from transcription_ingest.connector.sse import SseConnector, _log_payload
+from transcription_ingest.connector import get_connector
+
+
+def test_get_connector_sse() -> None:
+    """get_connector returns SseConnector when settings.mode is 'sse'."""
+    settings = MagicMock()
+    settings.mode = "sse"
+    settings.stt_provider_url = "https://stt.example/sse"
+    settings.sse_read_timeout = 30.0
+    conn = get_connector(settings, last_event_id="ev-1")
+    assert isinstance(conn, SseConnector)
+    assert conn._url == "https://stt.example/sse"
+    assert conn._last_event_id == "ev-1"
+    assert conn._read_timeout == 30.0
+
+
+def test_get_connector_websocket() -> None:
+    """get_connector returns WebSocketConnector when settings.mode is not 'sse'."""
+    from transcription_ingest.connector.websocket import WebSocketConnector
+
+    settings = MagicMock()
+    settings.mode = "websocket"
+    settings.stt_provider_url = "wss://stt.example/ws"
+    settings.ws_ping_interval = 15.0
+    settings.ws_ping_timeout = 10.0
+    conn = get_connector(settings, last_event_id=None)
+    assert isinstance(conn, WebSocketConnector)
+    assert conn._url == "wss://stt.example/ws"
+    assert conn._ping_interval == 15.0
+    assert conn._ping_timeout == 10.0
 
 
 def test_from_vendor_payload() -> None:

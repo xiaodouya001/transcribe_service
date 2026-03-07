@@ -11,9 +11,8 @@ if str(_project_root) not in sys.path:
 
 from config.logging_config import configure_logging, get_logger
 from config.settings import get_settings
+from transcription_ingest.connector import get_connector
 from transcription_ingest.connector.reconnect import run_with_reconnect
-from transcription_ingest.connector.sse import SseConnector
-from transcription_ingest.connector.websocket import WebSocketConnector
 from transcription_ingest.dedup import get_dedup_backend
 from transcription_ingest.producer import get_producer_backend
 from transcription_ingest.shutdown.graceful import GracefulShutdown
@@ -50,21 +49,6 @@ async def _check_kafka(producer) -> None:
     except Exception as e:
         log.error("Transcription Ingest: 启动失败（Kafka 不可用）", error=str(e))
         raise RuntimeError(f"Kafka 不可用: {e}") from e
-
-
-def _create_connector(settings, last_event_id: str | None):
-    """Create connector with settings (ping, timeout, last_event_id)."""
-    if settings.mode == "sse":
-        return SseConnector(
-            settings.stt_provider_url,
-            last_event_id,
-            read_timeout=getattr(settings, "sse_read_timeout", None),
-        )
-    return WebSocketConnector(
-        settings.stt_provider_url,
-        ping_interval=getattr(settings, "ws_ping_interval", 20.0),
-        ping_timeout=getattr(settings, "ws_ping_timeout", 20.0),
-    )
 
 
 async def run_ingest(redis_buffer_enabled: bool | None = None) -> None:
@@ -108,7 +92,7 @@ async def run_ingest(redis_buffer_enabled: bool | None = None) -> None:
     )
 
     async def connect_fn(last_event_id: str | None) -> str | None:
-        connector = _create_connector(settings, last_event_id)
+        connector = get_connector(settings, last_event_id)
         try:
             if use_buffer:
                 from transcription_ingest.buffer import RedisBuffer, RedisBufferConsumer

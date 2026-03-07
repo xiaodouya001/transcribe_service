@@ -77,7 +77,7 @@ sequenceDiagram
     participant Kafka as Kafka
 
     Main->>Main: 加载配置（Settings）
-    Main->>Main: 初始化 Dedup / Producer / Cleaner
+    Main->>Main: 初始化 Dedup / Producer / Cleaner（get_* 工厂）
     Main->>Main: 注册 SIGTERM/SIGINT 信号
 
     Main->>Redis: ping()
@@ -96,7 +96,7 @@ sequenceDiagram
         Kafka-->>Main: 就绪
     end
 
-    Main->>Main: 进入 connect_fn 循环
+    Main->>Main: 进入 connect_fn（内部通过 get_connector 获取 Connector）
 ```
 
 ### 4.2 Buffer 模式（默认）
@@ -236,6 +236,8 @@ sequenceDiagram
 ### 5.1 Connector
 
 **职责**：建立与 STT Provider 的长连接，解析推送的 JSON，按 `result.transcripts` 展开为 `TranscriptionEvent`。
+
+**创建方式**：与 Dedup / Producer / Cleaner 一致，通过包级工厂注入。入口（如 `main.py`）调用 `get_connector(settings, last_event_id)`，根据 `settings.mode` 返回 `SseConnector` 或 `WebSocketConnector`。重连循环由 `connector.reconnect.run_with_reconnect` 管理，不通过 `connector` 包顶层 `__init__` 导出。
 
 **SSE vs WebSocket**：
 
