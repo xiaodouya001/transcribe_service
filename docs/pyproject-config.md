@@ -63,7 +63,7 @@ pip install -e .
 # 或
 poetry install
 
-# 运行生产服务（配置 FANOLAB_URL 后）
+# 运行生产服务（配置 STT_PROVIDER_URL 后）
 python -m transcription_ingest.main
 ```
 
@@ -86,7 +86,7 @@ pytest tests/ -v
 ```
 
 - **依赖**：`[project].dependencies` + `[project.optional-dependencies].dev`
-- **配置**：`.env` 中 Redis、Kafka 地址，本地 Mock 或真实 Fanolab URL
+- **配置**：`.env` 中 Redis、Kafka 地址，本地 Mock 或真实 STT Provider URL
 
 ### 2.3 Production（生产部署）
 
@@ -104,7 +104,7 @@ python -m transcription_ingest.main
 
 - **依赖**：仅 `[project].dependencies`
 - **配置**：`.env` 或环境变量：
-  - `FANOLAB_URL`：真实 ASR 地址
+  - `STT_PROVIDER_URL`：真实 STT 地址
   - `REDIS_URL`：ElastiCache 等
   - `KAFKA_BOOTSTRAP_SERVERS`：MSK 等
   - `redis_buffer_enabled=true`（推荐）

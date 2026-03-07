@@ -1,4 +1,4 @@
-"""Connector layer - SSE and WebSocket clients for Fanolab ASR."""
+"""Connector layer - SSE and WebSocket clients for STT provider."""
 
 from transcription_ingest.connector.base import TranscriptionEvent
 from transcription_ingest.connector.reconnect import run_with_reconnect

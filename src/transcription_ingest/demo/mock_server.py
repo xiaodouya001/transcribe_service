@@ -1,4 +1,4 @@
-"""Minimal mock ASR server for local demo - inject queue + SSE + frontend. Not used by main."""
+"""Minimal mock STT server for local demo - inject queue + SSE + frontend. Not used by main."""
 
 import asyncio
 import json

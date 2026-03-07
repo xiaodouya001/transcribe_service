@@ -30,7 +30,7 @@ docker build -f docker/Dockerfile -t transcription-ingest:latest .
 
 | 变量 | 说明 |
 |------|------|
-| `FANOLAB_URL` | Fanolab ASR 地址 |
+| `STT_PROVIDER_URL` | STT Provider 地址 |
 | `REDIS_URL` | ElastiCache Redis 连接串 |
 | `KAFKA_BOOTSTRAP_SERVERS` | MSK broker 地址 |
 | `LOG_FORMAT` | 建议 `json`，便于日志采集 |
@@ -51,4 +51,4 @@ docker build -f docker/Dockerfile -t transcription-ingest:latest .
 
 ## 5. 扩缩容
 
-单实例可处理一条 ASR 长连接。多会话场景可水平扩展多实例，Dedup 依赖 Redis 保证去重一致性。
+单实例可处理一条 STT 长连接。多会话场景可水平扩展多实例，Dedup 依赖 Redis 保证去重一致性。

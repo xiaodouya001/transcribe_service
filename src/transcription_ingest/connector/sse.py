@@ -1,4 +1,4 @@
-"""SSE connector - stream from Fanolab via Server-Sent Events."""
+"""SSE connector - stream from STT provider via Server-Sent Events."""
 
 import json
 from typing import AsyncIterator, Protocol
@@ -19,7 +19,7 @@ def _log_payload(payload: dict, stage: str) -> None:
     processing_id = r.get("processingId", "")
     n = len(r.get("transcripts") or [])
     log.info(
-        "Connector: 从 ASR 收到 payload",
+        "Connector: 从 STT 收到 payload",
         stage=stage,
         session_id=session_id,
         processing_id=processing_id,

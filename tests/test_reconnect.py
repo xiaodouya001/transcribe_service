@@ -112,8 +112,8 @@ async def test_run_with_reconnect_cancelled_error_propagates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_with_reconnect_logs_non_asr_error() -> None:
-    """_log_connection_failure uses generic message for non-ASR errors."""
+async def test_run_with_reconnect_logs_non_stt_error() -> None:
+    """_log_connection_failure uses generic message for non-STT errors."""
     call_count = 0
     settings = SimpleNamespace(
         reconnect_enabled=True,
@@ -121,7 +121,7 @@ async def test_run_with_reconnect_logs_non_asr_error() -> None:
         reconnect_initial_delay=0.01,
         reconnect_max_delay=0.1,
         reconnect_backoff_factor=2.0,
-        fanolab_url="http://test",
+        stt_provider_url="http://test",
     )
 
     async def connect_fn(last_event_id):

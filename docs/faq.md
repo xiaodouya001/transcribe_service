@@ -10,11 +10,11 @@
 
 ---
 
-## Q2：连接 ASR 失败，502？
+## Q2：连接 STT 失败，502？
 
-配置 `FANOLAB_URL` 为真实 ASR 地址。若服务未就绪，会输出 `Reconnect: 连接 ASR 失败（Fanolab 服务未就绪，将自动重试）`。
+配置 `STT_PROVIDER_URL` 为真实 STT 地址。若服务未就绪，会输出 `Reconnect: 连接 STT 失败（STT 提供商服务未就绪，将自动重试）`。
 
-**解决**：检查 Fanolab 服务是否启动，或使用 Demo 模式 `python -m transcription_ingest.demo.run_local` 本地验证。
+**解决**：检查 STT Provider 服务是否启动，或使用 Demo 模式 `python -m transcription_ingest.demo.run_local` 本地验证。
 
 ---
 

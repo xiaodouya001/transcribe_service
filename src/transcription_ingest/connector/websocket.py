@@ -1,4 +1,4 @@
-"""WebSocket connector - stream from Fanolab via WebSocket."""
+"""WebSocket connector - stream from STT provider via WebSocket."""
 
 import json
 from typing import AsyncIterator

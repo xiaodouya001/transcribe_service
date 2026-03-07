@@ -8,7 +8,7 @@
 
 | 角色 | 代码模块 | 职责 |
 |------|----------|------|
-| **Connector** | connector/ | 连接 Fanolab ASR，接收 SSE/WebSocket 推送的 JSON |
+| **Connector** | connector/ | 连接 STT Provider，接收 SSE/WebSocket 推送的 JSON |
 | **Buffer 写入端** | buffer/RedisBuffer | 将 Connector 收到的 payload 写入 Redis Stream |
 | **Buffer 消费端** | buffer/RedisBufferConsumer | 从 Redis Stream 读取 → 去重 → 清洗 → 写入 Kafka |
 | **Dedup** | dedup/ | 按 Key 去重，发送失败时撤销记录以支持重试 |
@@ -46,8 +46,8 @@ flowchart TB
         Dedup2 --> Cleaner2
         Cleaner2 --> Producer2
     end
-    ASR[Fanolab ASR] --> Connector1
-    ASR --> Connector2
+    STT[STT Provider] --> Connector1
+    STT --> Connector2
     Producer1 --> Kafka[(Kafka)]
     Producer2 --> Kafka
 ```
@@ -58,8 +58,8 @@ flowchart TB
 
 | 模式 | 数据流 |
 |------|--------|
-| 直连 | ASR → Connector → Dedup → Cleaner → Producer → Kafka |
-| Buffer | ASR → Connector → Buffer 写入端 → Redis Stream → Buffer 消费端 → Dedup → Cleaner → Producer → Kafka |
+| 直连 | STT Provider → Connector → Dedup → Cleaner → Producer → Kafka |
+| Buffer | STT Provider → Connector → Buffer 写入端 → Redis Stream → Buffer 消费端 → Dedup → Cleaner → Producer → Kafka |
 
 Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读取并写入 Kafka；服务中断或 Kafka 不可用时，消息保留在 Stream，恢复后自动重试。
 
@@ -69,14 +69,14 @@ Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读�
 
 ### 4.1 Connector
 
-**职责**：建立与 Fanolab ASR 的长连接，解析推送的 JSON，按 `result.transcripts` 展开为 `TranscriptionEvent`。
+**职责**：建立与 STT Provider 的长连接，解析推送的 JSON，按 `result.transcripts` 展开为 `TranscriptionEvent`。
 
 **SSE vs WebSocket**：
 
-- **SSE**：基于 HTTP GET，单向推送，支持 `Last-Event-ID` 断点续传。适合 Fanolab 以 HTTP 流式返回的场景。
+- **SSE**：基于 HTTP GET，单向推送，支持 `Last-Event-ID` 断点续传。适合 STT Provider 以 HTTP 流式返回的场景。
 - **WebSocket**：双向通道，支持 ping/pong 保活。配置 `WS_PING_INTERVAL`、`WS_PING_TIMEOUT` 控制心跳。
 
-**断点续传**：SSE 模式下，`last_event_id` 在重连时传给 `connect_fn`，下次重连会带上 `Last-Event-ID` 请求头，ASR 可从该位置继续推送。
+**断点续传**：SSE 模式下，`last_event_id` 在重连时传给 `connect_fn`，下次重连会带上 `Last-Event-ID` 请求头，STT Provider 可从该位置继续推送。
 
 **重连策略**：由 `reconnect.run_with_reconnect` 统一管理，指数退避（`initial_delay * backoff_factor^attempt`）。
 
@@ -107,7 +107,7 @@ Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读�
 
 **Key 组成**：由 `DEDUP_KEY_PARTS` 配置，支持 `session_id`、`processing_id`、`seq_no`、`created_at` 组合，例如 `dedup:s1:p1:0`。
 
-**TTL**：`DEDUP_TTL_SECONDS` 控制 key 过期时间。需大于「同一 transcript 可能重复到达」的最大时间间隔（如 ASR 重连重放）。
+**TTL**：`DEDUP_TTL_SECONDS` 控制 key 过期时间。需大于「同一 transcript 可能重复到达」的最大时间间隔（如 STT 重连重放）。
 
 **remove()**：发送 Kafka 失败时调用，删除 dedup key，使重试时 `should_emit` 再次返回 True。
 
@@ -142,13 +142,13 @@ Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读�
 | Redis 不可用 | 启动时 `ping()` 失败，立即退出 | `Transcription Ingest: 启动失败（Redis 不可用）` |
 | Kafka 不可用 | 启动时 `ensure_ready()` 失败，立即退出 | `Transcription Ingest: 启动失败（Kafka 不可用）` |
 | Kafka 发送超时 | Buffer 消费端不 XACK，消息保留；调用 `dedup.remove()` | `Buffer Consumer: 处理消息失败（Kafka 不可用，消息已保留在 Buffer，将自动重试）` |
-| ASR 断连 | 重连循环按指数退避重试 | `Reconnect: 连接 ASR 失败（Fanolab 服务未就绪，将自动重试）` |
-| ASR 502/503/504 | 同上，视为 ASR 不可用 | 同上 |
+| STT 断连 | 重连循环按指数退避重试 | `Reconnect: 连接 STT 失败（STT 提供商服务未就绪，将自动重试）` |
+| STT 502/503/504 | 同上，视为 STT 不可用 | 同上 |
 
 ---
 
 ## 6. 与下游关系
 
-本服务只**生产** Kafka 消息，不消费 Kafka。下游业务（NLP、质检等）需自行订阅 Topic `asr_realtime_text` 消费。
+本服务只**生产** Kafka 消息，不消费 Kafka。下游业务（NLP、质检等）需自行订阅 Topic `transcription_topic` 消费。
 
 消息格式：`{ raw: {...}, cleaned: {...} }`，其中 `cleaned` 为结构化字段（`session_id`、`seq_no`、`transcript`、`role` 等）。

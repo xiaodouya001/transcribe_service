@@ -16,11 +16,11 @@ cp .env.example .env
 
 ## 2. 配置项一览
 
-### Fanolab ASR
+### STT Provider
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `FANOLAB_URL` | http://localhost:8765/sse | Fanolab SSE/WebSocket 地址 |
+| `STT_PROVIDER_URL` | http://localhost:8765/sse | STT Provider SSE/WebSocket 地址 |
 | `MODE` | sse | 传输协议：`sse` 或 `websocket` |
 | `SSE_READ_TIMEOUT` | 空 | SSE 读超时（秒），空=无限制 |
 | `WS_PING_INTERVAL` | 20.0 | WebSocket ping 间隔（秒） |
@@ -48,7 +48,7 @@ cp .env.example .env
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `KAFKA_BOOTSTRAP_SERVERS` | localhost:9092 | Kafka 集群地址 |
-| `KAFKA_TOPIC` | asr_realtime_text | Topic 名称 |
+| `KAFKA_TOPIC` | transcription_topic | Topic 名称 |
 | `KAFKA_COMPRESSION_TYPE` | none | 压缩：`none`、`gzip`、`snappy`、`lz4` |
 | `KAFKA_SEND_TIMEOUT_SEC` | 10 | 发送超时（秒），Kafka 不可用时超时并输出错误日志 |
 
@@ -78,7 +78,7 @@ cp .env.example .env
 **本地开发**：
 
 ```env
-FANOLAB_URL=http://localhost:8765/sse
+STT_PROVIDER_URL=http://localhost:8765/sse
 MODE=sse
 REDIS_URL=redis://localhost:6379/0
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092
@@ -87,7 +87,7 @@ KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 **生产**：
 
 ```env
-FANOLAB_URL=https://your-fanolab.example.com/sse
+STT_PROVIDER_URL=https://your-stt-provider.example.com/sse
 MODE=sse
 REDIS_URL=redis://your-elasticache:6379/0
 KAFKA_BOOTSTRAP_SERVERS=your-msk:9092

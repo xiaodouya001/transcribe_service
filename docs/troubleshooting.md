@@ -28,21 +28,21 @@
 
 ---
 
-## 2. 连接 ASR 失败
+## 2. 连接 STT 失败
 
-### Reconnect: 连接 ASR 失败（Fanolab 服务未就绪，将自动重试）
+### Reconnect: 连接 STT 失败（STT 提供商服务未就绪，将自动重试）
 
-**原因**：502/503/504、connection refused 等，视为 ASR 不可用。
+**原因**：502/503/504、connection refused 等，视为 STT 不可用。
 
 **排查**：
 
-1. 确认 `FANOLAB_URL` 正确
-2. 检查 ASR 服务是否启动、端口是否开放
+1. 确认 `STT_PROVIDER_URL` 正确
+2. 检查 STT 服务是否启动、端口是否开放
 3. 若为 HTTPS，检查证书、代理
 
 ### 其他连接错误
 
-非 502/503/504 的错误会输出 `Reconnect: 连接 ASR 失败（将自动重试）`，同样会按指数退避重试。
+非 502/503/504 的错误会输出 `Reconnect: 连接 STT 失败（将自动重试）`，同样会按指数退避重试。
 
 ---
 

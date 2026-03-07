@@ -27,7 +27,7 @@ class KafkaProducer:
     def __init__(
         self,
         bootstrap_servers: str = "localhost:9092",
-        topic: str = "asr_realtime_text",
+        topic: str = "transcription_topic",
         *,
         compression_type: str = "none",
     ) -> None:

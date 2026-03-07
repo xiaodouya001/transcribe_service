@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AWS 实时 ASR 转录接入架构交互式指南</title>
+    <title>实时转录接入架构交互式指南</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -56,7 +56,7 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
                 <div class="flex items-center">
-                    <span class="text-xl font-bold text-sky-700">☁️ 实时 ASR 接入架构</span>
+                    <span class="text-xl font-bold text-sky-700">☁️ 实时转录接入架构</span>
                 </div>
                 <div class="hidden md:flex items-center space-x-6 text-sm font-medium text-slate-600">
                     <a href="#overview" class="hover:text-sky-600 transition">架构总览</a>
@@ -74,7 +74,7 @@
         <header class="text-center max-w-4xl mx-auto">
             <h1 class="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight mb-4">AWS Kafka Producer 实时接入方案</h1>
             <p class="text-lg text-slate-600 leading-relaxed">
-                本交互式指南基于 Fanolab ASR 引擎的接入需求，展示了一套部署在 AWS 上的实时转录结果接收与分发系统。探索该系统如何利用无服务器架构、异步 I/O 以及精密的防抖机制，打造极致稳定、高吞吐的“纯数据搬运与清洗”中间层。
+                本交互式指南基于 STT Provider 引擎的接入需求，展示了一套部署在 AWS 上的实时转录结果接收与分发系统。探索该系统如何利用无服务器架构、异步 I/O 以及精密的防抖机制，打造极致稳定、高吞吐的“纯数据搬运与清洗”中间层。
             </p>
         </header>
 
@@ -93,7 +93,7 @@
                         <div class="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center text-4xl mb-3 border-2 border-slate-300 shadow-inner">
                             🎙️
                         </div>
-                        <h3 class="font-semibold text-slate-800 text-center">Fanolab ASR</h3>
+                        <h3 class="font-semibold text-slate-800 text-center">STT Provider</h3>
                         <p class="text-xs text-slate-500 text-center mt-1">外部语音引擎<br>推送 JSON 转录结果</p>
                     </div>
 
@@ -142,7 +142,7 @@
             <div class="mb-8">
                 <h2 class="text-2xl font-bold text-slate-800 border-l-4 border-sky-500 pl-3 mb-4">2. 接入模式选型</h2>
                 <p class="text-slate-600 leading-relaxed">
-                    根据 Fanolab 接口要求，系统支持两种长连接模式。点击下方按钮，查看 WebSocket 与 SSE (Server-Sent Events) 在当前架构下的不同优势与适用场景。
+                    根据 STT Provider 接口要求，系统支持两种长连接模式。点击下方按钮，查看 WebSocket 与 SSE (Server-Sent Events) 在当前架构下的不同优势与适用场景。
                 </p>
             </div>
 
@@ -160,7 +160,7 @@
                         <p class="text-slate-600 mb-4">适用于需要心跳维持或配置指令下发的双向通信场景。客户端与服务端保持持久连接。</p>
                         <ul class="space-y-2">
                             <li class="flex items-start"><span class="text-green-500 mr-2">✓</span> <span class="text-sm text-slate-700"><strong>极低报头开销：</strong> 握手后数据帧极小，适合高频短文本传输。</span></li>
-                            <li class="flex items-start"><span class="text-green-500 mr-2">✓</span> <span class="text-sm text-slate-700"><strong>双向通信：</strong> 允许系统向 ASR 引擎实时发送动态配置或控制指令。</span></li>
+                            <li class="flex items-start"><span class="text-green-500 mr-2">✓</span> <span class="text-sm text-slate-700"><strong>双向通信：</strong> 允许系统向 STT 引擎实时发送动态配置或控制指令。</span></li>
                             <li class="flex items-start"><span class="text-orange-500 mr-2">!</span> <span class="text-sm text-slate-700"><strong>架构挑战：</strong> 需要自行实现复杂的断线重连与心跳保活（Ping/Pong）机制。</span></li>
                         </ul>
                     </div>
@@ -184,7 +184,7 @@
             <div class="mb-8">
                 <h2 class="text-2xl font-bold text-slate-800 border-l-4 border-orange-500 pl-3 mb-4">3. 核心处理链路：防抖去重演示</h2>
                 <p class="text-slate-600 leading-relaxed">
-                    在真实网络环境下，ASR 引擎由于网络抖动，经常会将同一时间戳的片段重复推送。本节模拟了利用 Redis <code>SETNX</code> 指令实现的亚毫秒级精准去重机制。只有抢到“锁”的数据才会被放行至 Kafka。
+                    在真实网络环境下，STT 引擎由于网络抖动，经常会将同一时间戳的片段重复推送。本节模拟了利用 Redis <code>SETNX</code> 指令实现的亚毫秒级精准去重机制。只有抢到“锁”的数据才会被放行至 Kafka。
                 </p>
             </div>
 
@@ -192,7 +192,7 @@
                 <div class="w-full md:w-1/3 flex flex-col justify-center space-y-4">
                     <div class="bg-slate-50 p-4 rounded border border-slate-200">
                         <h4 class="font-bold text-slate-800 text-sm mb-2">模拟控制面板</h4>
-                        <p class="text-xs text-slate-500 mb-4">点击下方按钮，模拟网络抖动导致 ASR 引擎瞬间发送两条完全相同的转录 JSON。</p>
+                        <p class="text-xs text-slate-500 mb-4">点击下方按钮，模拟网络抖动导致 STT 引擎瞬间发送两条完全相同的转录 JSON。</p>
                         <button id="btn-simulate" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded transition shadow">
                             模拟并发重复推送 ⚡
                         </button>
@@ -361,15 +361,15 @@
             btnSimulate.disabled = true;
             btnSimulate.classList.add('opacity-50');
             
-            addLog(`>> Fanolab 推送片段 [尝试 1] - session:${sessionId}`, 'text-blue-300');
+            addLog(`>> STT Provider 推送片段 [尝试 1] - session:${sessionId}`, 'text-blue-300');
             
             setTimeout(() => {
                 addLog(`Redis 执行 SETNX dedup:${sessionId}:${timestamp} 1`, 'text-yellow-300');
                 addLog(`✓ Redis 返回 1. 缓存未命中，获取锁成功！`, 'text-green-400');
-                addLog(`➔ Asyncio 转发至 MSK topic: asr_realtime_text`, 'text-white');
+                addLog(`➔ Asyncio 转发至 MSK topic: transcription_topic`, 'text-white');
                 
                 setTimeout(() => {
-                    addLog(`>> Fanolab 网络重传 [尝试 2] - session:${sessionId} (完全相同的数据)`, 'text-red-300');
+                    addLog(`>> STT Provider 网络重传 [尝试 2] - session:${sessionId} (完全相同的数据)`, 'text-red-300');
                     addLog(`Redis 执行 SETNX dedup:${sessionId}:${timestamp} 1`, 'text-yellow-300');
                     addLog(`✗ Redis 返回 0. 数据已存在！触发去重逻辑，丢弃脏数据。`, 'text-orange-500 font-bold');
                     
@@ -447,8 +447,8 @@
         // --- Graceful Shutdown Logic ---
         const stateDetails = {
             state1: "<strong class='text-slate-800'>触发下线:</strong> ALB 停止路由新流量，实例接收到操作系统发出的 <code>SIGTERM</code> 信号。此时程序设置退出标志位，进入关停准备。",
-            state2: "<strong class='text-slate-800'>Draining 摘流:</strong> 立即停止向 Fanolab 发起新的连接请求。HTTP/WebSocket 监听端口不再接受任何新客户端。现有连接不受影响。",
-            state3: "<strong class='text-slate-800'>等待存量结束:</strong> 启动一个 <code>stopTimeout</code> 计时器（例如 120 秒）。在此窗口内，允许已连接的转录任务继续执行，直到 ASR 引擎发送完毕主动断开。",
+            state2: "<strong class='text-slate-800'>Draining 摘流:</strong> 立即停止向 STT Provider 发起新的连接请求。HTTP/WebSocket 监听端口不再接受任何新客户端。现有连接不受影响。",
+            state3: "<strong class='text-slate-800'>等待存量结束:</strong> 启动一个 <code>stopTimeout</code> 计时器（例如 120 秒）。在此窗口内，允许已连接的转录任务继续执行，直到 STT 引擎发送完毕主动断开。",
             state4: "<strong class='text-slate-800'>强制接管与销毁:</strong> 如果 120 秒后仍有未完成的长连接，系统将当前消费的 <code>offset</code> 和会话关键上下文刷入 Redis。随后安全销毁容器。新启动的容器会从 Redis 读取断点并接管任务。"
         };
 

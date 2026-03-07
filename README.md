@@ -1,6 +1,6 @@
 # Transcription Ingest
 
-> AWS 实时 ASR 转录接入与分发服务。从 Fanolab ASR 接收转录结果，去重后异步推送到 Kafka。
+> 实时转录接入与分发服务。从 STT Provider 接收转录结果，去重后异步推送到 Kafka。
 
 ---
 

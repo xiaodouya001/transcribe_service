@@ -12,7 +12,7 @@ async def test_get_producer_backend() -> None:
     """get_producer_backend returns KafkaProducer."""
     backend = get_producer_backend(
         kafka_bootstrap="localhost:9092",
-        kafka_topic="asr_realtime_text",
+        kafka_topic="transcription_topic",
     )
     assert isinstance(backend, KafkaProducer)
 

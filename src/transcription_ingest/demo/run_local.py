@@ -17,7 +17,7 @@ except ImportError:
     pass
 
 # Point ingest to mock server (run_local only)
-os.environ["FANOLAB_URL"] = "http://127.0.0.1:8765/sse"
+os.environ["STT_PROVIDER_URL"] = "http://127.0.0.1:8765/sse"
 os.environ["MODE"] = "sse"
 os.environ["SSE_READ_TIMEOUT"] = "130"
 

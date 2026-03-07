@@ -8,7 +8,7 @@ __all__ = ["ProducerBackend", "KafkaProducer", "get_producer_backend"]
 
 def get_producer_backend(
     kafka_bootstrap: str = "",
-    kafka_topic: str = "asr_realtime_text",
+    kafka_topic: str = "transcription_topic",
     *,
     compression_type: str = "none",
 ) -> ProducerBackend:

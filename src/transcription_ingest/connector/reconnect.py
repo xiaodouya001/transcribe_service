@@ -9,8 +9,8 @@ import structlog
 log = structlog.get_logger(__name__)
 
 
-def _is_asr_connection_error(err: BaseException) -> bool:
-    """True if error indicates ASR/Fanolab service is not reachable."""
+def _is_stt_connection_error(err: BaseException) -> bool:
+    """True if error indicates STT provider service is not reachable."""
     s = str(err).lower()
     err_type = type(err).__name__.lower()
     return (
@@ -24,17 +24,17 @@ def _is_asr_connection_error(err: BaseException) -> bool:
 
 
 def _log_connection_failure(err: BaseException, settings: Any) -> None:
-    """Log with clear hint when ASR/Fanolab connection fails."""
-    url = getattr(settings, "fanolab_url", "")
-    if _is_asr_connection_error(err):
+    """Log with clear hint when STT provider connection fails."""
+    url = getattr(settings, "stt_provider_url", "")
+    if _is_stt_connection_error(err):
         log.exception(
-            "Reconnect: 连接 ASR 失败（Fanolab 服务未就绪，将自动重试）",
+            "Reconnect: 连接 STT 失败（STT 提供商服务未就绪，将自动重试）",
             url=url,
             error=str(err),
         )
     else:
         log.exception(
-            "Reconnect: 连接 ASR 失败（将自动重试）",
+            "Reconnect: 连接 STT 失败（将自动重试）",
             url=url,
             error=str(err),
         )

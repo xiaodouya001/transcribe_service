@@ -16,8 +16,8 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
     )
 
-    # Fanolab ASR
-    fanolab_url: str = "http://localhost:8765/sse"
+    # STT Provider (speech-to-text service URL)
+    stt_provider_url: str = "http://localhost:8765/sse"
     mode: Literal["sse", "websocket"] = "sse"
 
     # Redis
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # Kafka
     kafka_bootstrap_servers: str = "localhost:9092"
-    kafka_topic: str = "asr_realtime_text"
+    kafka_topic: str = "transcription_topic"
     kafka_compression_type: Literal["none", "gzip", "snappy", "lz4"] = "none"
     kafka_send_timeout_sec: float = 10.0  # 发送超时(秒)，Kafka 不可用时超时并输出错误日志
 

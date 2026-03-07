@@ -1,4 +1,4 @@
-"""Entry point: ASR 转录接入与分发流程（Connector -> Dedup -> Producer）。"""
+"""Entry point: 转录接入与分发流程（Connector -> Dedup -> Producer）。"""
 
 import asyncio
 import sys
@@ -56,19 +56,19 @@ def _create_connector(settings, last_event_id: str | None):
     """Create connector with settings (ping, timeout, last_event_id)."""
     if settings.mode == "sse":
         return SseConnector(
-            settings.fanolab_url,
+            settings.stt_provider_url,
             last_event_id,
             read_timeout=getattr(settings, "sse_read_timeout", None),
         )
     return WebSocketConnector(
-        settings.fanolab_url,
+        settings.stt_provider_url,
         ping_interval=getattr(settings, "ws_ping_interval", 20.0),
         ping_timeout=getattr(settings, "ws_ping_timeout", 20.0),
     )
 
 
 async def run_ingest(redis_buffer_enabled: bool | None = None) -> None:
-    """运行 ASR 转录接入与分发流程：Connector -> Dedup -> Producer。
+    """运行转录接入与分发流程：Connector -> Dedup -> Producer。
 
     redis_buffer_enabled: 指定时覆盖配置，控制是否启用 Redis Buffer 模式。
     """
@@ -206,7 +206,7 @@ async def run_ingest(redis_buffer_enabled: bool | None = None) -> None:
 
 
 def run() -> None:
-    """启动 ASR 转录接入与分发服务。"""
+    """启动转录接入与分发服务。"""
     asyncio.run(run_ingest())
 
 

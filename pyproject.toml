@@ -4,7 +4,7 @@
 [project]
 name = "transcription-ingest"
 version = "0.1.0"
-description = "Transcription ingestion service - receive from Fanolab, dedup, publish to Kafka"
+description = "Transcription ingestion service - receive from STT provider, dedup, publish to Kafka"
 requires-python = ">=3.11"
 dependencies = [
     "aiokafka>=0.10.0",
@@ -49,7 +49,7 @@ include = ["config*", "transcription_ingest*"]
 [tool.poetry]
 name = "transcription-ingest"
 version = "0.1.0"
-description = "Transcription ingestion service - receive from Fanolab, dedup, publish to Kafka"
+description = "Transcription ingestion service - receive from STT provider, dedup, publish to Kafka"
 packages = [
     {include = "config"},
     {include = "transcription_ingest", from = "src"}

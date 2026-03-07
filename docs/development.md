@@ -65,7 +65,7 @@ python -m transcription_ingest.demo.run_local
 python -m transcription_ingest.main
 ```
 
-需配置 `FANOLAB_URL` 指向真实 ASR 或 Mock 服务。
+需配置 `STT_PROVIDER_URL` 指向真实 STT 或 Mock 服务。
 
 ### 3.4 服务地址（docker compose）
 
@@ -111,5 +111,5 @@ UT 不依赖真实 Kafka/Redis 环境：
 
 - **日志级别**：`LOG_LEVEL=DEBUG` 查看更详细日志
 - **日志格式**：`LOG_FORMAT=console` 本地开发时使用可读格式
-- **Kafka 消息**：通过 Kafka UI (http://localhost:8080) 查看 Topic `asr_realtime_text` 的消息
+- **Kafka 消息**：通过 Kafka UI (http://localhost:8080) 查看 Topic `transcription_topic` 的消息
 - **断点调试**：在 IDE 中设置断点，以 `python -m transcription_ingest.main` 或 `python -m pytest` 启动

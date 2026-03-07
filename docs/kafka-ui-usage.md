@@ -35,7 +35,7 @@ docker run -d -p 8080:8080 \
 ## 2. 查看消息
 
 1. 浏览器打开 **http://localhost:8080**
-2. 左侧选择 **Topics** → 点击 `asr_realtime_text`
+2. 左侧选择 **Topics** → 点击 `transcription_topic`
 3. 在 **Messages** 标签页查看消息
 4. 点击某条消息可展开，Value 会以 UTF-8 文本显示，JSON 自动格式化
 
@@ -51,6 +51,6 @@ docker run -d -p 8080:8080 \
 
 ## 4. 与本项目的 Topic
 
-- **Topic 名称**：`asr_realtime_text`
+- **Topic 名称**：`transcription_topic`
 - **Key**：`session_id`（UTF-8）
 - **Value**：JSON，包含 `raw` 和 `cleaned` 字段
