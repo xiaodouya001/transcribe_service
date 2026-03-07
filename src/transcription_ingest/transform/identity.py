@@ -1,6 +1,6 @@
 """IdentityCleaner - pass through raw only."""
 
-from asr_ingest.connector.base import TranscriptionEvent
+from transcription_ingest.connector.base import TranscriptionEvent
 
 
 class IdentityCleaner:

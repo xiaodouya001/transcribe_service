@@ -8,12 +8,12 @@ log = structlog.get_logger(__name__)
 
 
 class RedisBuffer:
-    """Push raw vendor payloads to Redis Stream. XADD asr:ingest:buffer."""
+    """Push raw vendor payloads to Redis Stream. XADD transcription:ingest:buffer."""
 
     def __init__(
         self,
         redis_url: str = "redis://localhost:6379/0",
-        stream: str = "asr:ingest:buffer",
+        stream: str = "transcription:ingest:buffer",
         maxlen: int | None = 10000,
     ) -> None:
         self._redis_url = redis_url

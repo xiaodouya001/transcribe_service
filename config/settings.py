@@ -27,8 +27,8 @@ class Settings(BaseSettings):
 
     # Redis buffer (when redis_buffer_enabled)
     redis_buffer_enabled: bool = True
-    redis_buffer_stream: str = "asr:ingest:buffer"
-    redis_buffer_consumer_group: str = "asr:ingest:consumer"
+    redis_buffer_stream: str = "transcription:ingest:buffer"
+    redis_buffer_consumer_group: str = "transcription:ingest:consumer"
     redis_buffer_maxlen: int = 10000
 
     # Transform

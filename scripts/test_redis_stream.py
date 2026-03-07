@@ -14,8 +14,8 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 async def main() -> None:
     from redis.asyncio import Redis
 
-    stream = "asr:ingest:buffer"
-    group = "asr:ingest:consumer"
+    stream = "transcription:ingest:buffer"
+    group = "transcription:ingest:consumer"
     url = os.environ["REDIS_URL"]
 
     client = Redis.from_url(url, decode_responses=True)

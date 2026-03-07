@@ -1,6 +1,6 @@
-# Redis + Kafka for ASR Ingest (local dev / production parity)
+# Redis + Kafka for Transcription Ingest (local dev / production parity)
 # Usage: docker compose up -d
-# Then: python -m asr_ingest.main (uses REDIS_URL and KAFKA_BOOTSTRAP_SERVERS from .env)
+# Then: python -m transcription_ingest.main (uses REDIS_URL and KAFKA_BOOTSTRAP_SERVERS from .env)
 #
 # Kafka data is ephemeral (no volume) to avoid permission issues with apache/kafka non-root user.
 # Redis data persists in redis_data volume.

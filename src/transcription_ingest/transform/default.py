@@ -1,6 +1,6 @@
 """DefaultCleaner - returns raw + cleaned structured fields."""
 
-from asr_ingest.connector.base import TranscriptionEvent
+from transcription_ingest.connector.base import TranscriptionEvent
 
 
 class DefaultCleaner:

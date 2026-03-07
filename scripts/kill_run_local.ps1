@@ -1,6 +1,6 @@
-# Kill any run_local or asr_ingest.main processes (stale run_local can keep pushing to buffer)
+# Kill any run_local or transcription_ingest.main processes (stale run_local can keep pushing to buffer)
 $procs = Get-CimInstance Win32_Process -Filter "Name='python.exe'" | 
-    Where-Object { $_.CommandLine -match 'run_local|asr_ingest\.main' }
+    Where-Object { $_.CommandLine -match 'run_local|transcription_ingest\.main' }
 if ($procs) {
     foreach ($p in $procs) {
         Write-Host "Killing PID $($p.ProcessId): $($p.CommandLine.Substring(0, [Math]::Min(80, $p.CommandLine.Length)))..."
@@ -8,5 +8,5 @@ if ($procs) {
     }
     Write-Host "Done."
 } else {
-    Write-Host "No run_local or asr_ingest.main processes found."
+    Write-Host "No run_local or transcription_ingest.main processes found."
 }

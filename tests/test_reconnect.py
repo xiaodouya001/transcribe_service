@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from asr_ingest.connector.reconnect import run_with_reconnect
+from transcription_ingest.connector.reconnect import run_with_reconnect
 
 
 @pytest.mark.asyncio
@@ -92,3 +92,61 @@ async def test_run_with_reconnect_max_retries() -> None:
     with pytest.raises(RuntimeError, match="connection failed"):
         await run_with_reconnect(connect_fn, settings)
     assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_run_with_reconnect_cancelled_error_propagates() -> None:
+    """CancelledError is re-raised, not caught."""
+    async def connect_fn(last_event_id):
+        raise asyncio.CancelledError()
+
+    settings = SimpleNamespace(
+        reconnect_enabled=True,
+        reconnect_max_retries=5,
+        reconnect_initial_delay=0.01,
+        reconnect_max_delay=0.1,
+        reconnect_backoff_factor=2.0,
+    )
+    with pytest.raises(asyncio.CancelledError):
+        await run_with_reconnect(connect_fn, settings)
+
+
+@pytest.mark.asyncio
+async def test_run_with_reconnect_logs_non_asr_error() -> None:
+    """_log_connection_failure uses generic message for non-ASR errors."""
+    call_count = 0
+    settings = SimpleNamespace(
+        reconnect_enabled=True,
+        reconnect_max_retries=1,
+        reconnect_initial_delay=0.01,
+        reconnect_max_delay=0.1,
+        reconnect_backoff_factor=2.0,
+        fanolab_url="http://test",
+    )
+
+    async def connect_fn(last_event_id):
+        nonlocal call_count
+        call_count += 1
+        raise ValueError("some application error")
+
+    with pytest.raises(ValueError, match="some application error"):
+        await run_with_reconnect(connect_fn, settings)
+    assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_run_with_reconnect_raises_last_error_on_max_retries() -> None:
+    """When max_retries reached and last_error is set, raises last_error."""
+    settings = SimpleNamespace(
+        reconnect_enabled=True,
+        reconnect_max_retries=2,
+        reconnect_initial_delay=0.01,
+        reconnect_max_delay=0.1,
+        reconnect_backoff_factor=2.0,
+    )
+
+    async def connect_fn(last_event_id):
+        raise ConnectionError("connection refused")
+
+    with pytest.raises(ConnectionError, match="connection refused"):
+        await run_with_reconnect(connect_fn, settings)

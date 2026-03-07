@@ -1,8 +1,8 @@
-"""E2E integration tests - pipeline with dedup verification."""
+"""E2E 集成测试 - Transcription Ingest 去重验证。"""
 
 import pytest
-from asr_ingest.connector.base import TranscriptionEvent
-from asr_ingest.dedup import RedisDeduplication
+from transcription_ingest.connector.base import TranscriptionEvent
+from transcription_ingest.dedup import RedisDeduplication
 
 
 @pytest.fixture
@@ -14,8 +14,8 @@ def fake_redis_dedup():
 
 
 @pytest.mark.asyncio
-async def test_pipeline_dedup_filters_duplicates(fake_redis_dedup: RedisDeduplication) -> None:
-    """Pipeline should filter duplicate (session_id, seq_no) via dedup."""
+async def test_ingest_dedup_filters_duplicates(fake_redis_dedup: RedisDeduplication) -> None:
+    """Transcription Ingest 应通过 dedup 过滤重复的 (session_id, seq_no)。"""
     dedup = fake_redis_dedup
     received: list[dict] = []
 

@@ -7,7 +7,7 @@ from typing import Any
 import structlog
 from redis.asyncio import Redis
 
-from asr_ingest.connector.base import TranscriptionEvent
+from transcription_ingest.connector.base import TranscriptionEvent
 
 log = structlog.get_logger(__name__)
 
@@ -27,8 +27,8 @@ class RedisBufferConsumer:
     def __init__(
         self,
         redis_url: str = "redis://localhost:6379/0",
-        stream: str = "asr:ingest:buffer",
-        consumer_group: str = "asr:ingest:consumer",
+        stream: str = "transcription:ingest:buffer",
+        consumer_group: str = "transcription:ingest:consumer",
         consumer: str = "worker1",
         dedup: Any = None,
         cleaner: Any = None,

@@ -6,7 +6,7 @@ from typing import AsyncIterator, Protocol
 import httpx
 import structlog
 
-from asr_ingest.connector.base import TranscriptionEvent
+from transcription_ingest.connector.base import TranscriptionEvent
 
 log = structlog.get_logger(__name__)
 

@@ -1,4 +1,4 @@
-"""Entry point: connector -> dedup -> producer pipeline."""
+"""Entry point: ASR 转录接入与分发流程（Connector -> Dedup -> Producer）。"""
 
 import asyncio
 import sys
@@ -11,13 +11,13 @@ if str(_project_root) not in sys.path:
 
 from config.logging_config import configure_logging, get_logger
 from config.settings import get_settings
-from asr_ingest.connector.reconnect import run_with_reconnect
-from asr_ingest.connector.sse import SseConnector
-from asr_ingest.connector.websocket import WebSocketConnector
-from asr_ingest.dedup import get_dedup_backend
-from asr_ingest.producer import get_producer_backend
-from asr_ingest.shutdown.graceful import GracefulShutdown
-from asr_ingest.transform import get_cleaner
+from transcription_ingest.connector.reconnect import run_with_reconnect
+from transcription_ingest.connector.sse import SseConnector
+from transcription_ingest.connector.websocket import WebSocketConnector
+from transcription_ingest.dedup import get_dedup_backend
+from transcription_ingest.producer import get_producer_backend
+from transcription_ingest.shutdown.graceful import GracefulShutdown
+from transcription_ingest.transform import get_cleaner
 
 log = get_logger(__name__)
 
@@ -35,7 +35,7 @@ async def _check_redis(redis_url: str) -> None:
     try:
         await client.ping()
     except Exception as e:
-        log.error("Pipeline: 启动失败（Redis 不可用）", redis_url=redis_url, error=str(e))
+        log.error("Transcription Ingest: 启动失败（Redis 不可用）", redis_url=redis_url, error=str(e))
         raise RuntimeError(f"Redis 不可用: {redis_url} - {e}") from e
     finally:
         await client.aclose()
@@ -48,7 +48,7 @@ async def _check_kafka(producer) -> None:
     try:
         await producer.ensure_ready()
     except Exception as e:
-        log.error("Pipeline: 启动失败（Kafka 不可用）", error=str(e))
+        log.error("Transcription Ingest: 启动失败（Kafka 不可用）", error=str(e))
         raise RuntimeError(f"Kafka 不可用: {e}") from e
 
 
@@ -67,10 +67,10 @@ def _create_connector(settings, last_event_id: str | None):
     )
 
 
-async def run_pipeline(redis_buffer_enabled: bool | None = None) -> None:
-    """Run connector -> dedup -> producer pipeline.
+async def run_ingest(redis_buffer_enabled: bool | None = None) -> None:
+    """运行 ASR 转录接入与分发流程：Connector -> Dedup -> Producer。
 
-    redis_buffer_enabled: when provided, overrides settings for buffer mode.
+    redis_buffer_enabled: 指定时覆盖配置，控制是否启用 Redis Buffer 模式。
     """
     settings = get_settings()
     configure_logging(level=settings.log_level, format=settings.log_format)
@@ -101,7 +101,7 @@ async def run_pipeline(redis_buffer_enabled: bool | None = None) -> None:
     await _check_kafka(producer)
 
     log.info(
-        "Pipeline: 已启动",
+        "Transcription Ingest: 已启动",
         mode=settings.mode,
         redis_buffer=use_buffer,
         reconnect_enabled=reconnect_enabled,
@@ -111,7 +111,7 @@ async def run_pipeline(redis_buffer_enabled: bool | None = None) -> None:
         connector = _create_connector(settings, last_event_id)
         try:
             if use_buffer:
-                from asr_ingest.buffer import RedisBuffer, RedisBufferConsumer
+                from transcription_ingest.buffer import RedisBuffer, RedisBufferConsumer
 
                 buffer = RedisBuffer(
                     redis_url=settings.redis_url,
@@ -161,7 +161,7 @@ async def run_pipeline(redis_buffer_enabled: bool | None = None) -> None:
                     ):
                         cleaned = cleaner.clean(payload, event)
                         log.info(
-                            "Pipeline: 发送 transcript 到 Kafka",
+                            "Transcription Ingest: 发送 transcript 到 Kafka",
                             session_id=event.session_id,
                             seq_no=event.seq_no,
                             transcript=event.transcript[:30] + "..." if len(event.transcript) > 30 else event.transcript,
@@ -189,10 +189,10 @@ async def run_pipeline(redis_buffer_enabled: bool | None = None) -> None:
         else:
             await connect_fn(None)
     except Exception as e:
-        log.exception("Pipeline: 运行异常", error=str(e))
+        log.exception("Transcription Ingest: 运行异常", error=str(e))
         raise
     finally:
-        log.info("Pipeline: 正在关闭连接")
+        log.info("Transcription Ingest: 正在关闭连接")
         await producer.flush()
         if hasattr(producer, "close"):
             fn = producer.close
@@ -202,12 +202,12 @@ async def run_pipeline(redis_buffer_enabled: bool | None = None) -> None:
                 fn()
         if hasattr(dedup, "close"):
             await dedup.close()
-        log.info("Pipeline: 已安全退出")
+        log.info("Transcription Ingest: 已安全退出")
 
 
 def run() -> None:
-    """Run the async pipeline."""
-    asyncio.run(run_pipeline())
+    """启动 ASR 转录接入与分发服务。"""
+    asyncio.run(run_ingest())
 
 
 if __name__ == "__main__":

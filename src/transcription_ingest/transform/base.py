@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from asr_ingest.connector.base import TranscriptionEvent
+from transcription_ingest.connector.base import TranscriptionEvent
 
 
 class CleanerBackend(Protocol):

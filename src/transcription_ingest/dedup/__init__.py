@@ -1,7 +1,7 @@
 """Deduplication layer - Redis backend."""
 
-from asr_ingest.dedup.base import DeduplicationBackend
-from asr_ingest.dedup.redis_dedup import RedisDeduplication
+from transcription_ingest.dedup.base import DeduplicationBackend
+from transcription_ingest.dedup.redis_dedup import RedisDeduplication
 
 __all__ = ["DeduplicationBackend", "RedisDeduplication", "get_dedup_backend"]
 

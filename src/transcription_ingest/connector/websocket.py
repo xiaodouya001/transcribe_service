@@ -6,8 +6,8 @@ from typing import AsyncIterator
 import structlog
 import websockets
 
-from asr_ingest.connector.base import TranscriptionEvent
-from asr_ingest.connector.sse import BufferBackend, _log_payload
+from transcription_ingest.connector.base import TranscriptionEvent
+from transcription_ingest.connector.sse import BufferBackend, _log_payload
 
 log = structlog.get_logger()
 

@@ -2,9 +2,9 @@
 # 各配置块用途及 Local/Dev/Production 使用方式见 docs/pyproject-config.md
 
 [project]
-name = "asr-ingest"
+name = "transcription-ingest"
 version = "0.1.0"
-description = "AWS real-time ASR transcription ingestion service"
+description = "Transcription ingestion service - receive from Fanolab, dedup, publish to Kafka"
 requires-python = ">=3.11"
 dependencies = [
     "aiokafka>=0.10.0",
@@ -20,12 +20,22 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
     "fakeredis>=2.20.0",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+addopts = "--cov=src/transcription_ingest --cov=config --cov-report=term-missing --cov-fail-under=90"
+
+[tool.coverage.run]
+source = ["src", "config"]
+omit = [
+    "src/transcription_ingest/main.py",
+    "src/transcription_ingest/demo/*",
+    "config/logging_config.py",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -33,16 +43,16 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = [".", "src"]
-include = ["config*", "asr_ingest*"]
+include = ["config*", "transcription_ingest*"]
 
 # Poetry 包管理（可选，与 pip/venv 二选一）
 [tool.poetry]
-name = "asr-ingest"
+name = "transcription-ingest"
 version = "0.1.0"
-description = "AWS real-time ASR transcription ingestion service"
+description = "Transcription ingestion service - receive from Fanolab, dedup, publish to Kafka"
 packages = [
     {include = "config"},
-    {include = "asr_ingest", from = "src"}
+    {include = "transcription_ingest", from = "src"}
 ]
 
 [tool.poetry.dependencies]
@@ -59,3 +69,4 @@ aiohttp = ">=3.9.0"
 pytest = ">=7.0.0"
 pytest-asyncio = ">=0.21.0"
 fakeredis = ">=2.20.0"
+pytest-cov = "^7.0.0"

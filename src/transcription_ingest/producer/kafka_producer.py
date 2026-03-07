@@ -4,7 +4,7 @@ import structlog
 from aiokafka import AIOKafkaProducer
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 
-from asr_ingest.producer.base import ProducerBackend
+from transcription_ingest.producer.base import ProducerBackend
 
 log = structlog.get_logger(__name__)
 

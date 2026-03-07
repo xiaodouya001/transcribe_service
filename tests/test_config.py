@@ -7,7 +7,7 @@ from config.settings import Settings, get_settings
 
 def test_settings_defaults() -> None:
     """Settings has expected default values."""
-    s = Settings()
+    s = Settings(_env_file=None)  # Bypass .env to test defaults
     assert s.fanolab_url == "http://localhost:8765/sse"
     assert s.mode == "sse"
     assert s.redis_url == "redis://localhost:6379/0"
@@ -15,7 +15,7 @@ def test_settings_defaults() -> None:
     assert s.kafka_topic == "asr_realtime_text"
     assert s.kafka_compression_type == "none"
     assert s.kafka_send_timeout_sec == 10.0
-    assert s.redis_buffer_stream == "asr:ingest:buffer"
+    assert s.redis_buffer_stream == "transcription:ingest:buffer"
     assert s.reconnect_enabled is True
 
 

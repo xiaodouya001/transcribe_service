@@ -1,7 +1,7 @@
 """Producer layer - Kafka backend."""
 
-from asr_ingest.producer.base import ProducerBackend
-from asr_ingest.producer.kafka_producer import KafkaProducer
+from transcription_ingest.producer.base import ProducerBackend
+from transcription_ingest.producer.kafka_producer import KafkaProducer
 
 __all__ = ["ProducerBackend", "KafkaProducer", "get_producer_backend"]
 

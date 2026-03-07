@@ -1,4 +1,4 @@
-"""Find Python processes that might be run_local (asr_ingest.demo.run_local)."""
+"""Find Python processes that might be run_local (transcription_ingest.demo.run_local)."""
 import subprocess
 import sys
 
@@ -20,8 +20,8 @@ pids_to_kill = []
 for line in out.strip().splitlines():
     if "|" in line:
         pid, cmd = line.split("|", 1)
-        # run_local or asr_ingest.main
-        if "run_local" in cmd or ("asr_ingest" in cmd and "main" in cmd):
+        # run_local or transcription_ingest.main
+        if "run_local" in cmd or ("transcription_ingest" in cmd and "main" in cmd):
             pids_to_kill.append(pid)
             print(f"PID {pid}: {cmd[:100]}...")
 
@@ -30,4 +30,4 @@ if pids_to_kill:
     for pid in pids_to_kill:
         print(f"    taskkill /F /PID {pid}")
 else:
-    print("No run_local or asr_ingest.main processes found.")
+    print("No run_local or transcription_ingest.main processes found.")

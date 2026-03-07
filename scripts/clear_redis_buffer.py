@@ -19,8 +19,8 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 async def main() -> None:
     from redis.asyncio import Redis
 
-    stream = "asr:ingest:buffer"
-    group = "asr:ingest:consumer"
+    stream = "transcription:ingest:buffer"
+    group = "transcription:ingest:consumer"
     url = os.environ["REDIS_URL"]
     print(f"Redis: {url}")
 
@@ -40,7 +40,7 @@ async def main() -> None:
     if await client.exists(stream):
         print(f"WARNING: stream still exists after delete - check Redis connection/URL")
     await client.aclose()
-    print("Done. Run: python -m asr_ingest.demo.run_local")
+    print("Done. Run: python -m transcription_ingest.demo.run_local")
 
 
 if __name__ == "__main__":
