@@ -124,10 +124,10 @@ sequenceDiagram
     end
 
     loop 消费循环（异步并行）
-        Consumer->>Stream: XREADGROUP（读取新消息）
+        Consumer->>Stream: XREADGROUP（读取新消息，或 pending）
         Stream-->>Consumer: msg_id + payload
         Consumer->>Consumer: JSON 解析，展开 transcripts
-        loop 每条 transcript
+        loop 每条 transcript（同一 Redis 消息内）
             Consumer->>Dedup: should_emit(session_id, seq_no)
             alt 首次到达（SETNX 返回 1）
                 Dedup-->>Consumer: True
@@ -138,17 +138,18 @@ sequenceDiagram
                 alt 发送成功
                     Kafka-->>Prod: ACK
                     Prod-->>Consumer: 完成
-                    Consumer->>Stream: XACK + XDEL
                 else 发送超时/失败
                     Kafka-->>Prod: 超时
                     Consumer->>Dedup: remove(session_id, seq_no)
-                    Note over Consumer: 不 XACK，消息保留在 Stream 待重试
+                    Note over Consumer: 抛异常，本消息不 XACK，保留待重试
                 end
             else 重复数据（SETNX 返回 0）
                 Dedup-->>Consumer: False
                 Note over Consumer: 跳过，不发送
             end
         end
+        Note over Consumer, Stream: 本消息全部 transcript 处理完且无异常时
+        Consumer->>Stream: XACK + XDEL
     end
 ```
 
@@ -216,6 +217,8 @@ sequenceDiagram
 
 ### 4.5 优雅停机
 
+收到 SIGTERM/SIGINT 后 `GracefulShutdown` 置 `draining=True`。直连模式下主循环（`async for connector.connect()`）检测到 `draining` 即 break；Buffer 模式下需等当前 Connector 连接结束，随后在 `connect_fn` 的 **finally** 中执行：`consumer.stop()`、取消消费任务、最多 10 轮 `consume_once()`、`producer.flush()`、`consumer.close()`、`buffer.close()`。然后 `run_with_reconnect` 在下一轮循环发现 `draining` 后退出，进入 **main 的 finally**：再次 `producer.flush()`、`producer.close()`、`dedup.close()`，打日志「已安全退出」。直连模式无 Consumer，仅 break 后执行 main 的 finally。
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -227,11 +230,14 @@ sequenceDiagram
 
     OS->>Shutdown: SIGTERM / SIGINT
     Shutdown->>Shutdown: draining = True
-    Main->>Main: 检测 draining，退出主循环
-    Main->>Consumer: stop()
-    Main->>Consumer: 消费剩余消息（最多 10 轮）
+    Note over Main: 直连模式：async for 检测 draining 即 break
+    Note over Main: Buffer 模式：等 connector 结束后进入 finally
+    Main->>Consumer: stop（并 cancel 消费任务）
+    Main->>Consumer: 消费剩余消息（最多 10 轮 consume_once）
     Main->>Prod: flush()
-    Main->>Prod: close()
+    Main->>Consumer: close()
+    Main->>Main: 退出 run_with_reconnect 循环
+    Main->>Prod: flush() 与 close()
     Main->>Main: 日志：已安全退出
 ```
 
