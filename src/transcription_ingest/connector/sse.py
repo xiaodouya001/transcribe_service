@@ -2,7 +2,7 @@
 
 import json
 import time
-from typing import AsyncIterator, Protocol
+from typing import AsyncIterator
 
 import httpx
 import structlog
@@ -26,12 +26,6 @@ def _log_payload(payload: dict, stage: str) -> None:
         processing_id=processing_id,
         transcript_count=n,
     )
-
-
-class BufferBackend(Protocol):
-    """Protocol for buffer backends (e.g. RedisBuffer)."""
-
-    async def push(self, payload: dict) -> str: ...
 
 
 class SseConnector:
@@ -83,35 +77,3 @@ class SseConnector:
                             _log_payload(payload, "connect")
                             for event in TranscriptionEvent.from_vendor_payload(payload):
                                 yield event, payload
-
-    async def connect_and_push(self, buffer: BufferBackend) -> None:
-        """Stream SSE, parse data lines, push raw payload to buffer (no yield)."""
-        if self._read_timeout is not None:
-            timeout = httpx.Timeout(connect=10.0, read=self._read_timeout, write=60.0, pool=60.0)
-        else:
-            timeout = 60.0
-        log.info("Connector: 正在连接 SSE", url=self._url)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("GET", self._url) as resp:
-                resp.raise_for_status()
-                log.info("Connector: 已连接 SSE", url=self._url, status=resp.status_code)
-                buf = ""
-                async for chunk in resp.aiter_text():
-                    buf += chunk
-                    while "\n" in buf or "\r\n" in buf:
-                        line, _, buf = buf.partition("\n")
-                        line = line.strip()
-                        if line.startswith("id:"):
-                            self.last_event_id = line[3:].strip() or None
-                            continue
-                        if line.startswith("data:"):
-                            data_str = line[5:].strip()
-                            if data_str == "[DONE]" or not data_str:
-                                continue
-                            try:
-                                payload = json.loads(data_str)
-                            except json.JSONDecodeError:
-                                continue
-                            payload["_ingest_received_at"] = time.monotonic()
-                            _log_payload(payload, "connect_and_push")
-                            await buffer.push(payload)

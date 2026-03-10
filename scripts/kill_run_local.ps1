@@ -1,4 +1,4 @@
-# Kill any run_local or transcription_ingest.main processes (stale run_local can keep pushing to buffer)
+# Kill any run_local or transcription_ingest.main processes
 $procs = Get-CimInstance Win32_Process -Filter "Name='python.exe'" | 
     Where-Object { $_.CommandLine -match 'run_local|transcription_ingest\.main' }
 if ($procs) {

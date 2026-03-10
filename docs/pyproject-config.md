@@ -90,7 +90,7 @@ pytest tests/ -v
 
 ### 2.3 Production（生产部署）
 
-连接真实 Redis、Kafka，可选 Redis Buffer。生产模式下自动启用长连接重连、WebSocket 心跳与优雅停机。
+连接真实 Redis、Kafka。生产模式下自动启用长连接重连、WebSocket 心跳与优雅停机。
 
 ```bash
 # 安装（仅运行时依赖，不要 dev）
@@ -104,10 +104,9 @@ python -m transcription_ingest.main
 
 - **依赖**：仅 `[project].dependencies`
 - **配置**：`.env` 或环境变量：
-  - `STT_PROVIDER_URL`：真实 STT 地址
   - `REDIS_URL`：ElastiCache 等
   - `KAFKA_BOOTSTRAP_SERVERS`：MSK 等
-  - `redis_buffer_enabled=true`（推荐）
+  - `TRANSCRIBE_SERVICE_PROTOCOL`：sse 或 websocket
 
 ---
 

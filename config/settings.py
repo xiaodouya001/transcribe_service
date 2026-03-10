@@ -16,21 +16,14 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
     )
 
-    # STT Provider (speech-to-text service URL)
-    stt_provider_url: str = "http://localhost:8765/sse"
-    mode: Literal["sse", "websocket"] = "sse"
+    # Transcribe Service 直连模式（统一 Webhook，无模式分支）
+    transcribe_service_max_sessions_per_pod: int = 100
+    transcribe_service_protocol: str = "sse"  # "sse" 或 "websocket"
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
     dedup_key_parts: str = "session_id,processing_id,seq_no"
     dedup_ttl_seconds: int = 60
-
-    # Redis buffer (when redis_buffer_enabled)
-    redis_buffer_enabled: bool = True
-    redis_buffer_stream: str = "transcription:ingest:buffer"
-    redis_buffer_consumer_group: str = "transcription:ingest:consumer"
-    redis_buffer_maxlen: int = 10000
-    redis_buffer_block_ms: int = 50  # XREADGROUP block 时长(毫秒)，越小延迟越低、空闲时 Redis 往返越多
 
     # Transform
     cleaner_mode: str = "default"

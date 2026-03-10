@@ -73,7 +73,7 @@ python -m transcription_ingest.main
 |------|------|
 | Redis | localhost:6379 |
 | Kafka | localhost:9092 |
-| Kafka UI | http://localhost:8080 |
+| Kafka UI | http://localhost:8090 |
 
 Kafka UI 使用说明见 [kafka-ui-usage.md](kafka-ui-usage.md)。
 
@@ -111,5 +111,5 @@ UT 不依赖真实 Kafka/Redis 环境：
 
 - **日志级别**：`LOG_LEVEL=DEBUG` 查看更详细日志
 - **日志格式**：`LOG_FORMAT=console` 本地开发时使用可读格式
-- **Kafka 消息**：通过 Kafka UI (http://localhost:8080) 查看 Topic `transcription_topic` 的消息
+- **Kafka 消息**：通过 Kafka UI (http://localhost:8090) 查看 Topic `transcription_topic` 的消息
 - **断点调试**：在 IDE 中设置断点，以 `python -m transcription_ingest.main` 或 `python -m pytest` 启动

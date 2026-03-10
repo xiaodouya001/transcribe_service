@@ -1,6 +1,6 @@
 # 架构设计
 
-本文档说明 Transcription Ingest 的架构设计、关键模块原理及异常恢复机制。
+本文档说明 Transcribe Service 的架构设计、关键模块原理及异常恢复机制。
 
 ---
 
@@ -8,10 +8,10 @@
 
 | 角色 | 代码模块 | 职责 |
 |------|----------|------|
-| **Connector** | connector/ | 连接 STT Provider，接收 SSE/WebSocket 推送的 JSON |
-| **Buffer 写入端** | buffer/RedisBuffer | 将 Connector 收到的 payload 写入 Redis Stream |
-| **Buffer 消费端** | buffer/RedisBufferConsumer | 从 Redis Stream 读取 → 去重 → 清洗 → 写入 Kafka |
-| **Dedup** | dedup/ | 按 Key 去重，发送失败时撤销记录以支持重试 |
+| **Webhook** | webhook/ | 接收 Vendor POST，校验 session_id，调用 ConnectorManager.add_session |
+| **ConnectorManager** | connector/manager.py | 管理多会话，每会话创建 Connector 并启动 run_session |
+| **Connector** | connector/ | 连接 STT Provider（ws_url/sse_url），接收 SSE/WebSocket 推送的 JSON |
+| **Dedup** | dedup/ | 按 Key 去重 |
 | **Cleaner** | transform/ | 数据清洗，输出 `raw` + `cleaned` |
 | **Producer** | producer/ | 写入 Kafka |
 
@@ -23,45 +23,33 @@
 
 ```mermaid
 flowchart TB
-    subgraph Direct [直连模式]
-        Connector1[Connector]
-        Dedup1[Dedup]
-        Cleaner1[Cleaner]
-        Producer1[Producer]
-        Connector1 --> Dedup1
-        Dedup1 --> Cleaner1
-        Cleaner1 --> Producer1
+    subgraph WebhookFlow [Webhook 模式]
+        Vendor[STT Vendor]
+        Webhook[Webhook POST /webhook/session]
+        ConnMgr[ConnectorManager]
+        Conn[Connector]
+        Dedup[Dedup]
+        Cleaner[Cleaner]
+        Producer[Producer]
+        Kafka[(Kafka)]
+        Vendor -->|"POST metadata+ws_url+sse_url"| Webhook
+        Webhook --> ConnMgr
+        ConnMgr --> Conn
+        Conn -->|"SSE/WebSocket"| Vendor
+        Conn --> Dedup
+        Dedup --> Cleaner
+        Cleaner --> Producer
+        Producer --> Kafka
     end
-    subgraph Buffer [Buffer 模式]
-        Connector2[Connector]
-        BufferWrite[Buffer 写入端]
-        BufferRead[Buffer 消费端]
-        Dedup2[Dedup]
-        Cleaner2[Cleaner]
-        Producer2[Producer]
-        Connector2 --> BufferWrite
-        BufferWrite --> Redis[(Redis Stream)]
-        Redis --> BufferRead
-        BufferRead --> Dedup2
-        Dedup2 --> Cleaner2
-        Cleaner2 --> Producer2
-    end
-    STT[STT Provider] --> Connector1
-    STT --> Connector2
-    Producer1 --> Kafka[(Kafka)]
-    Producer2 --> Kafka
 ```
 
 ---
 
 ## 3. 数据流
 
-| 模式 | 数据流 |
-|------|--------|
-| 直连 | STT Provider → Connector → Dedup → Cleaner → Producer → Kafka |
-| Buffer | STT Provider → Connector → Buffer 写入端 → Redis Stream → Buffer 消费端 → Dedup → Cleaner → Producer → Kafka |
+**Webhook 模式**：Vendor 推送 Webhook → Transcribe Service Webhook 接收 → ConnectorManager 建连 → Connector 连接 ws_url/sse_url → Dedup → Cleaner → Producer → Kafka
 
-Buffer 模式下，数据先落 Redis Stream，再由 Buffer 消费端异步读取并写入 Kafka；服务中断或 Kafka 不可用时，消息保留在 Stream，恢复后自动重试。
+STT 连接地址（ws_url、sse_url）由 Webhook 请求体提供，每会话独立。
 
 ---
 
@@ -77,7 +65,7 @@ sequenceDiagram
     participant Kafka as Kafka
 
     Main->>Main: 加载配置（Settings）
-    Main->>Main: 初始化 Dedup / Producer / Cleaner（get_* 工厂）
+    Main->>Main: 初始化 Dedup / Producer / Cleaner / ConnectorManager
     Main->>Main: 注册 SIGTERM/SIGINT 信号
 
     Main->>Redis: ping()
@@ -96,235 +84,71 @@ sequenceDiagram
         Kafka-->>Main: 就绪
     end
 
-    Main->>Main: 进入 connect_fn（内部通过 get_connector 获取 Connector）
+    Main->>Main: 启动 Uvicorn（FastAPI Webhook 0.0.0.0:8080）
 ```
 
-### 4.2 Buffer 模式（默认）
+### 4.2 Webhook 接收与会话建立
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant STT as STT Provider
+    participant Vendor as STT Vendor
+    participant Webhook as Webhook
+    participant ConnMgr as ConnectorManager
     participant Conn as Connector
-    participant Buf as Buffer 写入端
-    participant Stream as Redis Stream
-    participant Consumer as Buffer 消费端
-    participant Dedup as Dedup
-    participant Clean as Cleaner
-    participant Prod as Producer
-    participant Kafka as Kafka
-
-    Note over Conn, STT: SSE/WebSocket 长连接
-
-    loop 持续推送转录
-        STT->>Conn: 推送 JSON payload
-        Conn->>Conn: 解析 JSON
-        Conn->>Buf: push(payload)
-        Buf->>Stream: XADD（写入 Stream）
-    end
-
-    loop 消费循环（异步并行）
-        Consumer->>Stream: XREADGROUP（读取新消息，或 pending）
-        Stream-->>Consumer: msg_id + payload
-        Consumer->>Consumer: JSON 解析，展开 transcripts
-        loop 每条 transcript（同一 Redis 消息内）
-            Consumer->>Dedup: should_emit(session_id, seq_no)
-            alt 首次到达（SETNX 返回 1）
-                Dedup-->>Consumer: True
-                Consumer->>Clean: clean(payload, event)
-                Clean-->>Consumer: raw + cleaned
-                Consumer->>Prod: send(session_id, transcript, ...)
-                Prod->>Kafka: send_and_wait(topic, key, value)
-                alt 发送成功
-                    Kafka-->>Prod: ACK
-                    Prod-->>Consumer: 完成
-                else 发送超时/失败
-                    Kafka-->>Prod: 超时
-                    Consumer->>Dedup: remove(session_id, seq_no)
-                    Note over Consumer: 抛异常，本消息不 XACK，保留待重试
-                end
-            else 重复数据（SETNX 返回 0）
-                Dedup-->>Consumer: False
-                Note over Consumer: 跳过，不发送
-            end
-        end
-        Note over Consumer, Stream: 本消息全部 transcript 处理完且无异常时
-        Consumer->>Stream: XACK + XDEL
-    end
-```
-
-### 4.3 直连模式
-
-```mermaid
-sequenceDiagram
-    autonumber
     participant STT as STT Provider
-    participant Conn as Connector
-    participant Dedup as Dedup
-    participant Clean as Cleaner
-    participant Prod as Producer
-    participant Kafka as Kafka
+
+    Vendor->>Webhook: POST /webhook/session (metadata, ws_url, sse_url)
+    Webhook->>Webhook: 校验 metadata.session_id
+    Webhook->>ConnMgr: add_session(metadata, ws_url, sse_url)
+    ConnMgr->>ConnMgr: 根据 protocol 选择 sse_url 或 ws_url
+    ConnMgr->>Conn: get_connector_for_url(url, use_sse)
+    ConnMgr->>ConnMgr: 启动 run_session 协程（含 run_with_reconnect）
 
     loop 持续推送转录
         STT->>Conn: 推送 JSON payload
         Conn->>Conn: 解析 JSON，展开 transcripts
-        loop 每条 transcript
-            Conn->>Dedup: should_emit(session_id, seq_no)
-            alt 首次到达
-                Dedup-->>Conn: True
-                Conn->>Clean: clean(payload, event)
-                Clean-->>Conn: raw + cleaned
-                Conn->>Prod: send(session_id, transcript, ...)
-                Prod->>Kafka: send_and_wait(topic, key, value)
-                Kafka-->>Prod: ACK
-            else 重复
-                Dedup-->>Conn: False
-                Note over Conn: 跳过
-            end
-        end
+        Conn->>ConnMgr: Dedup → Cleaner → Producer → Kafka
     end
 ```
 
-### 4.4 STT 断连与重连
+### 4.3 优雅停机
 
-由 `connector.reconnect.run_with_reconnect` 驱动：每次循环调用 `connect_fn(last_event_id)`，`connect_fn` 内通过 `get_connector(settings, last_event_id)` 得到 Connector 后连接 STT。断连时 `connect_fn` **抛出异常**，不返回值；`last_event_id` 仅在一次**正常返回**时更新，断连后重试沿用上一轮的值（SSE 重连时带该值作为 `Last-Event-ID`）。
-
-**退让策略**：**仅当连接失败**（异常，如 502、超时）时使用指数退避；**连接正常结束**（如 SSE 流被服务端关闭）时只做短延迟（至多 1 秒）再重连，避免网络正常时也长时间等待。
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Reconnect as run_with_reconnect
-    participant Fn as connect_fn
-    participant Conn as Connector
-    participant STT as STT Provider
-
-    Reconnect->>Fn: connect_fn(last_event_id)
-    Fn->>Conn: get_connector(settings, last_event_id)
-    Conn->>STT: 建立 SSE/WebSocket 连接
-    STT-->>Conn: 连接成功，开始推送
-    Note over Conn, STT: ...正常传输...
-
-    alt 连接失败（502、超时等）
-        STT--xConn: 异常断开
-        Conn-->>Fn: 抛出异常
-        Fn-->>Reconnect: 抛出异常（last_event_id 保持上一轮）
-        Reconnect->>Reconnect: 记录日志，计算指数退避延迟
-        Reconnect->>Reconnect: sleep(退避时间)
-    else 连接正常结束（流关闭）
-        STT-->>Conn: 流结束
-        Conn-->>Fn: 正常返回 last_event_id
-        Fn-->>Reconnect: 返回 last_event_id
-        Reconnect->>Reconnect: 短延迟（至多 1s）
-        Reconnect->>Reconnect: sleep(短延迟)
-    end
-
-    Reconnect->>Fn: connect_fn(last_event_id)
-    Fn->>Conn: get_connector(settings, last_event_id)
-    Conn->>STT: 重连（SSE 时带 Last-Event-ID）
-    STT-->>Conn: 连接成功，从断点继续推送
-```
-
-### 4.5 优雅停机
-
-收到 SIGTERM/SIGINT 后 `GracefulShutdown` 置 `draining=True` 并 set `_shutdown_event`。
-
-- **直连模式**：主循环（`async for connector.connect()`）每次迭代检查 `shutdown.draining`，为 True 即 break，不再从 STT 读新数据。
-- **Buffer 模式**：主流程用 `asyncio.wait([connector_task, shutdown_waiter], FIRST_COMPLETED)` 等待「Connector 自然结束」或「收到停机信号」。**一旦收到信号**，立即 **cancel(connector_task)**，从而断开 SSE/WebSocket，不再从 STT 接收新数据；然后进入 **finally**：`consumer.stop()`、取消消费任务、最多 10 轮 `consume_once()` 消化 Buffer 中已有消息、`producer.flush()`、`consumer.close()`、`buffer.close()`。随后 `run_with_reconnect` 发现 `draining` 退出，进入 **main 的 finally**：再次 `producer.flush()`、`producer.close()`、`dedup.close()`，打日志「已安全退出」。
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant OS as 操作系统
-    participant Shutdown as GracefulShutdown
-    participant Main as main.py
-    participant Consumer as Buffer 消费端
-    participant Prod as Producer
-
-    OS->>Shutdown: SIGTERM / SIGINT
-    Shutdown->>Shutdown: draining = True，set shutdown_event
-    Note over Main: 直连：async for 检测 draining 即 break
-    Note over Main: Buffer：收到信号即 cancel(connector_task)，断开 STT
-    Main->>Consumer: stop（并 cancel 消费任务）
-    Main->>Consumer: 消费剩余消息（最多 10 轮 consume_once）
-    Main->>Prod: flush()
-    Main->>Consumer: close()
-    Main->>Main: 退出 run_with_reconnect 循环
-    Main->>Prod: flush() 与 close()
-    Main->>Main: 日志：已安全退出
-```
+收到 SIGTERM/SIGINT 后 `GracefulShutdown` 置 `draining=True`。ConnectorManager 的 run_session 检查 `draining` 后退出循环。主流程等待活跃会话结束（或 stop_timeout 超时），设置 `server.should_exit=True`，关闭 Uvicorn。
 
 ---
 
 ## 5. 关键模块设计原理
 
-### 5.1 Connector
+### 5.1 Webhook
 
-**职责**：建立与 STT Provider 的长连接，解析推送的 JSON，按 `result.transcripts` 展开为 `TranscriptionEvent`。
+**路径**：固定 `/webhook/session`，host `0.0.0.0`，port `8080`。
 
-**创建方式**：与 Dedup / Producer / Cleaner 一致，通过包级工厂注入。入口（如 `main.py`）调用 `get_connector(settings, last_event_id)`，根据 `settings.mode` 返回 `SseConnector` 或 `WebSocketConnector`。重连循环由 `connector.reconnect.run_with_reconnect` 管理，不通过 `connector` 包顶层 `__init__` 导出。
+**Payload**：`{ metadata: { session_id }, ws_url, sse_url }`。metadata.session_id 必填。
 
-**SSE vs WebSocket**：
+**响应**：202 Accepted。
 
-- **SSE**：基于 HTTP GET，单向推送，支持 `Last-Event-ID` 断点续传。适合 STT Provider 以 HTTP 流式返回的场景。
-- **WebSocket**：双向通道，支持 ping/pong 保活。配置 `WS_PING_INTERVAL`、`WS_PING_TIMEOUT` 控制心跳。
+### 5.2 ConnectorManager
 
-**断点续传**：SSE 模式下，`last_event_id` 在重连时传给 `connect_fn`，下次重连会带上 `Last-Event-ID` 请求头，STT Provider 可从该位置继续推送。
+**职责**：管理多会话，`Dict[session_id, asyncio.Task]`。add_session 创建 Connector，启动 run_session；remove_session 取消 Task。
 
-**重连策略**：由 `reconnect.run_with_reconnect` 统一管理。**连接失败**（异常）时使用指数退避（`initial_delay * backoff_factor^attempt`，上限 `max_delay`）；**连接正常结束**（如 SSE 流关闭）时仅短延迟（至多 1 秒）后重连，避免网络正常时也长时间等待。
+**run_session**：connect → Dedup → Cleaner → Producer，内部复用 `run_with_reconnect` 实现断连重试。
 
----
+### 5.3 Connector
 
-### 5.2 Buffer（Redis Stream）
+**创建方式**：`get_connector_for_url(url, use_sse, last_event_id, ...)` 根据 use_sse 返回 SseConnector 或 WebSocketConnector。
 
-**选型理由**：Redis Stream 支持持久化、消费组、ACK 机制，适合 Kafka 不可用时暂存消息。
+**SSE vs WebSocket**：由 `TRANSCRIBE_SERVICE_PROTOCOL` 配置，Webhook 收到 ws_url/sse_url 后按此选择。
 
-**写入端**（`RedisBuffer`）：
+**重连策略**：由 `reconnect.run_with_reconnect` 管理。连接失败时指数退避；连接正常结束时短延迟（至多 1 秒）后重连。
 
-- `XADD` 将 payload 写入 Stream，`maxlen` 可限制 Stream 长度，避免内存溢出。
-- 每条消息格式：`{payload: JSON.stringify(raw)}`。
+### 5.4 Dedup
 
-**消费端**（`RedisBufferConsumer`）：
+**原理**：Redis `SET key "1" NX EX ttl`。Key 由 `DEDUP_KEY_PARTS` 配置。
 
-- `XREADGROUP` 消费组消费：先**阻塞等待**新消息（`>`，`block` 毫秒），再读未 ACK 的 pending（`0`）。不是忙轮询，有数据时 Redis 会立即唤醒。
-- 处理成功：`XACK` + `XDEL`；失败则**不** XACK，消息保留在 Stream，下次重试。
-- **延迟与 block**：`redis_buffer_block_ms`（默认 50ms）为单次阻塞时长；越小则「写入 Stream → 被消费」的尾延迟越低，空闲时 Redis 往返次数越多。对 STT 等延迟敏感场景可设为 20～50ms。
+### 5.5 Producer
 
-**与 Dedup 的关系**：消费端在发送 Kafka 前做 dedup；发送失败时调用 `dedup.remove()` 撤销 dedup 记录，保证重试时能再次发送。
-
----
-
-### 5.3 Dedup
-
-**原理**：Redis `SET key "1" NX EX ttl`，key 不存在则设置成功返回 True，否则返回 False。
-
-**Key 组成**：由 `DEDUP_KEY_PARTS` 配置，支持 `session_id`、`processing_id`、`seq_no`、`created_at` 组合，例如 `dedup:s1:p1:0`。
-
-**TTL**：`DEDUP_TTL_SECONDS` 控制 key 过期时间。需大于「同一 transcript 可能重复到达」的最大时间间隔（如 STT 重连重放）。
-
-**remove()**：发送 Kafka 失败时调用，删除 dedup key，使重试时 `should_emit` 再次返回 True。
-
----
-
-### 5.4 Producer
-
-**Key 设计**：使用 `session_id` 作为 Kafka 消息 Key，相同 session 落入同一分区，分区内有序。
-
-**启动校验**：`ensure_ready()` 在启动时调用，确保 Kafka 可达，失败则退出并输出明确错误。
-
-**发送超时**：`asyncio.wait_for(producer.send(), timeout)`，默认 10 秒。超时后抛出 `RuntimeError`，Buffer 消费端捕获后不 XACK，消息保留待重试。
-
-**Topic 创建**：首次启动时 `AIOKafkaAdminClient.create_topics`，若 Topic 已存在则忽略异常。
-
----
-
-### 5.5 Shutdown
-
-**SIGTERM/SIGINT**：注册信号处理器，收到后设置 `draining=True`，主循环检查 `draining` 后退出。
-
-**Windows**：`add_signal_handler` 不支持，改用 `signal.signal`。
-
-**stop_timeout**：`wait_for_sessions_or_timeout` 等待活跃 session 结束，超时后强制退出并打日志。
+**Key 设计**：使用 `session_id` 作为 Kafka 消息 Key。
 
 ---
 
@@ -332,12 +156,10 @@ sequenceDiagram
 
 | 场景 | 行为 | 日志 |
 |------|------|------|
-| Redis 不可用 | 启动时 `ping()` 失败，立即退出 | `Transcription Ingest: 启动失败（Redis 不可用）` |
-| Kafka 不可用 | 启动时 `ensure_ready()` 失败，立即退出 | `Transcription Ingest: 启动失败（Kafka 不可用）` |
-| Kafka 发送超时 | Buffer 消费端不 XACK，消息保留；调用 `dedup.remove()` | `Buffer Consumer: 处理消息失败（Kafka 不可用，消息已保留在 Buffer，将自动重试）` |
+| Redis 不可用 | 启动时 `ping()` 失败，立即退出 | `Transcribe Service: 启动失败（Redis 不可用）` |
+| Kafka 不可用 | 启动时 `ensure_ready()` 失败，立即退出 | `Transcribe Service: 启动失败（Kafka 不可用）` |
 | STT 断连（异常） | 重连循环按指数退避重试 | `Reconnect: 连接失败，即将重连（退让）` |
 | STT 连接正常结束 | 短延迟（至多 1s）后重连 | `Reconnect: 连接已结束，即将重连` |
-| STT 502/503/504 | 同「STT 断连（异常）」指数退避 | 同上 |
 
 ---
 

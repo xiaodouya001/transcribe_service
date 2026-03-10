@@ -1,6 +1,6 @@
-# Transcription Ingest
+# Transcribe Service
 
-> 实时转录接入与分发服务。从 STT Provider 接收转录结果，去重后异步推送到 Kafka。
+> 实时转录接入与分发服务。Vendor 通过 Webhook 推送会话，ConnectorManager 建连 STT，去重后异步推送到 Kafka。
 
 ---
 
@@ -43,9 +43,9 @@ python -m transcription_ingest.main
 transcribe_service/
 ├── config/              # Pydantic Settings
 ├── src/transcription_ingest/      # 主逻辑
-│   ├── main.py          # 入口
-│   ├── connector/       # SSE/WebSocket 接入
-│   ├── buffer/          # Redis Stream
+│   ├── main.py          # 入口（Webhook 模式）
+│   ├── webhook/         # Webhook HTTP 端点
+│   ├── connector/       # SSE/WebSocket 接入 + ConnectorManager
 │   ├── dedup/           # 去重
 │   ├── transform/       # 数据清洗
 │   ├── producer/        # Kafka 输出

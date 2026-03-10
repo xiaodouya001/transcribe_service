@@ -10,7 +10,7 @@ Kafka UI 是开源 Web 界面，用于查看和管理 Kafka 集群，消息会�
 docker compose up -d
 ```
 
-会启动 Redis、Kafka 和 Kafka UI。Kafka UI 地址：**http://localhost:8080**
+会启动 Redis、Kafka 和 Kafka UI。Kafka UI 地址：**http://localhost:8090**（8090 避免与 Transcribe Service Webhook 8080 冲突）
 
 ### 方式二：单独启动 Kafka UI（Kafka 已运行）
 
@@ -34,7 +34,7 @@ docker run -d -p 8080:8080 \
 
 ## 2. 查看消息
 
-1. 浏览器打开 **http://localhost:8080**
+1. 浏览器打开 **http://localhost:8090**
 2. 左侧选择 **Topics** → 点击 `transcription_topic`
 3. 在 **Messages** 标签页查看消息
 4. 点击某条消息可展开，Value 会以 UTF-8 文本显示，JSON 自动格式化

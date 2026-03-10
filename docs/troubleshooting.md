@@ -6,9 +6,9 @@
 
 ## 1. 启动失败
 
-### Transcription Ingest: 启动失败（Redis 不可用）
+### Transcribe Service: 启动失败（Redis 不可用）
 
-**原因**：无法连接 Redis。
+**原因**：无法连接 Redis。Transcribe Service 启动前会校验 Redis。
 
 **排查**：
 
@@ -36,7 +36,7 @@
 
 **排查**：
 
-1. 确认 `STT_PROVIDER_URL` 正确
+1. 确认 Webhook 收到的 ws_url/sse_url 正确
 2. 检查 STT 服务是否启动、端口是否开放
 3. 若为 HTTPS，检查证书、代理
 
@@ -48,11 +48,11 @@
 
 ## 3. Kafka 发送失败
 
-### Buffer Consumer: 处理消息失败（Kafka 不可用，消息已保留在 Buffer，将自动重试）
+### ConnectorManager: 会话异常（Kafka 不可用）
 
 **原因**：发送 Kafka 超时或异常。
 
-**行为**：消息保留在 Redis Stream，不 XACK；dedup 记录已撤销，Kafka 恢复后会自动重试。
+**行为**：会话异常会触发重连；重连成功后继续发送。
 
 **排查**：
 
@@ -67,8 +67,8 @@
 
 | 关键字                       | 含义            |
 | ------------------------- | ------------- |
-| `Transcription Ingest: 已启动`           | 启动成功          |
-| `Transcription Ingest: 正在关闭连接`        | 优雅停机中         |
+| `Transcribe Service: 已启动`           | 启动成功          |
+| `Transcribe Service: 正在关闭连接`        | 优雅停机中         |
 | `Dedup: 通过（新 transcript）` | 去重通过，将发送      |
 | `Dedup: 已过滤重复`            | 重复消息已过滤       |
 | `Kafka Producer: 已发送`     | 消息已成功写入 Kafka |

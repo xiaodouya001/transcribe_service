@@ -1,6 +1,6 @@
 # 配置说明
 
-本文档说明 Transcription Ingest 的环境变量配置，与 [config/settings.py](../config/settings.py) 对应。
+本文档说明 Transcribe Service 的环境变量配置，与 [config/settings.py](../config/settings.py) 对应。
 
 ---
 
@@ -16,15 +16,14 @@ cp .env.example .env
 
 ## 2. 配置项一览
 
-### STT Provider
+### Transcribe Service（Webhook 模式）
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `STT_PROVIDER_URL` | http://localhost:8765/sse | STT Provider SSE/WebSocket 地址 |
-| `MODE` | sse | 传输协议：`sse` 或 `websocket` |
-| `SSE_READ_TIMEOUT` | 空 | SSE 读超时（秒），空=无限制 |
-| `WS_PING_INTERVAL` | 20.0 | WebSocket ping 间隔（秒） |
-| `WS_PING_TIMEOUT` | 20.0 | WebSocket pong 超时（秒） |
+| `TRANSCRIBE_SERVICE_MAX_SESSIONS_PER_POD` | 100 | 单 Pod 最大会话数 |
+| `TRANSCRIBE_SERVICE_PROTOCOL` | sse | 协议：`sse` 或 `websocket`（Webhook 收到 ws_url/sse_url 后按此选择） |
+
+Webhook 路径 `/webhook/session`、host `0.0.0.0`、port `8080` 固定于代码，由 Docker/ECS 编排。
 
 ### Redis
 
@@ -33,15 +32,6 @@ cp .env.example .env
 | `REDIS_URL` | redis://localhost:6379/0 | Redis 连接地址 |
 | `DEDUP_KEY_PARTS` | session_id,processing_id,seq_no | 去重 Key 组成 |
 | `DEDUP_TTL_SECONDS` | 60 | 去重 Key 过期时间（秒） |
-
-### Redis Buffer
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `REDIS_BUFFER_ENABLED` | true | 是否启用 Redis Stream 缓冲 |
-| `REDIS_BUFFER_STREAM` | transcription:ingest:buffer | Redis Stream 名称 |
-| `REDIS_BUFFER_CONSUMER_GROUP` | transcription:ingest:consumer | Buffer 消费端使用的消费组名称 |
-| `REDIS_BUFFER_MAXLEN` | 10000 | Stream 最大长度 |
 
 ### Kafka
 
@@ -61,6 +51,9 @@ cp .env.example .env
 | `RECONNECT_INITIAL_DELAY` | 1.0 | 初始退避延迟（秒） |
 | `RECONNECT_MAX_DELAY` | 60.0 | 最大退避延迟（秒） |
 | `RECONNECT_BACKOFF_FACTOR` | 2.0 | 退避因子 |
+| `SSE_READ_TIMEOUT` | 空 | SSE 读超时（秒），空=无限制 |
+| `WS_PING_INTERVAL` | 20.0 | WebSocket ping 间隔（秒） |
+| `WS_PING_TIMEOUT` | 20.0 | WebSocket pong 超时（秒） |
 
 ### 其它
 
@@ -78,20 +71,18 @@ cp .env.example .env
 **本地开发**：
 
 ```env
-STT_PROVIDER_URL=http://localhost:8765/sse
-MODE=sse
 REDIS_URL=redis://localhost:6379/0
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+TRANSCRIBE_SERVICE_PROTOCOL=sse
 ```
 
 **生产**：
 
 ```env
-STT_PROVIDER_URL=https://your-stt-provider.example.com/sse
-MODE=sse
 REDIS_URL=redis://your-elasticache:6379/0
 KAFKA_BOOTSTRAP_SERVERS=your-msk:9092
 KAFKA_COMPRESSION_TYPE=gzip
+TRANSCRIBE_SERVICE_PROTOCOL=sse
 LOG_FORMAT=json
 ```
 
@@ -109,3 +100,4 @@ LOG_FORMAT=json
 ## 5. 相关文档
 
 - [pyproject-config.md](pyproject-config.md) - pyproject.toml 构建与依赖配置
+- [docs/specs/01-application-design.md](specs/01-application-design.md) - 应用设计

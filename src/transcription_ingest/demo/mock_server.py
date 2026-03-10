@@ -14,6 +14,14 @@ QUEUE_WAIT_TIMEOUT = 120.0
 KEEPALIVE_INTERVAL = 30.0
 
 
+def _get_session_queue(app: web.Application, session_id: str) -> asyncio.Queue:
+    """Get or create queue for session_id."""
+    queues: dict[str, asyncio.Queue] = app["session_queues"]
+    if session_id not in queues:
+        queues[session_id] = asyncio.Queue()
+    return queues[session_id]
+
+
 def _validate_payload(data: dict) -> None:
     """Validate payload for TranscriptionEvent.from_vendor_payload."""
     if not data.get("success") or "result" not in data:
@@ -26,8 +34,7 @@ def _validate_payload(data: dict) -> None:
 
 
 async def inject_handler(request: web.Request) -> web.Response:
-    """POST /inject: accept JSON, put into queue."""
-    queue: asyncio.Queue = request.app["inject_queue"]
+    """POST /inject: accept JSON, put into session-specific queue."""
     try:
         data = await request.json()
     except json.JSONDecodeError as e:
@@ -36,17 +43,23 @@ async def inject_handler(request: web.Request) -> web.Response:
         _validate_payload(data)
     except ValueError as e:
         raise web.HTTPBadRequest(text=str(e))
-    await queue.put(data)
     sid = data.get("result", {}).get("callStatus", {}).get("sessionId", "")
+    if not sid:
+        raise web.HTTPBadRequest(text="result.callStatus.sessionId required")
+    queue = _get_session_queue(request.app, sid)
+    await queue.put(data)
     log.info("Mock: 收到前端注入的 JSON payload", session_id=sid)
     return web.json_response({"ok": True})
 
 
 async def sse_handler(request: web.Request) -> web.StreamResponse:
-    """GET /sse?source=queue: stream from inject queue with keepalive."""
+    """GET /sse?session_id=xxx: stream from session-specific queue with keepalive."""
     import time
 
-    queue: asyncio.Queue = request.app["inject_queue"]
+    session_id = request.query.get("session_id", "")
+    if not session_id:
+        raise web.HTTPBadRequest(text="session_id query param required")
+    queue = _get_session_queue(request.app, session_id)
     response = web.StreamResponse()
     response.headers["Content-Type"] = "text/event-stream"
     response.headers["Cache-Control"] = "no-cache"
@@ -84,9 +97,9 @@ async def index_handler(request: web.Request) -> web.Response:
 
 
 def create_app() -> web.Application:
-    """Create app with inject queue, POST /inject, GET /sse, GET /."""
+    """Create app with per-session queues, POST /inject, GET /sse?session_id=xxx, GET /."""
     app = web.Application()
-    app["inject_queue"] = asyncio.Queue()
+    app["session_queues"] = {}  # session_id -> asyncio.Queue
     app.router.add_post("/inject", inject_handler)
     app.router.add_get("/sse", sse_handler)
     app.router.add_get("/", index_handler)
@@ -101,9 +114,9 @@ async def run(host: str = "127.0.0.1", port: int = 8765) -> None:
     site = web.TCPSite(runner, host, port)
     await site.start()
     log.info(
-        "Mock: 本地 Demo 服务已启动",
+        "Mock: 本地 Demo 服务已启动（多会话：/sse?session_id=xxx）",
         frontend=f"http://{host}:{port}/",
-        sse=f"http://{host}:{port}/sse",
+        sse=f"http://{host}:{port}/sse?session_id=<session_id>",
     )
     try:
         await asyncio.Event().wait()

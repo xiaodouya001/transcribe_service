@@ -8,7 +8,7 @@ import structlog
 import websockets
 
 from transcription_ingest.connector.base import TranscriptionEvent
-from transcription_ingest.connector.sse import BufferBackend, _log_payload
+from transcription_ingest.connector.sse import _log_payload
 
 log = structlog.get_logger()
 
@@ -44,20 +44,3 @@ class WebSocketConnector:
                 _log_payload(payload, "connect")
                 for event in TranscriptionEvent.from_vendor_payload(payload):
                     yield event, payload
-
-    async def connect_and_push(self, buffer: BufferBackend) -> None:
-        """Connect and stream messages, push raw payload to buffer (no yield)."""
-        kwargs: dict = {}
-        if self._ping_interval is not None:
-            kwargs["ping_interval"] = self._ping_interval
-        if self._ping_timeout is not None:
-            kwargs["ping_timeout"] = self._ping_timeout
-        async with websockets.connect(self._url, **kwargs) as ws:
-            async for message in ws:
-                try:
-                    payload = json.loads(message)
-                except json.JSONDecodeError:
-                    continue
-                payload["_ingest_received_at"] = time.monotonic()
-                _log_payload(payload, "connect_and_push")
-                await buffer.push(payload)

@@ -6,19 +6,23 @@ from transcription_ingest.connector.base import TranscriptionEvent
 from transcription_ingest.connector.sse import SseConnector
 from transcription_ingest.connector.websocket import WebSocketConnector
 
-__all__ = ["TranscriptionEvent", "SseConnector", "WebSocketConnector", "get_connector"]
+__all__ = ["TranscriptionEvent", "SseConnector", "WebSocketConnector", "get_connector_for_url"]
 
 
-def get_connector(settings: Any, last_event_id: str | None = None):
-    """Factory: return SseConnector or WebSocketConnector based on settings.mode."""
-    if settings.mode == "sse":
-        return SseConnector(
-            settings.stt_provider_url,
-            last_event_id,
-            read_timeout=getattr(settings, "sse_read_timeout", None),
-        )
+def get_connector_for_url(
+    url: str,
+    *,
+    use_sse: bool,
+    last_event_id: str | None = None,
+    read_timeout: float | None = None,
+    ping_interval: float | None = 20.0,
+    ping_timeout: float | None = 20.0,
+):
+    """Factory: return SseConnector or WebSocketConnector based on url and use_sse."""
+    if use_sse:
+        return SseConnector(url, last_event_id, read_timeout=read_timeout)
     return WebSocketConnector(
-        settings.stt_provider_url,
-        ping_interval=getattr(settings, "ws_ping_interval", 20.0),
-        ping_timeout=getattr(settings, "ws_ping_timeout", 20.0),
+        url,
+        ping_interval=ping_interval,
+        ping_timeout=ping_timeout,
     )
