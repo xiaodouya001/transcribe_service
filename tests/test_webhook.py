@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from transcription_ingest.webhook import create_app, WebhookPayload
-from transcription_ingest.connector.manager import ConnectorManager
+from transcribe_service.webhook import create_app, WebhookPayload
+from transcribe_service.connector.manager import ConnectorManager
 
 
 @pytest.fixture
@@ -15,6 +15,8 @@ def mock_manager():
     m._settings = MagicMock()
     m._settings.transcribe_service_protocol = "sse"
     m._settings.transcribe_service_ssrf_allow_localhost = False
+    m._shutdown = MagicMock()
+    m._shutdown.draining = False
     return m
 
 
@@ -72,6 +74,22 @@ def test_webhook_post_session_limit(client, mock_manager) -> None:
     )
     assert resp.status_code == 503
     assert "session limit" in resp.json().get("error", "").lower()
+
+
+def test_webhook_post_draining_returns_503(client, mock_manager) -> None:
+    """POST when draining returns 503."""
+    mock_manager._shutdown.draining = True
+    resp = client.post(
+        "/webhook/session",
+        json={
+            "metadata": {"session_id": "s1"},
+            "ws_url": "wss://vendor/ws",
+            "sse_url": "https://vendor/sse",
+        },
+    )
+    assert resp.status_code == 503
+    assert "draining" in resp.json().get("error", "").lower()
+    mock_manager.add_session.assert_not_called()
 
 
 def test_webhook_post_ssrf_rejected(client, mock_manager) -> None:

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from transcription_ingest.connector.reconnect import run_with_reconnect
+from transcribe_service.connector.reconnect import run_with_reconnect
 
 
 @pytest.mark.asyncio
@@ -19,6 +19,27 @@ async def test_run_with_reconnect_disabled() -> None:
         return None  # WebSocket-style: no last_event_id
 
     settings = SimpleNamespace(reconnect_enabled=False)
+    await run_with_reconnect(connect_fn, settings)
+    assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_run_with_reconnect_normal_end_no_retry() -> None:
+    """When connect_fn returns None (e.g. EOF), no retry - exit immediately."""
+    call_count = 0
+
+    async def connect_fn(last_event_id):
+        nonlocal call_count
+        call_count += 1
+        return None  # Normal end (e.g. vendor sent EOF)
+
+    settings = SimpleNamespace(
+        reconnect_enabled=True,
+        reconnect_max_retries=5,
+        reconnect_initial_delay=0.01,
+        reconnect_max_delay=1.0,
+        reconnect_backoff_factor=2.0,
+    )
     await run_with_reconnect(connect_fn, settings)
     assert call_count == 1
 

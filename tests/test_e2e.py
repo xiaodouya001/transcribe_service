@@ -1,8 +1,8 @@
-"""E2E 集成测试 - Transcription Ingest 去重验证。"""
+"""E2E 集成测试 - Transcribe Service 去重验证。"""
 
 import pytest
-from transcription_ingest.connector.base import TranscriptionEvent
-from transcription_ingest.dedup import RedisDeduplication
+from transcribe_service.connector.base import TranscriptionEvent
+from transcribe_service.dedup import RedisDeduplication
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def fake_redis_dedup():
 
 @pytest.mark.asyncio
 async def test_ingest_dedup_filters_duplicates(fake_redis_dedup: RedisDeduplication) -> None:
-    """Transcription Ingest 应通过 dedup 过滤重复的 (session_id, seq_no)。"""
+    """Transcribe Service 应通过 dedup 过滤重复的 (session_id, seq_no)。"""
     dedup = fake_redis_dedup
     received: list[dict] = []
 

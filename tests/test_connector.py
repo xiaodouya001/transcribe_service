@@ -4,9 +4,9 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from transcription_ingest.connector.base import TranscriptionEvent
-from transcription_ingest.connector.sse import SseConnector, _log_payload
-from transcription_ingest.connector import get_connector_for_url
+from transcribe_service.connector.base import TranscriptionEvent
+from transcribe_service.connector.sse import SseConnector, _log_payload
+from transcribe_service.connector import get_connector_for_url
 
 
 def test_get_connector_for_url_sse() -> None:
@@ -25,7 +25,7 @@ def test_get_connector_for_url_sse() -> None:
 
 def test_get_connector_for_url_websocket() -> None:
     """get_connector_for_url returns WebSocketConnector when use_sse=False."""
-    from transcription_ingest.connector.websocket import WebSocketConnector
+    from transcribe_service.connector.websocket import WebSocketConnector
 
     conn = get_connector_for_url(
         "wss://stt.example/ws",
@@ -150,7 +150,7 @@ async def test_sse_connector_connect_parses_sse_stream() -> None:
     fake_stream_ctx.__aenter__ = AsyncMock(return_value=fake_resp)
     fake_stream_ctx.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("transcription_ingest.connector.sse.httpx.AsyncClient") as mock_client_cls:
+    with patch("transcribe_service.connector.sse.httpx.AsyncClient") as mock_client_cls:
         mock_client = MagicMock()
         mock_client.stream = MagicMock(return_value=fake_stream_ctx)
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -182,7 +182,7 @@ async def test_sse_connector_connect_with_last_event_id() -> None:
     fake_stream_ctx.__aenter__ = AsyncMock(return_value=fake_resp)
     fake_stream_ctx.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("transcription_ingest.connector.sse.httpx.AsyncClient") as mock_client_cls:
+    with patch("transcribe_service.connector.sse.httpx.AsyncClient") as mock_client_cls:
         mock_client = MagicMock()
         mock_client.stream = MagicMock(return_value=fake_stream_ctx)
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -213,7 +213,7 @@ async def test_sse_connector_skips_done_and_invalid_json() -> None:
     fake_stream_ctx.__aenter__ = AsyncMock(return_value=fake_resp)
     fake_stream_ctx.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("transcription_ingest.connector.sse.httpx.AsyncClient") as mock_client_cls:
+    with patch("transcribe_service.connector.sse.httpx.AsyncClient") as mock_client_cls:
         mock_client = MagicMock()
         mock_client.stream = MagicMock(return_value=fake_stream_ctx)
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -228,9 +228,84 @@ async def test_sse_connector_skips_done_and_invalid_json() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sse_connector_eof_stops_and_sets_normal_end() -> None:
+    """SseConnector stops on EOF and sets _normal_end (no reconnect)."""
+    payload = {"event": "request", "data": "EOF"}
+    sse_body = f"data: {json.dumps(payload)}\n\n"
+
+    async def fake_aiter_text():
+        yield sse_body
+
+    fake_resp = MagicMock()
+    fake_resp.aiter_text = fake_aiter_text
+    fake_resp.raise_for_status = MagicMock()
+    fake_resp.__aenter__ = AsyncMock(return_value=fake_resp)
+    fake_resp.__aexit__ = AsyncMock(return_value=None)
+
+    fake_stream_ctx = MagicMock()
+    fake_stream_ctx.__aenter__ = AsyncMock(return_value=fake_resp)
+    fake_stream_ctx.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("transcribe_service.connector.sse.httpx.AsyncClient") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.stream = MagicMock(return_value=fake_stream_ctx)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_cls.return_value = mock_client
+
+        connector = SseConnector("http://fake.local/sse")
+        events = []
+        async for event, raw in connector.connect():
+            events.append((event, raw))
+        assert len(events) == 0
+        assert connector._normal_end is True
+
+
+@pytest.mark.asyncio
+async def test_sse_connector_eof_after_transcript() -> None:
+    """SseConnector yields transcript then stops on EOF."""
+    transcript_payload = {
+        "result": {
+            "callStatus": {"sessionId": "s1"},
+            "transcripts": [{"seqNo": 0, "transcript": "bye", "role": "Agent"}],
+        },
+    }
+    eof_payload = {"event": "request", "data": "EOF"}
+    sse_body = f"data: {json.dumps(transcript_payload)}\n\ndata: {json.dumps(eof_payload)}\n\n"
+
+    async def fake_aiter_text():
+        yield sse_body
+
+    fake_resp = MagicMock()
+    fake_resp.aiter_text = fake_aiter_text
+    fake_resp.raise_for_status = MagicMock()
+    fake_resp.__aenter__ = AsyncMock(return_value=fake_resp)
+    fake_resp.__aexit__ = AsyncMock(return_value=None)
+
+    fake_stream_ctx = MagicMock()
+    fake_stream_ctx.__aenter__ = AsyncMock(return_value=fake_resp)
+    fake_stream_ctx.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("transcribe_service.connector.sse.httpx.AsyncClient") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.stream = MagicMock(return_value=fake_stream_ctx)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_cls.return_value = mock_client
+
+        connector = SseConnector("http://fake.local/sse")
+        events = []
+        async for event, raw in connector.connect():
+            events.append((event, raw))
+        assert len(events) == 1
+        assert events[0][0].transcript == "bye"
+        assert connector._normal_end is True
+
+
+@pytest.mark.asyncio
 async def test_websocket_connector_connect() -> None:
     """WebSocketConnector.connect parses JSON and yields events."""
-    from transcription_ingest.connector.websocket import WebSocketConnector
+    from transcribe_service.connector.websocket import WebSocketConnector
 
     payload = {
         "success": True,
@@ -251,7 +326,7 @@ async def test_websocket_connector_connect() -> None:
                 raise StopAsyncIteration
             return json.dumps(payload)
 
-    with patch("transcription_ingest.connector.websocket.websockets.connect") as mock_connect:
+    with patch("transcribe_service.connector.websocket.websockets.connect") as mock_connect:
         fake_ctx = MagicMock()
         fake_ctx.__aenter__ = AsyncMock(return_value=FakeWS())
         fake_ctx.__aexit__ = AsyncMock(return_value=None)
@@ -263,5 +338,37 @@ async def test_websocket_connector_connect() -> None:
             events.append(event)
         assert len(events) == 1
         assert events[0].transcript == "ws-msg"
+
+
+@pytest.mark.asyncio
+async def test_websocket_connector_eof_stops_and_sets_normal_end() -> None:
+    """WebSocketConnector stops on EOF and sets _normal_end (no reconnect)."""
+    from transcribe_service.connector.websocket import WebSocketConnector
+
+    count = 0
+
+    class FakeWS:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            nonlocal count
+            count += 1
+            if count > 1:
+                raise StopAsyncIteration
+            return json.dumps({"event": "request", "data": "EOF"})
+
+    with patch("transcribe_service.connector.websocket.websockets.connect") as mock_connect:
+        fake_ctx = MagicMock()
+        fake_ctx.__aenter__ = AsyncMock(return_value=FakeWS())
+        fake_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_connect.return_value = fake_ctx
+
+        connector = WebSocketConnector("ws://fake.local/ws")
+        events = []
+        async for event, _ in connector.connect():
+            events.append(event)
+        assert len(events) == 0
+        assert connector._normal_end is True
 
 

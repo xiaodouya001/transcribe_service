@@ -15,9 +15,9 @@ poetry shell
 docker compose up -d
 
 # 3. 运行（Demo 模式）
-python -m transcription_ingest.demo.run_local
+python -m transcribe_service.demo.run_local
 # 或生产模式
-python -m transcription_ingest.main
+python -m transcribe_service.main
 ```
 
 ---
@@ -43,7 +43,7 @@ python -m transcription_ingest.main
 ```
 transcribe_service/
 ├── config/              # Pydantic Settings
-├── src/transcription_ingest/      # 主逻辑
+├── src/transcribe_service/      # 主逻辑
 │   ├── main.py          # 入口（Webhook 模式）
 │   ├── webhook/         # Webhook HTTP 端点
 │   ├── connector/       # SSE/WebSocket 接入 + ConnectorManager
@@ -62,7 +62,7 @@ transcribe_service/
 ## 部署
 
 ```bash
-docker build -f docker/Dockerfile -t transcription-ingest:latest .
+docker build -f docker/Dockerfile -t transcribe-service:latest .
 ```
 
 目标环境：AWS ECS Fargate。详见 [docs/deployment.md](docs/deployment.md)。

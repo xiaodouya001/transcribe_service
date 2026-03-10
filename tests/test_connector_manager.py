@@ -6,7 +6,7 @@ import pytest
 
 pytestmark = pytest.mark.asyncio
 
-from transcription_ingest.connector.manager import ConnectorManager
+from transcribe_service.connector.manager import ConnectorManager
 
 
 @pytest.fixture

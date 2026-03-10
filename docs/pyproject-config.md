@@ -43,7 +43,7 @@ pytest 配置，无需单独 `pytest.ini`。
 
 ### 1.5 [tool.setuptools.packages.find]
 
-setuptools 包发现，指定 `config` 和 `transcription_ingest` 的路径。
+setuptools 包发现，指定 `config` 和 `transcribe_service` 的路径。
 
 ### 1.6 [tool.poetry]
 
@@ -64,7 +64,7 @@ pip install -e .
 poetry install
 
 # 运行生产服务（配置 STT_PROVIDER_URL 后）
-python -m transcription_ingest.main
+python -m transcribe_service.main
 ```
 
 - **依赖**：`[project].dependencies`（不含 dev）
@@ -99,7 +99,7 @@ pip install .
 poetry install --no-dev
 
 # 运行服务
-python -m transcription_ingest.main
+python -m transcribe_service.main
 ```
 
 - **依赖**：仅 `[project].dependencies`

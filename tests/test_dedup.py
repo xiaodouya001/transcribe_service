@@ -1,7 +1,7 @@
 """Tests for dedup layer."""
 
 import pytest
-from transcription_ingest.dedup import RedisDeduplication, get_dedup_backend
+from transcribe_service.dedup import RedisDeduplication, get_dedup_backend
 
 
 @pytest.fixture
@@ -65,7 +65,7 @@ async def test_redis_dedup_cleanup_session(redis_dedup: RedisDeduplication) -> N
 
 def test_dedup_build_key_format() -> None:
     """_build_key produces correct key format from config."""
-    from transcription_ingest.dedup.redis_dedup import _build_key
+    from transcribe_service.dedup.redis_dedup import _build_key
 
     key = _build_key("session_id,processing_id,seq_no", "s1", 0, processing_id="p1")
     assert key == "dedup:s1:p1:0"
@@ -75,7 +75,7 @@ def test_dedup_build_key_format() -> None:
 
 def test_dedup_build_key_with_created_at() -> None:
     """_build_key includes created_at when in config."""
-    from transcription_ingest.dedup.redis_dedup import _build_key
+    from transcribe_service.dedup.redis_dedup import _build_key
 
     key = _build_key(
         "session_id,processing_id,seq_no,created_at",
@@ -89,7 +89,7 @@ def test_dedup_build_key_with_created_at() -> None:
 
 def test_dedup_build_key_with_kwargs() -> None:
     """_build_key includes extra kwargs when in config."""
-    from transcription_ingest.dedup.redis_dedup import _build_key
+    from transcribe_service.dedup.redis_dedup import _build_key
 
     key = _build_key("session_id,seq_no", "s1", 0, extra="x")
     assert "s1" in key and "0" in key

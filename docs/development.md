@@ -36,7 +36,7 @@ pip install -e ".[dev]"
 ### 2.3 验证
 
 ```bash
-python -c "import transcription_ingest; print('OK')"
+python -c "import transcribe_service; print('OK')"
 ```
 
 ---
@@ -54,7 +54,7 @@ docker compose up -d
 ### 3.2 本地 Demo（Mock + 前端注入）
 
 ```bash
-python -m transcription_ingest.demo.run_local
+python -m transcribe_service.demo.run_local
 ```
 
 浏览器打开 `http://127.0.0.1:8765/`，输入 JSON 点击「发送」，控制台打印完整链路日志。
@@ -62,7 +62,7 @@ python -m transcription_ingest.demo.run_local
 ### 3.3 生产模式本地运行
 
 ```bash
-python -m transcription_ingest.main
+python -m transcribe_service.main
 ```
 
 需配置 `STT_PROVIDER_URL` 指向真实 STT 或 Mock 服务。
@@ -112,4 +112,4 @@ UT 不依赖真实 Kafka/Redis 环境：
 - **日志级别**：`LOG_LEVEL=DEBUG` 查看更详细日志
 - **日志格式**：`LOG_FORMAT=console` 本地开发时使用可读格式
 - **Kafka 消息**：通过 Kafka UI (http://localhost:8090) 查看 Topic `transcription_topic` 的消息
-- **断点调试**：在 IDE 中设置断点，以 `python -m transcription_ingest.main` 或 `python -m pytest` 启动
+- **断点调试**：在 IDE 中设置断点，以 `python -m transcribe_service.main` 或 `python -m pytest` 启动

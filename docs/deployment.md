@@ -1,13 +1,13 @@
 # 部署指南
 
-本文档说明 Transcription Ingest 的构建与部署流程。
+本文档说明 Transcribe Service 的构建与部署流程。
 
 ---
 
 ## 1. 构建镜像
 
 ```bash
-docker build -f docker/Dockerfile -t transcription-ingest:latest .
+docker build -f docker/Dockerfile -t transcribe-service:latest .
 ```
 
 镜像基于 `python:3.12-slim`，多阶段构建，非 root 用户运行。

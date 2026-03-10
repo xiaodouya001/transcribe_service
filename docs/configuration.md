@@ -53,7 +53,7 @@ Webhook 路径 `/webhook/session`、host `0.0.0.0`、port `8080` 固定于代码
 | `RECONNECT_INITIAL_DELAY` | 1.0 | 初始退避延迟（秒） |
 | `RECONNECT_MAX_DELAY` | 60.0 | 最大退避延迟（秒） |
 | `RECONNECT_BACKOFF_FACTOR` | 2.0 | 退避因子 |
-| `SSE_READ_TIMEOUT` | 空 | SSE 读超时（秒），空=无限制 |
+| `SSE_READ_TIMEOUT` | 省略 | SSE 读超时（秒）；`none` 或省略=无限制；或设为秒数 |
 | `WS_PING_INTERVAL` | 20.0 | WebSocket ping 间隔（秒） |
 | `WS_PING_TIMEOUT` | 20.0 | WebSocket pong 超时（秒） |
 

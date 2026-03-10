@@ -116,9 +116,9 @@ Vendor Webhook → ConnectorManager → Connector → Dedup → Cleaner → Prod
 | **Webhook**          | webhook/             | 接收 Vendor POST，校验 session_id，调用 ConnectorManager.add_session | `POST /webhook/session`                                                   |
 | **ConnectorManager** | connector/manager.py | 管理多会话，每会话创建 Connector 并启动 run_session                        | `add_session(metadata, ws_url, sse_url)`                                  |
 | **Connector**        | connector/           | 连接 STT Provider（ws_url/sse_url），接收 SSE/WebSocket 推送的 JSON    | `get_connector_for_url`, SseConnector, WebSocketConnector                 |
-| **Dedup**            | dedup/               | 按 Key 去重                                                     | [transcription_ingest/dedup/](../src/transcription_ingest/dedup/)         |
-| **Cleaner**          | transform/           | 数据清洗，输出 `raw` + `cleaned`                                    | [transcription_ingest/transform/](../src/transcription_ingest/transform/) |
-| **Producer**         | producer/            | 写入 Kafka，key=session_id                                      | [transcription_ingest/producer/](../src/transcription_ingest/producer/)   |
+| **Dedup**            | dedup/               | 按 Key 去重                                                     | [transcribe_service/dedup/](../src/transcribe_service/dedup/)         |
+| **Cleaner**          | transform/           | 数据清洗，输出 `raw` + `cleaned`                                    | [transcribe_service/transform/](../src/transcribe_service/transform/) |
+| **Producer**         | producer/            | 写入 Kafka，key=session_id                                      | [transcribe_service/producer/](../src/transcribe_service/producer/)   |
 
 
 > 本服务只**生产** Kafka 消息，不消费 Kafka。下游业务（NLP、质检等）自行消费 Kafka。

@@ -4,7 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from transcription_ingest.producer import KafkaProducer, get_producer_backend
+from transcribe_service.producer import KafkaProducer, get_producer_backend
 
 
 @pytest.mark.asyncio
@@ -137,8 +137,8 @@ async def test_kafka_producer_get_producer_creates_topic_and_starts() -> None:
     mock_producer.send_and_wait = AsyncMock(return_value=MagicMock())
 
     with (
-        patch("transcription_ingest.producer.kafka_producer.AIOKafkaAdminClient", return_value=mock_admin),
-        patch("transcription_ingest.producer.kafka_producer.AIOKafkaProducer", return_value=mock_producer),
+        patch("transcribe_service.producer.kafka_producer.AIOKafkaAdminClient", return_value=mock_admin),
+        patch("transcribe_service.producer.kafka_producer.AIOKafkaProducer", return_value=mock_producer),
     ):
         producer = KafkaProducer(bootstrap_servers="localhost:9092", topic="test_topic")
         await producer.send(session_id="s1", seq_no=0, transcript="x", role="Agent")
@@ -159,8 +159,8 @@ async def test_kafka_producer_ensure_topic_ignores_existing() -> None:
     mock_producer.send_and_wait = AsyncMock(return_value=MagicMock())
 
     with (
-        patch("transcription_ingest.producer.kafka_producer.AIOKafkaAdminClient", return_value=mock_admin),
-        patch("transcription_ingest.producer.kafka_producer.AIOKafkaProducer", return_value=mock_producer),
+        patch("transcribe_service.producer.kafka_producer.AIOKafkaAdminClient", return_value=mock_admin),
+        patch("transcribe_service.producer.kafka_producer.AIOKafkaProducer", return_value=mock_producer),
     ):
         producer = KafkaProducer(bootstrap_servers="localhost:9092", topic="test_topic")
         await producer.send(session_id="s1", seq_no=0, transcript="x", role="Agent")

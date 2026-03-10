@@ -2,9 +2,9 @@
 # 各配置块用途及 Local/Dev/Production 使用方式见 docs/pyproject-config.md
 
 [project]
-name = "transcription-ingest"
+name = "transcribe-service"
 version = "0.1.0"
-description = "Transcription ingestion service - receive from STT provider, dedup, publish to Kafka"
+description = "Transcribe Service - receive from STT provider, dedup, publish to Kafka"
 requires-python = ">=3.11"
 dependencies = [
     "aiokafka>=0.10.0",
@@ -29,14 +29,14 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--cov=src/transcription_ingest --cov=config --cov-report=term-missing --cov-fail-under=90"
+addopts = "--cov=src/transcribe_service --cov=config --cov-report=term-missing --cov-fail-under=90"
 
 [tool.coverage.run]
 source = ["src", "config"]
 omit = [
-    "src/transcription_ingest/main.py",
-    "src/transcription_ingest/demo/*",
-    "src/transcription_ingest/connector/manager.py",
+    "src/transcribe_service/main.py",
+    "src/transcribe_service/demo/*",
+    "src/transcribe_service/connector/manager.py",
     "config/logging_config.py",
 ]
 
@@ -46,16 +46,16 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = [".", "src"]
-include = ["config*", "transcription_ingest*"]
+include = ["config*", "transcribe_service*"]
 
 # Poetry 包管理（可选，与 pip/venv 二选一）
 [tool.poetry]
-name = "transcription-ingest"
+name = "transcribe-service"
 version = "0.1.0"
-description = "Transcription ingestion service - receive from STT provider, dedup, publish to Kafka"
+description = "Transcribe Service - receive from STT provider, dedup, publish to Kafka"
 packages = [
     {include = "config"},
-    {include = "transcription_ingest", from = "src"}
+    {include = "transcribe_service", from = "src"}
 ]
 
 [tool.poetry.dependencies]

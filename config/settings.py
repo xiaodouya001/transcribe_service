@@ -1,8 +1,9 @@
 """Configuration loaded from environment variables."""
 
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,9 +47,19 @@ class Settings(BaseSettings):
     reconnect_backoff_factor: float = 2.0
 
     # Long connection: timeouts
-    sse_read_timeout: float | None = None  # None = no limit
+    sse_read_timeout: float | None = None  # None = no limit（env 设为 none 或省略）
     ws_ping_interval: float | None = 20.0  # None = disable
     ws_ping_timeout: float | None = 20.0
+
+    @field_validator("sse_read_timeout", mode="before")
+    @classmethod
+    def _parse_none_timeout(cls, v: Any) -> float | None:
+        """Parse 'none' or empty as None (no limit)."""
+        if v is None or v == "":
+            return None
+        if isinstance(v, str) and v.strip().lower() == "none":
+            return None
+        return v
 
     # Logging (LOG_LEVEL=INFO, LOG_FORMAT=json|console|auto)
     log_level: str = "INFO"

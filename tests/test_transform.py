@@ -1,8 +1,8 @@
 """Tests for transform layer."""
 
 import pytest
-from transcription_ingest.connector.base import TranscriptionEvent
-from transcription_ingest.transform import DefaultCleaner, IdentityCleaner, get_cleaner
+from transcribe_service.connector.base import TranscriptionEvent
+from transcribe_service.transform import DefaultCleaner, IdentityCleaner, get_cleaner
 
 
 def test_default_cleaner() -> None:

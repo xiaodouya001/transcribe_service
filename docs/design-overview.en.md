@@ -111,9 +111,9 @@ Vendor Webhook → ConnectorManager → Connector → Dedup → Cleaner → Prod
 | **Webhook** | webhook/ | Receive Vendor POST, validate session_id, call ConnectorManager.add_session | `POST /webhook/session` |
 | **ConnectorManager** | connector/manager.py | Manage multi-session; create Connector per session, run run_session | `add_session(metadata, ws_url, sse_url)` |
 | **Connector** | connector/ | Connect to STT Provider (ws_url/sse_url), receive SSE/WebSocket JSON | `get_connector_for_url`, SseConnector, WebSocketConnector |
-| **Dedup** | dedup/ | Deduplicate by key | [transcription_ingest/dedup/](../src/transcription_ingest/dedup/) |
-| **Cleaner** | transform/ | Data cleaning; output `raw` + `cleaned` | [transcription_ingest/transform/](../src/transcription_ingest/transform/) |
-| **Producer** | producer/ | Write to Kafka, key=session_id | [transcription_ingest/producer/](../src/transcription_ingest/producer/) |
+| **Dedup** | dedup/ | Deduplicate by key | [transcribe_service/dedup/](../src/transcribe_service/dedup/) |
+| **Cleaner** | transform/ | Data cleaning; output `raw` + `cleaned` | [transcribe_service/transform/](../src/transcribe_service/transform/) |
+| **Producer** | producer/ | Write to Kafka, key=session_id | [transcribe_service/producer/](../src/transcribe_service/producer/) |
 
 > This service only **produces** Kafka messages; it does not consume. Downstream systems (NLP, QA, etc.) consume independently.
 

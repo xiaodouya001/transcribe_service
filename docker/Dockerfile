@@ -22,4 +22,4 @@ ENV PYTHONUNBUFFERED=1
 
 USER appuser
 
-CMD ["python", "-m", "transcription_ingest.main"]
+CMD ["python", "-m", "transcribe_service.main"]
