@@ -35,25 +35,27 @@ Transcribe Service 是**实时转录接入与分发服务**，负责将 STT（�
 ### 2.1 应用架构
 
 ```mermaid
-flowchart TB
+flowchart LR
     subgraph WebhookFlow [Webhook 模式]
         Vendor[STT Vendor]
-        Webhook[Webhook POST /webhook/session]
+        Webhook[Webhook]
         ConnMgr[ConnectorManager]
         Conn[Connector]
-        Dedup[Dedup]
-        Cleaner[Cleaner]
-        Producer[Producer]
+        subgraph Pipeline [Pipeline]
+            Dedup[Dedup]
+            Cleaner[Cleaner]
+            Producer[Producer]
+        end
         Kafka[(Kafka)]
-        Vendor -->|"POST metadata+ws_url+sse_url"| Webhook
-        Webhook --> ConnMgr
-        ConnMgr --> Conn
-        Conn -->|"SSE/WebSocket"| Vendor
-        Conn --> Dedup
-        Dedup --> Cleaner
-        Cleaner --> Producer
-        Producer --> Kafka
     end
+    Vendor -->|POST| Webhook
+    Webhook --> ConnMgr
+    ConnMgr --> Conn
+    Conn -->|SSE/WS| Vendor
+    Conn --> Dedup
+    Dedup --> Cleaner
+    Cleaner --> Producer
+    Producer --> Kafka
 ```
 
 
@@ -61,10 +63,11 @@ flowchart TB
 ### 2.2 部署拓扑
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph GCP [GCP]
         Vendor[STT Provider / Vendor]
     end
+
     subgraph AWS [AWS]
         subgraph ALB [ALB]
             ALB1[Transcribe Service ALB]
@@ -79,6 +82,7 @@ flowchart LR
             Kafka[(Kafka)]
         end
     end
+
     Vendor -->|"Webhook 入站"| ALB1
     ALB1 --> Task0
     ALB1 --> Task1
