@@ -249,7 +249,7 @@ sequenceDiagram
     Main->>Main: Start Uvicorn (FastAPI Webhook 0.0.0.0:8080)
 ```
 
-### 7.2 Webhook Reception and Session Setup
+### 7.2 Webhook Reception and SSE/WS Connection Establishment
 
 ```mermaid
 sequenceDiagram

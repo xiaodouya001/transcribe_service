@@ -265,7 +265,7 @@ sequenceDiagram
 
 
 
-### 7.2 Webhook 接收与会话建立
+### 7.2 Webhook 接收与 SSE/WS 连接建立
 
 ```mermaid
 sequenceDiagram
