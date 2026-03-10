@@ -10,10 +10,13 @@ def get_dedup_backend(
     redis_url: str = "",
     dedup_key_parts: str = "session_id,processing_id,seq_no",
     dedup_ttl_seconds: int = 60,
+    *,
+    max_connections: int = 100,
 ) -> DeduplicationBackend:
     """Factory: return RedisDeduplication."""
     return RedisDeduplication(
         redis_url=redis_url,
         dedup_key_parts=dedup_key_parts,
         dedup_ttl_seconds=dedup_ttl_seconds,
+        max_connections=max_connections,
     )

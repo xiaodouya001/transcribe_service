@@ -12,6 +12,7 @@ def get_producer_backend(
     *,
     compression_type: str = "none",
     send_timeout_sec: float = 10.0,
+    num_partitions: int = 6,
 ) -> ProducerBackend:
     """Factory: return KafkaProducer."""
     return KafkaProducer(
@@ -19,4 +20,5 @@ def get_producer_backend(
         topic=kafka_topic,
         compression_type=compression_type,
         send_timeout_sec=send_timeout_sec,
+        num_partitions=num_partitions,
     )

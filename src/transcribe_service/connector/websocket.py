@@ -1,7 +1,8 @@
 """WebSocket connector - stream from STT provider via WebSocket."""
 
-import json
 import time
+
+import orjson
 from typing import AsyncIterator
 
 import structlog
@@ -38,8 +39,8 @@ class WebSocketConnector:
         async with websockets.connect(self._url, **kwargs) as ws:
             async for message in ws:
                 try:
-                    payload = json.loads(message)
-                except json.JSONDecodeError:
+                    payload = orjson.loads(message)
+                except orjson.JSONDecodeError:
                     continue
                 if payload.get("event") == "request" and payload.get("data") == "EOF":
                     log.info("Connector: 收到 EOF，通话结束，正常断开")

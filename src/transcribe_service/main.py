@@ -9,6 +9,8 @@ _project_root = Path(__file__).resolve().parents[2]
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+import httpx
+
 from config.logging_config import configure_logging, get_logger
 from config.settings import get_settings
 from transcribe_service.dedup import get_dedup_backend
@@ -56,16 +58,20 @@ async def run_webhook_mode() -> None:
     settings = get_settings()
     configure_logging(level=settings.log_level, format=settings.log_format)
 
+    http_client: httpx.AsyncClient | None = None
+
     dedup = get_dedup_backend(
         redis_url=settings.redis_url,
         dedup_key_parts=settings.dedup_key_parts,
         dedup_ttl_seconds=settings.dedup_ttl_seconds,
+        max_connections=settings.redis_max_connections,
     )
     producer = get_producer_backend(
         kafka_bootstrap=settings.kafka_bootstrap_servers,
         kafka_topic=settings.kafka_topic,
         compression_type=getattr(settings, "kafka_compression_type", "none"),
         send_timeout_sec=settings.kafka_send_timeout_sec,
+        num_partitions=settings.kafka_topic_num_partitions,
     )
     cleaner = get_cleaner(getattr(settings, "cleaner_mode", "default"))
 
@@ -75,12 +81,15 @@ async def run_webhook_mode() -> None:
     await _check_redis(settings.redis_url)
     await _check_kafka(producer)
 
+    http_client = httpx.AsyncClient(timeout=60.0)
+
     connector_manager = ConnectorManager(
         dedup=dedup,
         cleaner=cleaner,
         producer=producer,
         settings=settings,
         shutdown=shutdown,
+        http_client=http_client,
     )
 
     app = create_app(
@@ -120,6 +129,8 @@ async def run_webhook_mode() -> None:
                 fn()
         if hasattr(dedup, "close"):
             await dedup.close()
+        if http_client is not None:
+            await http_client.aclose()
         log.info("Transcribe Service: 已安全退出")
 
 

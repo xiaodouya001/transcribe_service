@@ -11,12 +11,16 @@ from transcribe_service.producer.base import ProducerBackend
 log = structlog.get_logger(__name__)
 
 
-async def _ensure_topic(bootstrap_servers: str, topic: str) -> None:
+async def _ensure_topic(
+    bootstrap_servers: str, topic: str, num_partitions: int = 6
+) -> None:
     """Create topic if it does not exist."""
     admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
     await admin.start()
     try:
-        await admin.create_topics([NewTopic(name=topic, num_partitions=1, replication_factor=1)])
+        await admin.create_topics(
+            [NewTopic(name=topic, num_partitions=num_partitions, replication_factor=1)]
+        )
     except Exception:
         pass  # Topic may already exist
     finally:
@@ -33,16 +37,18 @@ class KafkaProducer:
         *,
         compression_type: str = "none",
         send_timeout_sec: float = 10.0,
+        num_partitions: int = 6,
     ) -> None:
         self._bootstrap = bootstrap_servers
         self._topic = topic
         self._compression_type = compression_type
         self._send_timeout_sec = send_timeout_sec
+        self._num_partitions = num_partitions
         self._producer: AIOKafkaProducer | None = None
 
     async def _get_producer(self) -> AIOKafkaProducer:
         if self._producer is None:
-            await _ensure_topic(self._bootstrap, self._topic)
+            await _ensure_topic(self._bootstrap, self._topic, self._num_partitions)
             comp = None if self._compression_type == "none" else self._compression_type
             self._producer = AIOKafkaProducer(
                 bootstrap_servers=self._bootstrap,
@@ -71,7 +77,7 @@ class KafkaProducer:
         **kwargs: object,
     ) -> None:
         """Send to Kafka with session_id as key. Value: {raw, cleaned} when provided."""
-        import json
+        import orjson
 
         if raw_payload is not None or cleaned is not None:
             payload = {"raw": raw_payload, "cleaned": cleaned or {}}
@@ -86,7 +92,7 @@ class KafkaProducer:
                 **{k: v for k, v in kwargs.items() if k not in ("raw_payload", "cleaned")},
             }
             payload = {"raw": None, "cleaned": cleaned_dict}
-        value = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        value = orjson.dumps(payload)
         key = session_id.encode("utf-8")
         producer = await self._get_producer()
         try:

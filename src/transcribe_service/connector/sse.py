@@ -1,7 +1,8 @@
 """SSE connector - stream from STT provider via Server-Sent Events."""
 
-import json
 import time
+
+import orjson
 from typing import AsyncIterator
 
 import httpx
@@ -37,10 +38,12 @@ class SseConnector:
         last_event_id: str | None = None,
         *,
         read_timeout: float | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self._url = url
         self._last_event_id = last_event_id
         self._read_timeout = read_timeout
+        self._http_client = http_client
         self.last_event_id: str | None = last_event_id  # Updated during stream
         self._normal_end = False  # True when vendor sends EOF (call ended)
 
@@ -54,31 +57,41 @@ class SseConnector:
             timeout = httpx.Timeout(connect=10.0, read=self._read_timeout, write=60.0, pool=60.0)
         else:
             timeout = 60.0
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream("GET", self._url, headers=headers) as resp:
-                resp.raise_for_status()
-                buffer = ""
-                async for chunk in resp.aiter_text():
-                    buffer += chunk
-                    while "\n" in buffer or "\r\n" in buffer:
-                        line, _, buffer = buffer.partition("\n")
-                        line = line.strip()
-                        if line.startswith("id:"):
-                            self.last_event_id = line[3:].strip() or None
+
+        async def _stream_from_resp(resp: httpx.Response) -> AsyncIterator[tuple[TranscriptionEvent, dict]]:
+            resp.raise_for_status()
+            buffer = ""
+            async for chunk in resp.aiter_text():
+                buffer += chunk
+                while "\n" in buffer or "\r\n" in buffer:
+                    line, _, buffer = buffer.partition("\n")
+                    line = line.strip()
+                    if line.startswith("id:"):
+                        self.last_event_id = line[3:].strip() or None
+                        continue
+                    if line.startswith("data:"):
+                        data_str = line[5:].strip()
+                        if data_str == "[DONE]" or not data_str:
                             continue
-                        if line.startswith("data:"):
-                            data_str = line[5:].strip()
-                            if data_str == "[DONE]" or not data_str:
-                                continue
-                            try:
-                                payload = json.loads(data_str)
-                            except json.JSONDecodeError:
-                                continue
-                            if payload.get("event") == "request" and payload.get("data") == "EOF":
-                                log.info("Connector: 收到 EOF，通话结束，正常断开")
-                                self._normal_end = True
-                                return
-                            payload["_ingest_received_at"] = time.monotonic()
-                            _log_payload(payload, "connect")
-                            for event in TranscriptionEvent.from_vendor_payload(payload):
-                                yield event, payload
+                        try:
+                            payload = orjson.loads(data_str)
+                        except orjson.JSONDecodeError:
+                            continue
+                        if payload.get("event") == "request" and payload.get("data") == "EOF":
+                            log.info("Connector: 收到 EOF，通话结束，正常断开")
+                            self._normal_end = True
+                            return
+                        payload["_ingest_received_at"] = time.monotonic()
+                        _log_payload(payload, "connect")
+                        for event in TranscriptionEvent.from_vendor_payload(payload):
+                            yield event, payload
+
+        if self._http_client is not None:
+            async with self._http_client.stream("GET", self._url, headers=headers, timeout=timeout) as resp:
+                async for item in _stream_from_resp(resp):
+                    yield item
+        else:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("GET", self._url, headers=headers) as resp:
+                    async for item in _stream_from_resp(resp):
+                        yield item

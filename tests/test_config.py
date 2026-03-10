@@ -11,9 +11,11 @@ def test_settings_defaults() -> None:
     assert s.transcribe_service_max_sessions_per_pod == 100
     assert s.transcribe_service_protocol == "sse"
     assert s.redis_url == "redis://localhost:6379/0"
+    assert s.redis_max_connections == 100
     assert s.kafka_bootstrap_servers == "localhost:9092"
     assert s.kafka_topic == "transcription_topic"
-    assert s.kafka_compression_type == "none"
+    assert s.kafka_topic_num_partitions == 6
+    assert s.kafka_compression_type == "lz4"
     assert s.kafka_send_timeout_sec == 10.0
     assert s.reconnect_enabled is True
 

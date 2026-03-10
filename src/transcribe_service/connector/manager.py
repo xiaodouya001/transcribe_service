@@ -1,12 +1,15 @@
 """ConnectorManager - manages multiple STT sessions via Webhook."""
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from transcribe_service.connector import get_connector_for_url
 from transcribe_service.connector.reconnect import run_with_reconnect
+
+if TYPE_CHECKING:
+    import httpx
 
 log = structlog.get_logger(__name__)
 
@@ -22,12 +25,14 @@ class ConnectorManager:
         producer: Any,
         settings: Any,
         shutdown: Any = None,
+        http_client: "httpx.AsyncClient | None" = None,
     ) -> None:
         self._dedup = dedup
         self._cleaner = cleaner
         self._producer = producer
         self._settings = settings
         self._shutdown = shutdown
+        self._http_client = http_client
         self._sessions: dict[str, asyncio.Task] = {}
 
     def add_session(self, metadata: dict, ws_url: str, sse_url: str) -> bool:
@@ -121,6 +126,7 @@ class ConnectorManager:
                 read_timeout=read_timeout,
                 ping_interval=ping_interval,
                 ping_timeout=ping_timeout,
+                http_client=self._http_client if use_sse else None,
             )
             try:
                 async for event, payload in connector.connect():

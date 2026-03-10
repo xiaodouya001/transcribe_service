@@ -42,16 +42,22 @@ class RedisDeduplication:
         dedup_ttl_seconds: int = 60,
         *,
         client: Redis | None = None,
+        max_connections: int = 100,
     ) -> None:
         self._redis_url = redis_url
         self._dedup_key_parts = dedup_key_parts
         self._dedup_ttl_seconds = dedup_ttl_seconds
+        self._max_connections = max_connections
         self._client: Redis | None = client
         self._client_injected = client is not None
 
     async def _get_client(self) -> Redis:
         if self._client is None:
-            self._client = Redis.from_url(self._redis_url, decode_responses=True)
+            self._client = Redis.from_url(
+                self._redis_url,
+                decode_responses=True,
+                max_connections=self._max_connections,
+            )
         return self._client
 
     def _key(

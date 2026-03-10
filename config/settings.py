@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
+    redis_max_connections: int = 100  # 连接池大小，高并发时调大
     dedup_key_parts: str = "session_id,processing_id,seq_no"
     dedup_ttl_seconds: int = 60
 
@@ -33,7 +34,8 @@ class Settings(BaseSettings):
     # Kafka
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_topic: str = "transcription_topic"
-    kafka_compression_type: Literal["none", "gzip", "snappy", "lz4"] = "none"
+    kafka_topic_num_partitions: int = 6  # 新建 Topic 时的分区数，已有 Topic 不受影响
+    kafka_compression_type: Literal["none", "gzip", "snappy", "lz4"] = "lz4"
     kafka_send_timeout_sec: float = 10.0  # 发送超时(秒)，Kafka 不可用时超时并输出错误日志
 
     # Graceful shutdown timeout (seconds)
