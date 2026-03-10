@@ -65,6 +65,7 @@ async def run_webhook_mode() -> None:
         kafka_bootstrap=settings.kafka_bootstrap_servers,
         kafka_topic=settings.kafka_topic,
         compression_type=getattr(settings, "kafka_compression_type", "none"),
+        send_timeout_sec=settings.kafka_send_timeout_sec,
     )
     cleaner = get_cleaner(getattr(settings, "cleaner_mode", "default"))
 
@@ -82,7 +83,11 @@ async def run_webhook_mode() -> None:
         shutdown=shutdown,
     )
 
-    app = create_app(connector_manager)
+    app = create_app(
+        connector_manager,
+        redis_url=settings.redis_url,
+        producer=producer,
+    )
 
     config = uvicorn.Config(app, host="0.0.0.0", port=8080)
     server = uvicorn.Server(config)

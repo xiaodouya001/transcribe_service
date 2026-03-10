@@ -49,8 +49,14 @@
 
 ### 3.1 Webhook 认证
 
-- 验证 Vendor 请求来源（签名、API Key、IP 白名单等）
-- 防止恶意请求触发建连
+**建议 Vendor STT 使用 HTTPS + HMAC 方式进行 Webhook 认证**：
+
+- **HTTPS**：生产环境 Webhook 接收地址必须使用 HTTPS
+- **HMAC-SHA256 签名**：Vendor 对 raw body 计算 `HMAC-SHA256(secret, body)`，通过 `X-Webhook-Signature: sha256=<hex>` 传递；Transcribe Service 使用相同 secret 校验，防止伪造与重放
+- **Secret 管理**：由 Transcribe Service 侧生成（如 `openssl rand -hex 32`），通过 `TRANSCRIBE_SERVICE_WEBHOOK_SECRET` 配置，并安全交付给 Vendor
+- **可选**：IP 白名单、API Key 等作为补充手段
+
+详见 [04-vendor-interface-confirmation.md](04-vendor-interface-confirmation.md) 第 5 节。
 
 ### 3.2 STT 连接认证
 

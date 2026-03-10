@@ -22,8 +22,10 @@ cp .env.example .env
 |------|--------|------|
 | `TRANSCRIBE_SERVICE_MAX_SESSIONS_PER_POD` | 100 | 单 Pod 最大会话数 |
 | `TRANSCRIBE_SERVICE_PROTOCOL` | sse | 协议：`sse` 或 `websocket`（Webhook 收到 ws_url/sse_url 后按此选择） |
+| `TRANSCRIBE_SERVICE_WEBHOOK_SECRET` | 空 | Webhook HMAC 签名密钥；配置后 Vendor 需在 `X-Webhook-Signature: sha256=<hex>` 中携带签名；空则跳过校验（仅 Demo） |
+| `TRANSCRIBE_SERVICE_SSRF_ALLOW_LOCALHOST` | false | 是否允许 ws_url/sse_url 指向 127.0.0.1；仅 Demo 可设为 true |
 
-Webhook 路径 `/webhook/session`、host `0.0.0.0`、port `8080` 固定于代码，由 Docker/ECS 编排。
+Webhook 路径 `/webhook/session`、host `0.0.0.0`、port `8080` 固定于代码，由 Docker/ECS 编排。**建议 Vendor 使用 HTTPS + HMAC 认证**，见 [04-vendor-interface-confirmation.md](specs/04-vendor-interface-confirmation.md) 第 5 节。
 
 ### Redis
 

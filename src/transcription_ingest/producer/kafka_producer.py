@@ -1,5 +1,7 @@
 """Kafka producer for production - aiokafka with session_id as key."""
 
+import asyncio
+
 import structlog
 from aiokafka import AIOKafkaProducer
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
@@ -30,10 +32,12 @@ class KafkaProducer:
         topic: str = "transcription_topic",
         *,
         compression_type: str = "none",
+        send_timeout_sec: float = 10.0,
     ) -> None:
         self._bootstrap = bootstrap_servers
         self._topic = topic
         self._compression_type = compression_type
+        self._send_timeout_sec = send_timeout_sec
         self._producer: AIOKafkaProducer | None = None
 
     async def _get_producer(self) -> AIOKafkaProducer:
@@ -85,7 +89,10 @@ class KafkaProducer:
         value = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         key = session_id.encode("utf-8")
         producer = await self._get_producer()
-        await producer.send_and_wait(self._topic, value=value, key=key)
+        await asyncio.wait_for(
+            producer.send_and_wait(self._topic, value=value, key=key),
+            timeout=self._send_timeout_sec,
+        )
         log.info(
             "Kafka Producer: 已发送",
             session_id=session_id,

@@ -30,16 +30,28 @@ class ConnectorManager:
         self._shutdown = shutdown
         self._sessions: dict[str, asyncio.Task] = {}
 
-    def add_session(self, metadata: dict, ws_url: str, sse_url: str) -> None:
-        """Create Connector for session, start run_session task."""
+    def add_session(self, metadata: dict, ws_url: str, sse_url: str) -> bool:
+        """Create Connector for session, start run_session task. Returns False if rejected (limit)."""
         session_id = (metadata or {}).get("session_id", "")
         if not session_id:
             log.warning("ConnectorManager: 忽略无 session_id 的 Webhook", metadata=metadata)
-            return
+            return False
 
         if session_id in self._sessions:
             log.info("ConnectorManager: 会话已存在，忽略重复", session_id=session_id)
-            return
+            return True  # 已存在视为成功
+
+        max_sessions = getattr(
+            self._settings, "transcribe_service_max_sessions_per_pod", 100
+        )
+        if len(self._sessions) >= max_sessions:
+            log.warning(
+                "ConnectorManager: 会话数已达上限，拒绝新会话",
+                session_id=session_id,
+                current=len(self._sessions),
+                max_sessions=max_sessions,
+            )
+            return False
 
         use_sse = (self._settings.transcribe_service_protocol or "sse").lower() == "sse"
         url = sse_url if use_sse else ws_url
@@ -51,7 +63,7 @@ class ConnectorManager:
                 sse_url=sse_url,
                 ws_url=ws_url,
             )
-            return
+            return False
 
         task = asyncio.create_task(
             self._run_session(session_id, url, use_sse, metadata),
@@ -64,6 +76,7 @@ class ConnectorManager:
             url=url,
             use_sse=use_sse,
         )
+        return True
 
     def remove_session(self, session_id: str) -> None:
         """Cancel and remove session task."""

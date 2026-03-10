@@ -11,7 +11,11 @@ from transcription_ingest.connector.manager import ConnectorManager
 
 @pytest.fixture
 def mock_manager():
-    return MagicMock(spec=ConnectorManager)
+    m = MagicMock(spec=ConnectorManager)
+    m._settings = MagicMock()
+    m._settings.transcribe_service_protocol = "sse"
+    m._settings.transcribe_service_ssrf_allow_localhost = False
+    return m
 
 
 @pytest.fixture
@@ -22,6 +26,7 @@ def client(mock_manager):
 
 def test_webhook_post_valid(client, mock_manager) -> None:
     """POST valid payload returns 202."""
+    mock_manager.add_session.return_value = True
     resp = client.post(
         "/webhook/session",
         json={
@@ -52,6 +57,43 @@ def test_webhook_post_missing_session_id(client, mock_manager) -> None:
     assert resp.status_code == 400
     assert "session_id" in resp.json().get("error", "").lower()
     mock_manager.add_session.assert_not_called()
+
+
+def test_webhook_post_session_limit(client, mock_manager) -> None:
+    """POST when session limit reached returns 503."""
+    mock_manager.add_session.return_value = False
+    resp = client.post(
+        "/webhook/session",
+        json={
+            "metadata": {"session_id": "s1"},
+            "ws_url": "wss://vendor/ws",
+            "sse_url": "https://vendor/sse",
+        },
+    )
+    assert resp.status_code == 503
+    assert "session limit" in resp.json().get("error", "").lower()
+
+
+def test_webhook_post_ssrf_rejected(client, mock_manager) -> None:
+    """POST with private URL (SSRF) returns 400."""
+    mock_manager._settings.transcribe_service_ssrf_allow_localhost = False
+    resp = client.post(
+        "/webhook/session",
+        json={
+            "metadata": {"session_id": "s1"},
+            "ws_url": "",
+            "sse_url": "http://127.0.0.1/internal",
+        },
+    )
+    assert resp.status_code == 400
+    assert "private" in resp.json().get("error", "").lower() or "local" in resp.json().get("error", "").lower()
+
+
+def test_health_ready(client) -> None:
+    """GET /health returns 200."""
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok"}
 
 
 def test_webhook_payload_model() -> None:

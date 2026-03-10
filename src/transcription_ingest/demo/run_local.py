@@ -1,6 +1,7 @@
 """Local demo: 启动 Transcribe Service（Webhook 模式）+ Mock STT 服务，启动时自动 POST Webhook。"""
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -14,6 +15,9 @@ try:
     load_dotenv(_project_root / ".env")
 except ImportError:
     pass
+
+# Demo 使用 127.0.0.1 Mock，需允许 localhost
+os.environ.setdefault("TRANSCRIBE_SERVICE_SSRF_ALLOW_LOCALHOST", "true")
 
 WEBHOOK_URL = "http://127.0.0.1:8080/webhook/session"  # 127.0.0.1 避免 Windows localhost IPv6 解析问题
 MOCK_SSE_BASE = "http://127.0.0.1:8765/sse"

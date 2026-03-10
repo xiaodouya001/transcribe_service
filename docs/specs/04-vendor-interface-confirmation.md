@@ -21,6 +21,7 @@
 | 3 | Payload 结构 | `result.sessionId`, `result.processingId`, `result.transcripts`, `seq_no` 等字段定义 | 是 |
 | 4 | 连接生命周期 | 建立、断开、超时、重连策略 | 是 |
 | 5 | 认证方式 | Token、API Key、证书等（Transcribe Service 发起连接时如何携带） | 视厂商 |
+| 5a | Webhook 认证 | 建议使用 HTTPS + HMAC-SHA256 签名（见第 5 节） | 建议 |
 | 6 | 限流与背压 | 推送速率、背压信号 | 建议 |
 
 ---
@@ -61,7 +62,46 @@ sequenceDiagram
 
 ---
 
-## 5. 相关文档
+## 5. Webhook 认证建议
+
+**建议 Vendor STT 使用 HTTPS + HMAC 方式进行 Webhook 认证**，以验证请求来源并防止伪造与重放攻击。
+
+### 5.1 传输层：HTTPS
+
+- Webhook 接收地址必须使用 **HTTPS**（生产环境）
+- 本地 Demo 可使用 HTTP
+
+### 5.2 应用层：HMAC 签名
+
+- **算法**：HMAC-SHA256
+- **Header**：`X-Webhook-Signature: sha256=<hex>`
+- **计算方式**：`HMAC-SHA256(secret, raw_body).hexdigest()`
+- **Secret**：Vendor 与 Transcribe Service 共享的密钥，由 Transcribe Service 侧生成并配置给 Vendor
+
+**Vendor 端签名示例**：
+
+```python
+import hmac
+import hashlib
+
+def sign_payload(secret: str, body: str | bytes) -> str:
+    if isinstance(body, str):
+        body = body.encode()
+    return "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+# 请求时设置: X-Webhook-Signature: sign_payload(secret, raw_json_body)
+```
+
+**说明**：签名必须基于 **原始请求体字节**（raw body），不可基于解析后再序列化的 JSON，否则可能因 key 顺序、空格等导致校验失败。
+
+### 5.3 配置
+
+- Transcribe Service 通过环境变量 `TRANSCRIBE_SERVICE_WEBHOOK_SECRET` 配置 secret
+- 配置了 secret 时，请求必须携带有效签名，否则返回 401
+- 未配置 secret 时，跳过签名校验（仅用于 Demo/本地开发）
+
+---
+
+## 6. 相关文档
 
 - [01-application-design.md](01-application-design.md) - 应用设计
 - [03-websocket-vs-sse-choice.md](03-websocket-vs-sse-choice.md) - 协议选择

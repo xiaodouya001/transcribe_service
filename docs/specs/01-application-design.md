@@ -62,7 +62,7 @@ flowchart TB
 
 ### 3.1 Webhook 触发
 
-Vendor STT 向 Transcribe Service Webhook 发送新会话通知，Payload 仅含：
+Vendor STT 向 Transcribe Service Webhook 发送新会话通知。**建议使用 HTTPS + HMAC-SHA256 签名认证**（见 [04-vendor-interface-confirmation.md](04-vendor-interface-confirmation.md) 第 5 节）。Payload 仅含：
 
 - `metadata`：会话元数据（含 session_id 等）
 - `ws_url`：WebSocket 连接地址

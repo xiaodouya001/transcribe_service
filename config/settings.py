@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # Transcribe Service 直连模式（统一 Webhook，无模式分支）
     transcribe_service_max_sessions_per_pod: int = 100
     transcribe_service_protocol: str = "sse"  # "sse" 或 "websocket"
+    transcribe_service_ssrf_allow_localhost: bool = False  # True 时允许 127.0.0.1（仅 Demo）
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

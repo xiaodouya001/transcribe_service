@@ -35,6 +35,7 @@ def mock_producer():
 def mock_settings():
     s = MagicMock()
     s.transcribe_service_protocol = "sse"
+    s.transcribe_service_max_sessions_per_pod = 100
     s.reconnect_enabled = False
     s.sse_read_timeout = None
     s.ws_ping_interval = 20.0
