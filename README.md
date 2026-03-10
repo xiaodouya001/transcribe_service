@@ -27,6 +27,7 @@ python -m transcription_ingest.main
 | 文档 | 说明 |
 |------|------|
 | [docs/README.md](docs/README.md) | **文档索引**（推荐入口） |
+| [docs/design-overview.md](docs/design-overview.md) | 设计总览（应用、基础设施、协议、架构） |
 | [docs/architecture.md](docs/architecture.md) | 架构设计 |
 | [docs/configuration.md](docs/configuration.md) | 配置说明 |
 | [docs/development.md](docs/development.md) | 本地开发与 UT |

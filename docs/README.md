@@ -8,6 +8,7 @@ Transcription Ingest 项目文档导航。
 
 | 文档 | 说明 |
 |------|------|
+| [design-overview.md](design-overview.md) | **设计总览**（应用、基础设施、协议、架构整合） |
 | [architecture.md](architecture.md) | 架构设计、关键模块原理、异常恢复 |
 
 ---
