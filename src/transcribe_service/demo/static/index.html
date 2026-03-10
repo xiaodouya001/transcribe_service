@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>转录本地 Demo - Payload 注入</title>
+  <title>Transcribe Service Demo - Transcription Injection</title>
   <style>
     * { box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; margin: 1rem; max-width: 800px; }
@@ -21,9 +21,9 @@
   </style>
 </head>
 <body>
-  <h1>转录本地 Demo - Payload 注入</h1>
+  <h1>Transcribe Service Demo - Transcription Injection</h1>
   <div id="monitor" class="monitor">携程数：- &nbsp; 活跃会话数：-</div>
-  <p>输入 JSON payload，点击「发送」后推送到对应 session 的 SSE 流。多会话时 <code>result.callStatus.sessionId</code> 需与已注册的 session 一致（demo-session-1/2/3）。</p>
+  <p>输入 JSON payload，点击「注入」后推送到对应 session 的 SSE 流。多会话时 <code>result.callStatus.sessionId</code> 需与已注册的 session 一致（demo-session-1/2/3）。</p>
   <div class="actions" style="margin-bottom: 0.5rem;">
     <label>Session: </label>
     <select id="sessionId">
@@ -34,7 +34,7 @@
   </div>
   <textarea id="payload" placeholder='{"success": true, "result": {...}}'></textarea>
   <div class="actions">
-    <button class="primary" id="send">发送到 SSE</button>
+    <button class="primary" id="send">注入</button>
     <button class="secondary" id="sampleNormal">填充正常示例</button>
     <button class="secondary" id="sampleEof">填充 EOF 示例</button>
     <button class="secondary" id="concurrent">并发测试（3 session 同时注入）</button>
