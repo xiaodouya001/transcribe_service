@@ -16,52 +16,52 @@ cp .env.example .env
 
 ## 2. 配置项一览
 
-### Transcribe Service（Webhook 模式）
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `TRANSCRIBE_SERVICE_MAX_SESSIONS_PER_POD` | 100 | 单 Pod 最大会话数 |
-| `TRANSCRIBE_SERVICE_PROTOCOL` | sse | 协议：`sse` 或 `websocket`（Webhook 收到 ws_url/sse_url 后按此选择） |
-| `TRANSCRIBE_SERVICE_WEBHOOK_SECRET` | 空 | Webhook HMAC 签名密钥；配置后 Vendor 需在 `X-Webhook-Signature: sha256=<hex>` 中携带签名；空则跳过校验（仅 Demo） |
-| `TRANSCRIBE_SERVICE_SSRF_ALLOW_LOCALHOST` | false | 是否允许 ws_url/sse_url 指向 127.0.0.1；仅 Demo 可设为 true |
-
-Webhook 路径 `/webhook/session`、host `0.0.0.0`、port `8080` 固定于代码，由 Docker/ECS 编排。**建议 Vendor 使用 HTTPS + HMAC 认证**，见 [04-vendor-interface-confirmation.md](specs/04-vendor-interface-confirmation.md) 第 5 节。
-
-### Redis
+### Redis（状态机）
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `REDIS_URL` | redis://localhost:6379/0 | Redis 连接地址 |
-| `DEDUP_KEY_PARTS` | session_id,processing_id,seq_no | 去重 Key 组成 |
-| `DEDUP_TTL_SECONDS` | 60 | 去重 Key 过期时间（秒） |
+| `REDIS_MAX_CONNECTIONS` | 100 | 连接池大小；**高并发 WebSocket（如 ~1000 路）时建议调至 256～1024**，见 [concurrency-capacity.md](concurrency-capacity.md) |
+| `REDIS_ACTIVE_TTL_SEC` | 3600 | 活跃会话 TTL（秒），每次写入自动续期 |
+| `REDIS_FINAL_TTL_SEC` | 60 | SESSION_COMPLETE 后残留 TTL（秒） |
 
 ### Kafka
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `KAFKA_BOOTSTRAP_SERVERS` | localhost:9092 | Kafka 集群地址 |
-| `KAFKA_TOPIC` | transcription_topic | Topic 名称 |
-| `KAFKA_COMPRESSION_TYPE` | none | 压缩：`none`、`gzip`、`snappy`、`lz4` |
-| `KAFKA_SEND_TIMEOUT_SEC` | 10 | 发送超时（秒），Kafka 不可用时超时并输出错误日志 |
+| `KAFKA_TOPIC` | cc.transcript.realtime.v1 | Topic 名称 |
+| `KAFKA_TOPIC_NUM_PARTITIONS` | 50 | 新建 Topic 时的分区数 |
+| `KAFKA_REPLICATION_FACTOR` | 1 | 副本因子（生产环境≥2） |
+| `KAFKA_COMPRESSION_TYPE` | zstd | 压缩：`none`、`gzip`、`snappy`、`lz4`、`zstd` |
+| `KAFKA_SEND_TIMEOUT_SEC` | 2.0 | 发送超时（秒），快速失败；高负载下若误杀可酌情调大，需结合 broker 能力，见 [concurrency-capacity.md](concurrency-capacity.md) |
 
-### 长连接与重连
+### WebSocket
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `RECONNECT_ENABLED` | true | 自动重连 |
-| `RECONNECT_MAX_RETRIES` | 0 | 最大重试次数，0=无限 |
-| `RECONNECT_INITIAL_DELAY` | 1.0 | 初始退避延迟（秒） |
-| `RECONNECT_MAX_DELAY` | 60.0 | 最大退避延迟（秒） |
-| `RECONNECT_BACKOFF_FACTOR` | 2.0 | 退避因子 |
-| `SSE_READ_TIMEOUT` | 省略 | SSE 读超时（秒）；`none` 或省略=无限制；或设为秒数 |
-| `WS_PING_INTERVAL` | 20.0 | WebSocket ping 间隔（秒） |
-| `WS_PING_TIMEOUT` | 20.0 | WebSocket pong 超时（秒） |
+| `WS_PING_INTERVAL` | 20.0 | Ping 间隔（秒），防 ALB 60s 空闲超时 |
+| `WS_PING_TIMEOUT` | 20.0 | Pong 超时（秒） |
+| `WS_MAX_SIZE` | 1048576 | 单消息最大字节数（1MB） |
+
+### HTTP / Uvicorn
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `HTTP_HOST` | 0.0.0.0 | 监听地址（容器内通常 0.0.0.0） |
+| `HTTP_PORT` | 8080 | 监听端口 |
+| `HTTP_BACKLOG` | 4096 | Uvicorn `listen(backlog)`；瞬时大量 WebSocket 握手时可减小对端「读 101 前被关」概率 |
+
+### 启动检查
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `KAFKA_STARTUP_TIMEOUT_SEC` | 30.0 | Kafka 启动连通性检查超时（秒） |
 
 ### 其它
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `CLEANER_MODE` | default | 数据清洗：`default`（raw+cleaned）、`identity`（透传） |
 | `STOP_TIMEOUT` | 120 | 优雅停机超时（秒） |
 | `LOG_LEVEL` | INFO | 日志级别 |
 | `LOG_FORMAT` | auto | 日志格式：`json`、`console`、`auto` |
@@ -75,7 +75,8 @@ Webhook 路径 `/webhook/session`、host `0.0.0.0`、port `8080` 固定于代码
 ```env
 REDIS_URL=redis://localhost:6379/0
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092
-TRANSCRIBE_SERVICE_PROTOCOL=sse
+KAFKA_COMPRESSION_TYPE=zstd
+LOG_FORMAT=console
 ```
 
 **生产**：
@@ -83,23 +84,8 @@ TRANSCRIBE_SERVICE_PROTOCOL=sse
 ```env
 REDIS_URL=redis://your-elasticache:6379/0
 KAFKA_BOOTSTRAP_SERVERS=your-msk:9092
-KAFKA_COMPRESSION_TYPE=gzip
-TRANSCRIBE_SERVICE_PROTOCOL=sse
+KAFKA_TOPIC=cc.transcript.realtime.v1
+KAFKA_TOPIC_NUM_PARTITIONS=100
+KAFKA_REPLICATION_FACTOR=3
 LOG_FORMAT=json
 ```
-
----
-
-## 4. CLEANER_MODE 说明
-
-| 值 | 说明 | Kafka 输出 |
-|------|------|------------|
-| `default` | 提取结构化字段 + 保留原始 | `{raw, cleaned}` |
-| `identity` | 透传原始 payload | `{raw}` |
-
----
-
-## 5. 相关文档
-
-- [pyproject-config.md](pyproject-config.md) - pyproject.toml 构建与依赖配置
-- [docs/specs/01-application-design.md](specs/01-application-design.md) - 应用设计

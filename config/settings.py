@@ -1,9 +1,8 @@
 """Configuration loaded from environment variables."""
 
 from functools import lru_cache
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,53 +16,42 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
     )
 
-    # Transcribe Service 直连模式（统一 Webhook，无模式分支）
-    transcribe_service_max_sessions_per_pod: int = 100
-    transcribe_service_protocol: str = "sse"  # "sse" 或 "websocket"
-    transcribe_service_ssrf_allow_localhost: bool = False  # True 时允许 127.0.0.1（仅 Demo）
-
-    # Redis
+    # --- Redis ---
     redis_url: str = "redis://localhost:6379/0"
-    redis_max_connections: int = 100  # 连接池大小，高并发时调大
-    dedup_key_parts: str = "session_id,processing_id,seq_no"
-    dedup_ttl_seconds: int = 60
+    redis_max_connections: int = 100
+    redis_active_ttl_sec: int = 3600
+    redis_final_ttl_sec: int = 60
 
-    # Transform
-    cleaner_mode: str = "default"
-
-    # Kafka
+    # --- Kafka ---
     kafka_bootstrap_servers: str = "localhost:9092"
-    kafka_topic: str = "transcription_topic"
-    kafka_topic_num_partitions: int = 6  # 新建 Topic 时的分区数，已有 Topic 不受影响
-    kafka_compression_type: Literal["none", "gzip", "snappy", "lz4"] = "lz4"
-    kafka_send_timeout_sec: float = 10.0  # 发送超时(秒)，Kafka 不可用时超时并输出错误日志
+    kafka_topic: str = "cc.transcript.realtime.v1"
+    kafka_topic_num_partitions: int = 50
+    kafka_replication_factor: int = 1
+    kafka_compression_type: Literal["none", "gzip", "snappy", "lz4", "zstd"] = "zstd"
+    kafka_send_timeout_sec: float = 2.0
+    kafka_linger_ms: int = 1
+    kafka_batch_size: int = 32768
 
-    # Graceful shutdown timeout (seconds)
+    # --- WebSocket ---
+    ws_ping_interval: float = 20.0
+    ws_ping_timeout: float = 20.0
+    ws_max_size: int = 1048576  # 1MB
+
+    # --- HTTP / Uvicorn ---
+    http_host: str = "0.0.0.0"
+    http_port: int = 8080
+    # listen() backlog；瞬时大量建连时过小可能导致对端在读到 101 前被 RST（默认 2048）
+    http_backlog: int = 4096
+    # 最大同时在线 WebSocket 连接数；超出后新连接以 1013 拒绝。0 = 不限制
+    ws_max_connections: int = 0
+
+    # --- Startup ---
+    kafka_startup_timeout_sec: float = 30.0
+
+    # --- Graceful shutdown ---
     stop_timeout: int = 120
 
-    # Long connection: reconnect
-    reconnect_enabled: bool = True
-    reconnect_max_retries: int = 0  # 0 = infinite
-    reconnect_initial_delay: float = 1.0
-    reconnect_max_delay: float = 60.0
-    reconnect_backoff_factor: float = 2.0
-
-    # Long connection: timeouts
-    sse_read_timeout: float | None = None  # None = no limit（env 设为 none 或省略）
-    ws_ping_interval: float | None = 20.0  # None = disable
-    ws_ping_timeout: float | None = 20.0
-
-    @field_validator("sse_read_timeout", mode="before")
-    @classmethod
-    def _parse_none_timeout(cls, v: Any) -> float | None:
-        """Parse 'none' or empty as None (no limit)."""
-        if v is None or v == "":
-            return None
-        if isinstance(v, str) and v.strip().lower() == "none":
-            return None
-        return v
-
-    # Logging (LOG_LEVEL=INFO, LOG_FORMAT=json|console|auto)
+    # --- Logging ---
     log_level: str = "INFO"
     log_format: Literal["json", "console", "auto"] = "auto"
 

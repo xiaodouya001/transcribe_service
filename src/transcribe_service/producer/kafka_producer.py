@@ -1,138 +1,135 @@
-"""Kafka producer for production - aiokafka with session_id as key."""
+"""Kafka 生产者 — conversationId 路由、acks=all、zstd 压缩、2s 快速失败。"""
+
+from __future__ import annotations
 
 import asyncio
 
+import orjson
 import structlog
 from aiokafka import AIOKafkaProducer
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
-
-from transcribe_service.producer.base import ProducerBackend
+from typing import Any
 
 log = structlog.get_logger(__name__)
 
 
 async def _ensure_topic(
-    bootstrap_servers: str, topic: str, num_partitions: int = 6
+    bootstrap_servers: str,
+    topic: str,
+    num_partitions: int,
+    replication_factor: int = 1,
 ) -> None:
-    """Create topic if it does not exist."""
+    """幂等建 Topic（已存在则忽略）。"""
     admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
     await admin.start()
     try:
         await admin.create_topics(
-            [NewTopic(name=topic, num_partitions=num_partitions, replication_factor=1)]
+            [NewTopic(name=topic, num_partitions=num_partitions, replication_factor=replication_factor)]
         )
     except Exception:
-        pass  # Topic may already exist
+        pass
     finally:
         await admin.close()
 
 
 class KafkaProducer:
-    """Kafka producer: session_id as key, configurable compression, idempotence, linger_ms."""
+    """Kafka 投递层实现。
+
+    - Partition Key: conversationId
+    - acks=all, enable_idempotence=True, max_in_flight_requests_per_connection=1
+    - compression: zstd（可配置）
+    - send timeout: 2s（可配置）
+    """
 
     def __init__(
         self,
         bootstrap_servers: str = "localhost:9092",
-        topic: str = "transcription_topic",
+        topic: str = "cc.transcript.realtime.v1",
         *,
-        compression_type: str = "none",
-        send_timeout_sec: float = 10.0,
-        num_partitions: int = 6,
+        compression_type: str = "zstd",
+        send_timeout_sec: float = 2.0,
+        linger_ms: int = 1,
+        batch_size: int = 32768,
+        num_partitions: int = 50,
+        replication_factor: int = 1,
     ) -> None:
         self._bootstrap = bootstrap_servers
         self._topic = topic
         self._compression_type = compression_type
         self._send_timeout_sec = send_timeout_sec
+        self._linger_ms = linger_ms
+        self._batch_size = batch_size
         self._num_partitions = num_partitions
+        self._replication_factor = replication_factor
         self._producer: AIOKafkaProducer | None = None
 
     async def _get_producer(self) -> AIOKafkaProducer:
         if self._producer is None:
-            await _ensure_topic(self._bootstrap, self._topic, self._num_partitions)
+            await _ensure_topic(
+                self._bootstrap,
+                self._topic,
+                self._num_partitions,
+                self._replication_factor,
+            )
             comp = None if self._compression_type == "none" else self._compression_type
             self._producer = AIOKafkaProducer(
                 bootstrap_servers=self._bootstrap,
                 compression_type=comp,
                 enable_idempotence=True,
-                linger_ms=15,
+                max_request_size=1048576,
+                linger_ms=self._linger_ms,
+                max_batch_size=self._batch_size,
             )
             await self._producer.start()
         return self._producer
 
     async def ensure_ready(self) -> None:
-        """Verify Kafka is reachable. Raises on connection failure."""
+        """启动时验证 Kafka 可达。"""
         await self._get_producer()
 
     async def send(
         self,
-        session_id: str,
-        seq_no: int,
-        transcript: str,
-        role: str = "",
-        created_at: str = "",
-        processing_status: str = "",
-        *,
-        raw_payload: dict | None = None,
-        cleaned: dict | None = None,
-        **kwargs: object,
+        conversation_id: str,
+        payload: dict[str, Any],
     ) -> None:
-        """Send to Kafka with session_id as key. Value: {raw, cleaned} when provided."""
-        import orjson
-
-        if raw_payload is not None or cleaned is not None:
-            payload = {"raw": raw_payload, "cleaned": cleaned or {}}
-        else:
-            cleaned_dict = {
-                "session_id": session_id,
-                "seq_no": seq_no,
-                "transcript": transcript,
-                "role": role,
-                "created_at": created_at,
-                "processing_status": processing_status,
-                **{k: v for k, v in kwargs.items() if k not in ("raw_payload", "cleaned")},
-            }
-            payload = {"raw": None, "cleaned": cleaned_dict}
+        """发送消息到 Kafka，conversationId 作为 Key。"""
         value = orjson.dumps(payload)
-        key = session_id.encode("utf-8")
+        key = conversation_id.encode("utf-8")
         producer = await self._get_producer()
         try:
             await asyncio.wait_for(
                 producer.send_and_wait(self._topic, value=value, key=key),
                 timeout=self._send_timeout_sec,
             )
-        except asyncio.TimeoutError as e:
+        except asyncio.TimeoutError:
             log.error(
                 "Kafka: 发送超时",
-                session_id=session_id,
-                seq_no=seq_no,
+                conversation_id=conversation_id,
                 topic=self._topic,
                 timeout_sec=self._send_timeout_sec,
-                error=str(e),
             )
             raise
         except Exception as e:
             log.error(
                 "Kafka: 发送失败",
-                session_id=session_id,
-                seq_no=seq_no,
+                conversation_id=conversation_id,
                 topic=self._topic,
                 error=str(e),
             )
             raise
         log.debug(
-            "Kafka Producer: 已发送",
-            session_id=session_id,
-            seq_no=seq_no,
+            "Kafka: 已发送",
+            conversation_id=conversation_id,
             topic=self._topic,
         )
 
     async def flush(self) -> None:
-        """Flush producer buffers."""
+        """刷新缓冲区。"""
         if self._producer:
             await self._producer.flush()
 
     async def close(self) -> None:
-        """Stop producer."""
+        """关闭生产者。"""
         if self._producer:
             await self._producer.stop()
             self._producer = None

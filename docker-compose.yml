@@ -1,9 +1,9 @@
-# Redis + Kafka for Transcribe Service (local dev / production parity)
+# Redis + Kafka for Transcribe Service (local dev)
 # Usage: docker compose up -d
-# Then: python -m transcribe_service.main (uses REDIS_URL and KAFKA_BOOTSTRAP_SERVERS from .env)
+# Then: python -m transcribe_service.main
+# WebSocket endpoint: ws://localhost:8080/ws/v1/realtime-transcriptions?conversationId=xxx
 #
-# Kafka data is ephemeral (no volume) to avoid permission issues with apache/kafka non-root user.
-# Redis data persists in redis_data volume.
+# Kafka data is ephemeral (no volume). Redis data persists in redis_data volume.
 
 services:
   redis:
@@ -12,6 +12,8 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    # 未指定 --maxclients 时沿用 redis:7-alpine 内置配置（一般为 10000，实际会受容器 ulimits/nofile 压缩）。
+    # 查看实值：docker compose exec redis redis-cli CONFIG GET maxclients
     command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -52,7 +54,7 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     ports:
-      - "8090:8080"  # 8090 避免与 Transcribe Service Webhook (8080) 冲突
+      - "8090:8080"  # 8090 避免与 Transcribe Service (8080) 冲突
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:19092

@@ -107,7 +107,7 @@ def configure_logging(
         ]
     else:
         processors = _SHARED_PROCESSORS + [
-            structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty(), pad_event=25),
+            structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty(), pad_event_to=25),
         ]
 
     structlog.configure(
