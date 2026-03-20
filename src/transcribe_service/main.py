@@ -97,6 +97,7 @@ async def run() -> None:
         redis_url=settings.redis_url,
         producer=producer,
         max_connections=settings.ws_max_connections,
+        log_ws_error_frames=settings.log_ws_error_frames,
     )
 
     config = uvicorn.Config(

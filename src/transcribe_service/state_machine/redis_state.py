@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import structlog
 from redis.asyncio import Redis
+from redis.exceptions import NoScriptError
 
 from transcribe_service.state_machine.base import PrepareResult
 
@@ -93,6 +94,9 @@ class RedisStateMachine:
         self._final_ttl = final_ttl_sec
         self._client: Redis | None = client
         self._client_injected = client is not None
+        self._sha_prepare: str | None = None
+        self._sha_commit: str | None = None
+        self._sha_cleanup: str | None = None
 
     async def _get_client(self) -> Redis:
         if self._client is None:
@@ -103,6 +107,16 @@ class RedisStateMachine:
             )
         return self._client
 
+    async def _ensure_scripts_loaded(self) -> None:
+        """确保三段 Lua 脚本已加载并缓存 SHA。"""
+        client = await self._get_client()
+        if self._sha_prepare is None:
+            self._sha_prepare = await client.script_load(LUA_PREPARE)
+        if self._sha_commit is None:
+            self._sha_commit = await client.script_load(LUA_COMMIT)
+        if self._sha_cleanup is None:
+            self._sha_cleanup = await client.script_load(LUA_CLEANUP)
+
     @staticmethod
     def _key(conversation_id: str) -> str:
         return f"{KEY_PREFIX}:{conversation_id}"
@@ -110,9 +124,16 @@ class RedisStateMachine:
     async def prepare(self, conversation_id: str, seq: int) -> PrepareResult:
         """Lua 原子预检，不推进状态。"""
         client = await self._get_client()
-        result: str = await client.eval(
-            LUA_PREPARE, 1, self._key(conversation_id), seq, self._active_ttl
-        )
+        await self._ensure_scripts_loaded()
+        try:
+            result: str = await client.evalsha(
+                self._sha_prepare, 1, self._key(conversation_id), seq, self._active_ttl
+            )
+        except NoScriptError:
+            self._sha_prepare = await client.script_load(LUA_PREPARE)
+            result = await client.evalsha(
+                self._sha_prepare, 1, self._key(conversation_id), seq, self._active_ttl
+            )
         pr = PrepareResult(result)
         log.debug(
             "StateMachine.prepare",
@@ -125,9 +146,16 @@ class RedisStateMachine:
     async def commit(self, conversation_id: str, seq: int) -> None:
         """Kafka Ack 后推进 expected = seq+1。"""
         client = await self._get_client()
-        await client.eval(
-            LUA_COMMIT, 1, self._key(conversation_id), seq, self._active_ttl
-        )
+        await self._ensure_scripts_loaded()
+        try:
+            await client.evalsha(
+                self._sha_commit, 1, self._key(conversation_id), seq, self._active_ttl
+            )
+        except NoScriptError:
+            self._sha_commit = await client.script_load(LUA_COMMIT)
+            await client.evalsha(
+                self._sha_commit, 1, self._key(conversation_id), seq, self._active_ttl
+            )
         log.debug(
             "StateMachine.commit",
             conversation_id=conversation_id,
@@ -138,9 +166,16 @@ class RedisStateMachine:
     async def cleanup(self, conversation_id: str) -> None:
         """SESSION_COMPLETE 后缩短 TTL，兜住迟到包。"""
         client = await self._get_client()
-        await client.eval(
-            LUA_CLEANUP, 1, self._key(conversation_id), self._final_ttl
-        )
+        await self._ensure_scripts_loaded()
+        try:
+            await client.evalsha(
+                self._sha_cleanup, 1, self._key(conversation_id), self._final_ttl
+            )
+        except NoScriptError:
+            self._sha_cleanup = await client.script_load(LUA_CLEANUP)
+            await client.evalsha(
+                self._sha_cleanup, 1, self._key(conversation_id), self._final_ttl
+            )
         log.info(
             "StateMachine.cleanup",
             conversation_id=conversation_id,

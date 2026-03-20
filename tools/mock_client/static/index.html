@@ -1520,6 +1520,9 @@ function clearKafkaMessagesOnly() {
   if (container) container.innerHTML = '';
   const pill = document.getElementById('kafka-count');
   if (pill) pill.textContent = '0';
+  // 清空 Topic 后，本地缓存的会话 ID 也应重置，避免下拉残留历史值。
+  knownConversationIds.clear();
+  rebuildKafkaCidSelect();
   applyKafkaListFilter();
 }
 

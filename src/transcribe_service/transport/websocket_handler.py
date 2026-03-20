@@ -160,6 +160,7 @@ def create_app(
     redis_url: str = "",
     producer: object | None = None,
     max_connections: int = 0,
+    log_ws_error_frames: bool = False,
 ) -> FastAPI:
     """构建 FastAPI 应用，包含 WebSocket 端点和健康检查。"""
     app = FastAPI(
@@ -240,7 +241,12 @@ def create_app(
         )
 
         try:
-            await _message_loop(ws, orchestrator, conversationId)
+            await _message_loop(
+                ws,
+                orchestrator,
+                conversationId,
+                log_ws_error_frames=log_ws_error_frames,
+            )
         except WebSocketDisconnect:
             log.info(
                 "Transport: 客户端断开",
@@ -258,6 +264,7 @@ def create_app(
                 ErrorCode.E1007.value,
                 "Internal server error",
                 WsCloseCode.INTERNAL_ERROR,
+                log_ws_error_frames=log_ws_error_frames,
             )
         finally:
             registry.remove(conversationId, ws)
@@ -269,6 +276,8 @@ async def _message_loop(
     ws: WebSocket,
     orchestrator: OrchestratorBackend,
     conversation_id: str,
+    *,
+    log_ws_error_frames: bool = False,
 ) -> None:
     """消息循环：接收 JSON → orchestrator 处理 → 发送响应。"""
     while True:
@@ -291,6 +300,7 @@ async def _message_loop(
                 "Invalid JSON",
                 WsCloseCode.INVALID_PAYLOAD,
                 details=str(e)[:MAX_ERROR_DETAILS_LEN],
+                log_ws_error_frames=log_ws_error_frames,
             )
             return
 
@@ -306,6 +316,16 @@ async def _message_loop(
 
         # 发送响应帧
         if ws.client_state == WebSocketState.CONNECTED:
+            if (
+                log_ws_error_frames
+                and isinstance(resp, dict)
+                and (resp.get("metaData") or {}).get("eventType") == "ERROR"
+            ):
+                log.info(
+                    "Transport: 发出 ERROR 响应帧",
+                    conversation_id=conversation_id,
+                    response=resp,
+                )
             await ws.send_text(orjson.dumps(resp).decode("utf-8"))
 
         # 是否断连
@@ -329,11 +349,18 @@ async def _send_error_and_close(
     close_code: int,
     *,
     details: str | None = None,
+    log_ws_error_frames: bool = False,
 ) -> None:
     """发送 ERROR 帧后关闭连接。"""
     try:
         if ws.client_state == WebSocketState.CONNECTED:
             error_payload = build_error(conversation_id, code, message, details)
+            if log_ws_error_frames:
+                log.info(
+                    "Transport: 发出 ERROR 响应帧",
+                    conversation_id=conversation_id,
+                    response=error_payload,
+                )
             await ws.send_text(orjson.dumps(error_payload).decode("utf-8"))
             log.info(
                 "Transport: 服务端发送错误后主动断开连接",
