@@ -126,6 +126,7 @@ def _session_message_split(total_messages: int) -> tuple[int, int]:
 
 @dataclass
 class Stats:
+    load_running: bool = False
     sent: int = 0
     ack: int = 0
     error: int = 0
@@ -174,11 +175,12 @@ class Stats:
             idx = min(idx, len(sorted_srv_lat) - 1)
             return round(sorted_srv_lat[idx] * 1000, 2)
         return {
+            "load_running": self.load_running,
             "sent": self.sent,
             "ack": self.ack,
             "error": self.error,
             "active_connections": self.active_connections,
-            "tps": round(self.sent / elapsed, 1),
+            "tps": round(self.sent / elapsed, 1) if self.load_running else 0.0,
             "p50_ms": _pct(0.5),
             "p95_ms": _pct(0.95),
             "p99_ms": _pct(0.99),
@@ -190,6 +192,7 @@ class Stats:
         }
 
     def reset(self) -> None:
+        self.load_running = False
         self.sent = 0
         self.ack = 0
         self.error = 0

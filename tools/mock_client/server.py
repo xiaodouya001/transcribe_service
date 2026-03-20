@@ -214,6 +214,7 @@ async def load_start(
     _load_stop_event = asyncio.Event()
 
     stats.reset()
+    stats.load_running = True
     _broadcast_sse("stats", stats.snapshot())
 
     total_sessions = concurrency
@@ -234,16 +235,19 @@ async def load_start(
     )
 
     async def _run():
-        await run_load_test(
-            ws_url=ws_url,
-            stats=stats,
-            emit=_emit,
-            concurrency=concurrency,
-            messages_per_conv=messages_per_conv,
-            interval_ms=interval_ms,
-            ramp_up_ms=ramp_up_ms,
-            stop_event=_load_stop_event,
-        )
+        try:
+            await run_load_test(
+                ws_url=ws_url,
+                stats=stats,
+                emit=_emit,
+                concurrency=concurrency,
+                messages_per_conv=messages_per_conv,
+                interval_ms=interval_ms,
+                ramp_up_ms=ramp_up_ms,
+                stop_event=_load_stop_event,
+            )
+        finally:
+            stats.load_running = False
 
     _load_task = asyncio.create_task(_run())
     return {

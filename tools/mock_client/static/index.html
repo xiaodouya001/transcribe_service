@@ -3,27 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mock Client — Transcribe Service</title>
+<title>Transcribe Service Testing - Mock Console</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #080a0f;
-  --bg-elevated: #0f1219;
-  --bg2: #141922;
-  --bg3: #1a2030;
-  --border: rgba(120, 140, 180, 0.18);
-  --border-strong: rgba(120, 140, 180, 0.35);
-  --text: #e8eaef;
-  --text2: #8b93a8;
-  --accent: #2dd4bf;
-  --accent-dim: rgba(45, 212, 191, 0.14);
-  --accent-glow: rgba(45, 212, 191, 0.35);
-  --green: #4ade80;
-  --red: #f87171;
-  --yellow: #facc15;
-  --orange: #fb923c;
+  --bg: #1f232b;
+  --bg-elevated: #282c34;
+  --bg2: #232933;
+  --bg3: #2c3440;
+  --border: rgba(171, 178, 191, 0.2);
+  --border-strong: rgba(171, 178, 191, 0.36);
+  --text: #abb2bf;
+  --text2: #7f8793;
+  --accent: #61afef;
+  --accent-dim: rgba(97, 175, 239, 0.16);
+  --accent-glow: rgba(97, 175, 239, 0.34);
+  --green: #98c379;
+  --red: #e06c75;
+  --yellow: #e5c07b;
+  --orange: #d19a66;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
   --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
   --radius: 10px;
@@ -67,11 +67,94 @@ header .tag {
   text-transform: uppercase;
 }
 .scenario-page {
+  --control-panel-width: 380px;
+  --scenario-divider-x: var(--control-panel-width);
+  --scenario-toggle-gutter: 12px;
   height: 100%;
   display: grid;
-  grid-template-columns: 380px 1fr;
-  gap: 1px;
-  background: rgba(120, 140, 180, 0.12);
+  grid-template-columns: var(--control-panel-width) 1fr;
+  gap: 0;
+  background: var(--bg);
+  position: relative;
+}
+.scenario-page::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--scenario-divider-x);
+  width: 1px;
+  background: transparent;
+  pointer-events: none;
+  z-index: 2;
+}
+.scenario-page.control-hidden {
+  grid-template-columns: 1fr;
+}
+.scenario-page.control-hidden::after {
+  display: none;
+}
+.scenario-page.control-hidden .scenario-main {
+  padding-left: var(--scenario-toggle-gutter);
+  background: var(--bg);
+}
+.scenario-page.control-hidden .control-panel {
+  display: none;
+}
+.scenario-toggle-btn {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--scenario-divider-x) - 6px);
+  transform: none;
+  z-index: 8;
+  display: inline-flex;
+  background: var(--bg2) !important;
+  border: 0 !important;
+  border-left: 1px solid rgba(171, 178, 191, 0.24) !important;
+  border-right: 0 !important;
+  color: var(--text) !important;
+  border-radius: 0;
+  width: 12px;
+  height: auto;
+  padding: 0;
+  font-size: 0;
+  font-weight: 600;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.scenario-toggle-btn::before {
+  content: "‹";
+  position: absolute;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(232, 234, 239, 0.52);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+  transition: color 140ms ease;
+}
+.scenario-page.control-hidden .scenario-toggle-btn {
+  left: 0;
+}
+.scenario-page.control-hidden .scenario-toggle-btn::before {
+  content: "›";
+}
+.scenario-toggle-btn:hover {
+  color: inherit !important;
+  border-color: rgba(97, 175, 239, 0.48) !important;
+  background: #2b3240 !important;
+}
+.scenario-toggle-btn:hover::before {
+  color: rgba(97, 175, 239, 0.95);
+}
+.scenario-empty-hint {
+  color: var(--text2);
+  font-style: italic;
+  opacity: 0.92;
 }
 .panel {
   background: var(--bg);
@@ -92,6 +175,12 @@ header .tag {
   letter-spacing: 0.08em;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+.scenario-page .panel-header {
+  height: 44px;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
 }
 .scenario-results-header {
   display: flex;
@@ -133,6 +222,7 @@ header .tag {
 }
 .control-panel {
   min-height: 0;
+  border-right: 0;
 }
 .control-panel.collapsed .panel-body.control-strip {
   display: none;
@@ -177,10 +267,13 @@ header .tag {
   display: grid;
   grid-template-rows: 1fr 2fr;
   gap: 1px;
+  background: var(--bg);
 }
 @media (max-width: 1200px) {
   .scenario-page {
-    grid-template-columns: 320px 1fr;
+    --control-panel-width: 320px;
+    --scenario-divider-x: var(--control-panel-width);
+    grid-template-columns: var(--control-panel-width) 1fr;
   }
 }
 @media (max-width: 1100px) {
@@ -568,6 +661,7 @@ button.success:hover {
   border-radius: var(--radius-sm);
   padding: 10px 12px;
   margin-bottom: 8px;
+  width: 100%;
   font-family: var(--font-mono);
   font-size: 12px;
   cursor: pointer;
@@ -603,14 +697,31 @@ button.success:hover {
 }
 .kafka-msg .body {
   display: none;
-  white-space: pre-wrap;
-  word-break: break-all;
+  white-space: pre;
+  word-break: normal;
   color: var(--text);
-  margin-top: 6px;
-  max-height: 200px;
-  overflow-y: auto;
+  margin-top: 8px;
+  max-height: 320px;
+  overflow: auto;
+  background: #1e222a;
+  border: 1px solid rgba(97, 175, 239, 0.28);
+  border-radius: 8px;
+  padding: 12px 14px;
+  line-height: 1.5;
+  tab-size: 2;
 }
 .kafka-msg.expanded .body { display: block; }
+.kafka-msg .body code {
+  display: block;
+  min-width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.json-key { color: #e06c75; }
+.json-string { color: #98c379; }
+.json-number { color: #d19a66; }
+.json-bool { color: #56b6c2; }
+.json-null { color: #c678dd; }
 .kafka-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -822,6 +933,31 @@ select.cp-select:focus {
   gap: 12px;
   margin-bottom: 24px;
 }
+.metric-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.metric-group {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+.metric-group-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 10px;
+}
+.metric-group .load-stats-grid {
+  margin-bottom: 0;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 10px;
+}
 .load-stat-card {
   background: var(--bg2);
   border: 1px solid var(--border);
@@ -845,11 +981,23 @@ select.cp-select:focus {
 .load-stat-card.green .value { color: var(--green); }
 .load-stat-card.red .value { color: var(--red); }
 .load-stat-card.orange .value { color: var(--orange); }
+.metric-group .load-stat-card {
+  background: var(--bg3);
+  padding: 16px 10px;
+}
+.metric-group .load-stat-card .value {
+  font-size: 26px;
+}
 .load-errors-section {
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px 20px;
+}
+@media (max-width: 980px) {
+  .metric-groups {
+    grid-template-columns: 1fr;
+  }
 }
 .load-errors-section .title {
   font-size: 12px;
@@ -883,8 +1031,8 @@ select.cp-select:focus {
 <body>
 
 <header>
-  <h1>Mock Client</h1>
-  <span class="tag">Transcribe Service</span>
+  <h1>Transcribe Service Testing - Mock Console</h1>
+  <span class="tag">Realtime WS + Kafka</span>
   <nav class="tab-nav">
     <button class="tab-btn active" onclick="switchTab('scenario')">场景测试</button>
     <button class="tab-btn" onclick="switchTab('loadtest')">并发压测</button>
@@ -894,11 +1042,11 @@ select.cp-select:focus {
 
 <!-- ====== Tab 1: 场景测试 ====== -->
 <div class="tab-content active" id="tab-scenario">
-<div class="scenario-page">
+<div class="scenario-page" id="scenario-page">
+  <button type="button" class="scenario-toggle-btn" id="btn-control-toggle" title="收起场景配置" aria-label="收起场景配置"></button>
   <div class="panel control-panel" id="control-panel">
     <div class="panel-header control-panel-header">
       <span>场景配置</span>
-      <button type="button" class="control-collapse-btn" id="btn-control-collapse" aria-expanded="true" title="收起 / 展开">收起</button>
     </div>
     <div class="panel-body control-strip" id="control-panel-body">
       <section class="cp-card scenario-endpoint-card">
@@ -950,7 +1098,7 @@ select.cp-select:focus {
         <button type="button" class="panel-header-action" id="btn-scenario-clear" onclick="clearScenarioResults()" title="清空所有场景卡片">清空</button>
       </div>
       <div class="panel-body" id="scenario-results">
-        <p style="color:var(--text2);font-style:italic;">点击上方按钮运行场景...</p>
+        <p class="scenario-empty-hint">点击左侧「场景配置」中的按钮运行场景...</p>
       </div>
     </div>
 
@@ -960,6 +1108,8 @@ select.cp-select:focus {
         <span>Kafka 消息</span>
         <div class="kafka-banner-actions">
           <span id="kafka-count" class="kafka-count-pill" title="当前列表可见条数">0</span>
+          <button type="button" class="panel-header-action" id="btn-kafka-copy-json" onclick="copyVisibleKafkaJson()" title="复制当前可见消息的 JSON">复制 JSON</button>
+          <button type="button" class="panel-header-action" id="btn-kafka-toggle-expand" onclick="toggleAllKafkaMessages()">展开全部</button>
           <button type="button" class="panel-header-action" onclick="clearKafka()" title="清空消息列表与 conversationId 下拉缓存">清空列表</button>
           <button type="button" class="panel-header-action panel-header-action--purge" onclick="purgeKafkaTopic()" title="删除当前 Bootstrap/Topic 上已提交的全部消息（Kafka DeleteRecords）；会先停止消费者，若正在消费本 Topic 则清空后自动恢复">清空 Topic</button>
         </div>
@@ -1044,18 +1194,38 @@ select.cp-select:focus {
       <div id="load-status" class="cp-load-status cp-load-status--idle" role="status" aria-live="polite" style="margin-bottom:20px">
         当前空闲。启动后此处显示进行中与已用时间；整轮跑完后变为绿色「已完成」。
       </div>
-      <div class="load-stats-grid">
-        <div class="load-stat-card"><div class="value" id="stat-sent">0</div><div class="label">已发送</div></div>
-        <div class="load-stat-card green"><div class="value" id="stat-ack">0</div><div class="label">ACK</div></div>
-        <div class="load-stat-card red"><div class="value" id="stat-error">0</div><div class="label">错误</div></div>
-        <div class="load-stat-card"><div class="value" id="stat-active">0</div><div class="label">活跃连接</div></div>
-        <div class="load-stat-card"><div class="value" id="stat-tps">0</div><div class="label">TPS</div></div>
-        <div class="load-stat-card orange"><div class="value" id="stat-p50">0</div><div class="label">端到端 P50 (ms)</div></div>
-        <div class="load-stat-card orange"><div class="value" id="stat-p95">0</div><div class="label">端到端 P95 (ms)</div></div>
-        <div class="load-stat-card orange"><div class="value" id="stat-p99">0</div><div class="label">端到端 P99 (ms)</div></div>
-        <div class="load-stat-card"><div class="value" id="stat-server-p50">0</div><div class="label">服务端 P50 (ms)</div></div>
-        <div class="load-stat-card"><div class="value" id="stat-server-p95">0</div><div class="label">服务端 P95 (ms)</div></div>
-        <div class="load-stat-card"><div class="value" id="stat-server-p99">0</div><div class="label">服务端 P99 (ms)</div></div>
+      <div class="metric-groups">
+        <section class="metric-group">
+          <h4 class="metric-group-title">吞吐与连接</h4>
+          <div class="load-stats-grid">
+            <div class="load-stat-card"><div class="value" id="stat-sent">0</div><div class="label">已发送</div></div>
+            <div class="load-stat-card"><div class="value" id="stat-active">0</div><div class="label">活跃连接</div></div>
+            <div class="load-stat-card"><div class="value" id="stat-tps">0</div><div class="label">TPS</div></div>
+          </div>
+        </section>
+        <section class="metric-group">
+          <h4 class="metric-group-title">结果质量</h4>
+          <div class="load-stats-grid">
+            <div class="load-stat-card green"><div class="value" id="stat-ack">0</div><div class="label">ACK</div></div>
+            <div class="load-stat-card red"><div class="value" id="stat-error">0</div><div class="label">错误</div></div>
+          </div>
+        </section>
+        <section class="metric-group">
+          <h4 class="metric-group-title">端到端延迟</h4>
+          <div class="load-stats-grid">
+            <div class="load-stat-card orange"><div class="value" id="stat-p50">0</div><div class="label">P50 (ms)</div></div>
+            <div class="load-stat-card orange"><div class="value" id="stat-p95">0</div><div class="label">P95 (ms)</div></div>
+            <div class="load-stat-card orange"><div class="value" id="stat-p99">0</div><div class="label">P99 (ms)</div></div>
+          </div>
+        </section>
+        <section class="metric-group">
+          <h4 class="metric-group-title">服务端延迟</h4>
+          <div class="load-stats-grid">
+            <div class="load-stat-card"><div class="value" id="stat-server-p50">0</div><div class="label">P50 (ms)</div></div>
+            <div class="load-stat-card"><div class="value" id="stat-server-p95">0</div><div class="label">P95 (ms)</div></div>
+            <div class="load-stat-card"><div class="value" id="stat-server-p99">0</div><div class="label">P99 (ms)</div></div>
+          </div>
+        </section>
       </div>
       <div class="load-errors-section" id="load-errors-panel" style="display:none" aria-live="polite">
         <div class="title">最近压测错误（保留约 100 条 · 可在终端看完整 WARNING）</div>
@@ -1070,6 +1240,7 @@ select.cp-select:focus {
 const API = '';
 const knownConversationIds = new Set();
 const SCENARIOS_WITH_N = new Set(['A_normal_flow', 'B_idempotent', 'C_out_of_order', 'G_session_complete']);
+let kafkaExpandAll = false;
 
 // ---------------------------------------------------------------------------
 // Tab 切换
@@ -1166,17 +1337,21 @@ function connectSSE() {
   });
 }
 connectSSE();
+updateKafkaExpandButtonLabel();
 
 (function initControlPanelCollapse() {
   const LS = 'mockClient.controlPanelCollapsed';
+  const page = document.getElementById('scenario-page');
   const panel = document.getElementById('control-panel');
-  const btn = document.getElementById('btn-control-collapse');
-  if (!panel || !btn) return;
+  const btn = document.getElementById('btn-control-toggle');
+  if (!page || !panel || !btn) return;
   function setCollapsed(c) {
+    page.classList.toggle('control-hidden', c);
     panel.classList.toggle('collapsed', c);
-    btn.textContent = c ? '展开' : '收起';
+    btn.textContent = c ? '▶' : '◀';
     btn.setAttribute('aria-expanded', String(!c));
-    btn.title = c ? '展开控制面板' : '收起控制面板';
+    btn.setAttribute('aria-label', c ? '展开场景配置' : '收起场景配置');
+    btn.title = c ? '展开场景配置' : '收起场景配置';
     try { localStorage.setItem(LS, c ? '1' : '0'); } catch (e) {}
   }
   try {
@@ -1204,7 +1379,7 @@ function escapeScenarioTitle(name) {
 function clearScenarioResults() {
   const container = document.getElementById('scenario-results');
   if (!container) return;
-  container.innerHTML = '<p style="color:var(--text2);font-style:italic;">点击上方按钮运行场景...</p>';
+  container.innerHTML = '<p class="scenario-empty-hint">点击左侧「场景配置」中的按钮运行场景...</p>';
   Object.keys(scenarioCards).forEach((k) => {
     delete scenarioCards[k];
   });
@@ -1486,6 +1661,61 @@ function applyKafkaListFilter() {
   document.getElementById('kafka-count').textContent = n;
 }
 
+function updateKafkaExpandButtonLabel() {
+  const btn = document.getElementById('btn-kafka-toggle-expand');
+  if (!btn) return;
+  btn.textContent = kafkaExpandAll ? '折叠全部' : '展开全部';
+  btn.title = kafkaExpandAll ? '折叠当前可见消息' : '展开当前可见消息';
+}
+
+function toggleAllKafkaMessages(forceExpanded) {
+  const container = document.getElementById('kafka-messages');
+  if (!container) return;
+  kafkaExpandAll = typeof forceExpanded === 'boolean' ? forceExpanded : !kafkaExpandAll;
+  for (const el of container.children) {
+    if (!(el instanceof HTMLElement)) continue;
+    if (el.style.display === 'none') continue;
+    el.classList.toggle('expanded', kafkaExpandAll);
+  }
+  updateKafkaExpandButtonLabel();
+}
+
+async function copyVisibleKafkaJson() {
+  const container = document.getElementById('kafka-messages');
+  const btn = document.getElementById('btn-kafka-copy-json');
+  if (!container || !btn) return;
+
+  const payloads = [];
+  for (const el of container.children) {
+    if (!(el instanceof HTMLElement)) continue;
+    if (el.style.display === 'none') continue;
+    const raw = el.dataset.rawJson;
+    if (!raw) continue;
+    try {
+      payloads.push(JSON.parse(raw));
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  if (payloads.length === 0) {
+    btn.textContent = '无可复制';
+    setTimeout(() => { btn.textContent = '复制 JSON'; }, 900);
+    return;
+  }
+
+  const out = payloads.length === 1
+    ? JSON.stringify(payloads[0], null, 2)
+    : JSON.stringify(payloads, null, 2);
+  try {
+    await navigator.clipboard.writeText(out);
+    btn.textContent = `已复制 ${payloads.length} 条`;
+  } catch (e) {
+    btn.textContent = '复制失败';
+  }
+  setTimeout(() => { btn.textContent = '复制 JSON'; }, 1200);
+}
+
 async function startKafka() {
   const bs = document.getElementById('kafka-bootstrap').value;
   const topic = document.getElementById('kafka-topic').value;
@@ -1522,6 +1752,8 @@ function clearKafkaMessagesOnly() {
   if (pill) pill.textContent = '0';
   // 清空 Topic 后，本地缓存的会话 ID 也应重置，避免下拉残留历史值。
   knownConversationIds.clear();
+  kafkaExpandAll = false;
+  updateKafkaExpandButtonLabel();
   rebuildKafkaCidSelect();
   applyKafkaListFilter();
 }
@@ -1587,6 +1819,21 @@ function addKafkaMessage(msg) {
   const hasSeq = sn !== null && sn !== undefined && sn !== '' && Number.isFinite(Number(sn));
   const seqLabel = hasSeq ? `seq ${Number(sn)}` : 'seq —';
   const seqClass = hasSeq ? 'kafka-meta-seq' : 'kafka-meta-seq kafka-meta-seq--na';
+  const jsonText = JSON.stringify(msg.value, null, 2);
+  const escapedJson = jsonText
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const highlightedJson = escapedJson.replace(
+    /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*")(\s*:)?|\b(true|false|null)\b|-?\b\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?\b/g,
+    (m, strToken, isKey, boolOrNull) => {
+      if (isKey) return `<span class="json-key">${strToken}</span>:`;
+      if (strToken) return `<span class="json-string">${strToken}</span>`;
+      if (boolOrNull === 'true' || boolOrNull === 'false') return `<span class="json-bool">${boolOrNull}</span>`;
+      if (boolOrNull === 'null') return `<span class="json-null">null</span>`;
+      return `<span class="json-number">${m}</span>`;
+    },
+  );
 
   div.innerHTML = `
     <div class="meta">
@@ -1595,8 +1842,10 @@ function addKafkaMessage(msg) {
       <span>${cidDisp}</span>
       <span>${new Date(msg.timestamp).toLocaleTimeString()}</span>
     </div>
-    <div class="body">${JSON.stringify(msg.value, null, 2)}</div>
+    <pre class="body"><code>${highlightedJson}</code></pre>
   `;
+  div.dataset.rawJson = JSON.stringify(msg.value ?? {});
+  if (kafkaExpandAll) div.classList.add('expanded');
   /* 与分区消费顺序一致：追加在底部（先发 seq3 再发 seq4 则自上而下为 …3、4） */
   const stickToBottom =
     container.scrollHeight - container.scrollTop - container.clientHeight < 120;
@@ -1615,6 +1864,8 @@ function clearKafka() {
   document.getElementById('kafka-messages').innerHTML = '';
   document.getElementById('kafka-count').textContent = '0';
   knownConversationIds.clear();
+  kafkaExpandAll = false;
+  updateKafkaExpandButtonLabel();
   rebuildKafkaCidSelect();
 }
 
