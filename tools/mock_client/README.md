@@ -43,10 +43,8 @@ python server.py
 |------|------|
 | WebSocket URL | Transcribe Service 的 WS 端点地址，默认 `ws://localhost:8080/ws/v1/realtime-transcriptions` |
 | 场景测试（两块） | **① 使用参数 N**：A / B / C / G + `参数 N` 输入框（含义见下表）。**② 不使用 N**：D1 / D2（首包异常，请求不携带 `n_messages`） |
+| 参数 N（仅 A / B / C / G） | **A、G** 业务消息总条数（含 COMPLETE）；**B** 幂等 seq 个数 `[0,N)`；**C** 乱序第二帧 `seq=max(2,N)`。 |
 | 全部运行 | 顺序 A→B→C→D1→D2→G；仅 A/B/C/G 会带 `n_messages` |
-
-**参数 N**（仅 A / B / C / G）：**A、G** 业务消息总条数（含 COMPLETE）；**B** 幂等 seq 个数 `[0,N)`；**C** 乱序第二帧 `seq=max(2,N)`。
-
 | 并发压测 | **正常流负载**（与 A / G 同一消息形状）：每条连接内在「每连接消息总数」下按 `_session_message_split` 发 ONGOING + 最后 COMPLETE，均期望 ACK。<strong>不是</strong> B/C/D 等边界场景；用于打吞吐、延迟、并发连接。 |
 | 并发连接数 / 每连接消息数 / 消息间隔(ms) | **并发连接数** = 本轮**同时进行的对话路数**（≈ 同时在线 WebSocket 数），一轮共 **`concurrency` 路**，无额外倍率。「每连接消息数」= 每路业务消息**总数（含 COMPLETE）**；「消息间隔」= 同一路内相邻两条发送之间的间隔。再打一轮请再次点「启动压测」。 |
 | 压测何时结束 | 本轮 **`concurrency` 路**会话全部发完并关闭后推送 `load_done`。「停止」后尚未开始建连的路不再执行。 |
