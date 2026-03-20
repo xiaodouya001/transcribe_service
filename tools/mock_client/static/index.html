@@ -73,6 +73,67 @@
   --accent-dim: rgba(0, 229, 255, 0.2);
   --accent-glow: rgba(0, 229, 255, 0.45);
 }
+/* Dracula — https://draculatheme.com */
+[data-theme="dracula"] {
+  --bg: #282a36;
+  --bg-elevated: #21222c;
+  --bg2: #2d3142;
+  --bg3: #44475a;
+  --border: rgba(98, 114, 164, 0.4);
+  --border-strong: rgba(98, 114, 164, 0.62);
+  --text: #f8f8f2;
+  --text2: #6272a4;
+  --text-muted: #6272a4;
+  --accent: #bd93f9;
+  --accent-dim: rgba(189, 147, 249, 0.22);
+  --accent-glow: rgba(189, 147, 249, 0.5);
+  --green: #50fa7b;
+  --red: #ff5555;
+  --yellow: #f1fa8c;
+  --orange: #ffb86c;
+  --btn-on-solid: #282a36;
+}
+[data-theme="dracula"] body {
+  background-image:
+    radial-gradient(ellipse 120% 80% at 50% -28%, rgba(189, 147, 249, 0.14), transparent 55%),
+    radial-gradient(ellipse 80% 50% at 100% 0%, rgba(255, 121, 198, 0.1), transparent 46%);
+}
+[data-theme="dracula"] header .tag {
+  background: linear-gradient(135deg, #bd93f9, #ff79c6);
+  color: #282a36;
+}
+[data-theme="dracula"] .kafka-meta-seq {
+  color: #282a36 !important;
+  background: linear-gradient(135deg, #bd93f9, #8be9fd);
+  box-shadow: 0 0 0 1px rgba(189, 147, 249, 0.55), 0 2px 10px rgba(139, 233, 253, 0.18);
+}
+[data-theme="dracula"] .kafka-msg .body {
+  background: #1e1f29;
+  border-color: rgba(189, 147, 249, 0.35);
+}
+[data-theme="dracula"] .json-key { color: #ff79c6; }
+[data-theme="dracula"] .json-string { color: #f1fa8c; }
+[data-theme="dracula"] .json-number { color: #bd93f9; }
+[data-theme="dracula"] .json-bool { color: #8be9fd; }
+[data-theme="dracula"] .json-null { color: #6272a4; }
+[data-theme="dracula"] .scenario-toggle-btn:hover {
+  background: #44475a !important;
+  border-color: rgba(189, 147, 249, 0.55) !important;
+}
+[data-theme="dracula"] .scenario-toggle-btn:hover::before {
+  color: #bd93f9;
+}
+[data-theme="dracula"] button.primary {
+  background: linear-gradient(135deg, #bd93f9, #ff79c6);
+  color: var(--btn-on-solid);
+  box-shadow: 0 2px 14px rgba(189, 147, 249, 0.35);
+}
+[data-theme="dracula"] button.primary:hover {
+  color: var(--btn-on-solid);
+}
+[data-theme="dracula"] .load-page {
+  background: rgba(98, 114, 164, 0.2);
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
   background: var(--bg);
@@ -333,10 +394,58 @@ header .tag {
 }
 .scenario-main {
   min-height: 0;
-  display: grid;
-  grid-template-rows: 1fr 2fr;
-  gap: 1px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   background: var(--bg);
+  --scenario-split: 33%;
+}
+.scenario-main-split-top {
+  flex: 0 0 var(--scenario-split, 33%);
+  min-height: 100px;
+  max-height: 85%;
+}
+.scenario-main-split-bottom {
+  flex: 1 1 auto;
+  min-height: 140px;
+}
+.scenario-main-split-top,
+.scenario-main-split-bottom {
+  min-width: 0;
+  overflow: hidden;
+}
+.scenario-main-resizer {
+  flex: 0 0 7px;
+  margin: 0;
+  border: none;
+  padding: 0;
+  cursor: row-resize;
+  background: var(--border);
+  position: relative;
+  z-index: 3;
+  touch-action: none;
+  transition: background 0.12s ease;
+}
+.scenario-main-resizer:hover,
+.scenario-main-resizer:focus-visible {
+  background: var(--accent-dim);
+}
+.scenario-main-resizer::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  opacity: 0.85;
+  pointer-events: none;
+}
+.scenario-page > .scenario-main {
+  min-height: 0;
 }
 @media (max-width: 1200px) {
   .scenario-page {
@@ -351,7 +460,7 @@ header .tag {
     grid-template-rows: auto 1fr;
   }
   .scenario-main {
-    grid-template-rows: 1fr 1fr;
+    --scenario-split: 45%;
   }
   .control-panel .panel-body.control-strip {
     grid-template-columns: 1fr;
@@ -1256,6 +1365,7 @@ select.cp-select:focus {
     <label for="theme-select">Theme</label>
     <select id="theme-select" onchange="setTheme(this.value)">
       <option value="one-dark">One Dark</option>
+      <option value="dracula">Dracula</option>
       <option value="night-blue">Night Blue</option>
       <option value="high-contrast">High Contrast</option>
     </select>
@@ -1318,16 +1428,16 @@ select.cp-select:focus {
             <div class="cp-scenario-subhint">拖拽下方项调整顺序，然后按顺序一键执行。</div>
             <div id="scenario-playlist" class="scenario-playlist"></div>
             <div class="cp-scenario-runall">
-              <button type="button" onclick="runScenarioPlaylist()">运行编排</button>
+              <button type="button" class="primary" onclick="runScenarioPlaylist()" title="按左侧编排顺序依次执行场景">运行编排</button>
             </div>
           </div>
         </div>
       </section>
     </div>
   </div>
-  <div class="scenario-main">
-    <!-- 场景结果 -->
-    <div class="panel content-panel">
+  <div class="scenario-main" id="scenario-main">
+    <!-- 场景结果（可拖动下沿缩小，把空间让给 Kafka） -->
+    <div class="panel content-panel scenario-main-split-top" id="scenario-main-top">
       <div class="panel-header scenario-results-header">
         <span>场景结果</span>
         <button type="button" class="panel-header-action" id="btn-scenario-clear" onclick="clearScenarioResults()" title="清空所有场景卡片">清空</button>
@@ -1336,9 +1446,10 @@ select.cp-select:focus {
         <p class="scenario-empty-hint">点击左侧「场景配置」中的按钮运行场景...</p>
       </div>
     </div>
+    <button type="button" class="scenario-main-resizer" id="scenario-main-resizer" aria-label="拖动调整场景结果与 Kafka 区域高度" title="上下拖动调整场景结果与 Kafka 区域比例；双击恢复默认约 1:2"></button>
 
     <!-- Kafka 查看器 -->
-    <div class="panel content-panel">
+    <div class="panel content-panel scenario-main-split-bottom" id="scenario-main-bottom">
       <div class="panel-header kafka-panel-banner">
         <span>Kafka 消息</span>
         <div class="kafka-banner-actions">
@@ -1666,6 +1777,63 @@ connectSSE();
 updateKafkaExpandButtonLabel();
 renderScenarioPlaylist();
 renderHeatstrip();
+
+(function initScenarioMainResizer() {
+  const LS = 'mockClient.scenarioSplitPct';
+  const main = document.getElementById('scenario-main');
+  const resizer = document.getElementById('scenario-main-resizer');
+  if (!main || !resizer) return;
+
+  function setSplitPct(pct) {
+    if (!Number.isFinite(pct)) return;
+    main.style.setProperty('--scenario-split', pct + '%');
+    try { localStorage.setItem(LS, String(Math.round(pct * 10) / 10)); } catch (e) {}
+  }
+
+  function applyStored(p) {
+    const n = Math.max(10, Math.min(85, Number(p)));
+    if (!Number.isFinite(n)) return;
+    setSplitPct(n);
+  }
+
+  try {
+    const s = localStorage.getItem(LS);
+    if (s != null && s !== '') applyStored(parseFloat(s, 10));
+  } catch (e) {}
+
+  let dragging = false;
+  resizer.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    dragging = true;
+    try { resizer.setPointerCapture(e.pointerId); } catch (err) {}
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  });
+  resizer.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const rect = main.getBoundingClientRect();
+    const resH = resizer.offsetHeight || 7;
+    const avail = rect.height - resH;
+    if (avail < 100) return;
+    const centerY = e.clientY - rect.top;
+    let topPx = centerY - resH / 2;
+    const minTop = 80;
+    const minBot = 140;
+    topPx = Math.max(minTop, Math.min(topPx, avail - minBot));
+    const pct = (topPx / avail) * 100;
+    setSplitPct(pct);
+  });
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+    try { resizer.releasePointerCapture(e.pointerId); } catch (err) {}
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }
+  resizer.addEventListener('pointerup', endDrag);
+  resizer.addEventListener('pointercancel', endDrag);
+  resizer.addEventListener('dblclick', () => setSplitPct(33));
+})();
 
 (function initControlPanelCollapse() {
   const LS = 'mockClient.controlPanelCollapsed';
