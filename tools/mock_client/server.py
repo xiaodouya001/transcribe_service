@@ -114,8 +114,14 @@ async def index():
 @app.get("/api/events")
 async def sse(request: Request):
     """SSE 流：推送场景进度、Kafka 消息、统计。"""
-    q: asyncio.Queue[str] = asyncio.Queue(maxsize=4000)
+    q: asyncio.Queue[str] = asyncio.Queue(maxsize=50_000)
     _sse_queues.append(q)
+
+    # 浏览器刷新会新建 SSE；服务端仍保留上一轮压测的内存统计，若不清理 UI 会一直显示旧数字。
+    # 仅在「当前无压测任务」时清空，避免打断正在进行的压测（多标签页也能继续看到实时数据）。
+    if not stats.load_running:
+        stats.reset()
+        _broadcast_sse("stats", stats.snapshot())
 
     async def event_generator():
         try:

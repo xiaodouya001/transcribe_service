@@ -44,7 +44,7 @@ class KafkaViewer:
     def subscribe(self) -> tuple[str, asyncio.Queue[dict[str, Any]]]:
         """注册一个订阅者，返回 (subscriber_id, queue)。"""
         sid = uuid.uuid4().hex[:8]
-        q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=500)
+        q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=50_000)
         self._subscribers[sid] = q
         return sid, q
 
@@ -77,14 +77,18 @@ class KafkaViewer:
                     "value": msg.value,
                     "timestamp": msg.timestamp,
                 }
-                dead: list[str] = []
-                for sid, q in self._subscribers.items():
+                for sid, q in list(self._subscribers.items()):
                     try:
                         q.put_nowait(event)
                     except asyncio.QueueFull:
-                        dead.append(sid)
-                for sid in dead:
-                    self._subscribers.pop(sid, None)
+                        try:
+                            q.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                        try:
+                            q.put_nowait(event)
+                        except asyncio.QueueFull:
+                            pass
         except asyncio.CancelledError:
             pass
         except Exception as exc:

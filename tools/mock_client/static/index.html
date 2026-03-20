@@ -29,6 +29,32 @@
   --radius: 10px;
   --radius-sm: 7px;
 }
+[data-theme="night-blue"] {
+  --bg: #0f172a;
+  --bg-elevated: #111b33;
+  --bg2: #17233f;
+  --bg3: #1e2d52;
+  --border: rgba(148, 163, 184, 0.25);
+  --border-strong: rgba(148, 163, 184, 0.45);
+  --text: #dbe7ff;
+  --text2: #9cb0d9;
+  --accent: #38bdf8;
+  --accent-dim: rgba(56, 189, 248, 0.18);
+  --accent-glow: rgba(56, 189, 248, 0.4);
+}
+[data-theme="high-contrast"] {
+  --bg: #000000;
+  --bg-elevated: #0b0b0b;
+  --bg2: #121212;
+  --bg3: #1b1b1b;
+  --border: rgba(255, 255, 255, 0.35);
+  --border-strong: rgba(255, 255, 255, 0.62);
+  --text: #f5f5f5;
+  --text2: #cfcfcf;
+  --accent: #00e5ff;
+  --accent-dim: rgba(0, 229, 255, 0.2);
+  --accent-glow: rgba(0, 229, 255, 0.45);
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
   background: var(--bg);
@@ -65,6 +91,26 @@ header .tag {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+.theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+}
+.theme-switch label {
+  font-size: 11px;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.theme-switch select {
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
 }
 .scenario-page {
   --control-panel-width: 380px;
@@ -357,6 +403,26 @@ input:focus {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.scenario-playlist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.scenario-chip {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  cursor: grab;
+  user-select: none;
+}
+.scenario-chip.dragging {
+  opacity: 0.65;
+  border-color: var(--accent);
 }
 .cp-scenario-subcard {
   background: var(--bg3);
@@ -771,6 +837,51 @@ select.cp-select:focus {
   min-height: 0;
   overflow-y: auto;
 }
+.kafka-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--text2);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.kafka-pager-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.kafka-pager-info .kafka-pager-total {
+  color: var(--accent);
+  font-weight: 700;
+}
+.kafka-pager-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kafka-pager-nav button {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.kafka-pager-nav button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.kafka-pager-nav select {
+  padding: 4px 6px;
+  font-size: 11px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+}
 .kafka-panel-body {
   display: flex;
   flex-direction: column;
@@ -917,6 +1028,11 @@ select.cp-select:focus {
 }
 .load-page > .panel { background: var(--bg); }
 .load-page .load-controls { overflow-y: auto; }
+.load-page .load-controls .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 .load-page .load-dashboard {
   display: flex;
   flex-direction: column;
@@ -988,6 +1104,78 @@ select.cp-select:focus {
 .metric-group .load-stat-card .value {
   font-size: 26px;
 }
+.play-insights {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.insight-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-height: 96px;
+}
+.insight-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+.heatstrip {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 64px;
+}
+.heatstrip-empty {
+  display: inline-flex;
+  align-items: center;
+  height: 64px;
+  color: var(--text2);
+  font-size: 12px;
+}
+.heatstrip .bar {
+  flex: 1;
+  min-width: 3px;
+  background: rgba(97, 175, 239, 0.55);
+  border-radius: 2px 2px 0 0;
+}
+.error-rank-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.error-rank-list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+.lifecycle-line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  flex-wrap: wrap;
+}
+.lifecycle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+@media (max-width: 1200px) {
+  .play-insights { grid-template-columns: 1fr; }
+}
 .load-errors-section {
   background: var(--bg2);
   border: 1px solid var(--border);
@@ -1033,6 +1221,14 @@ select.cp-select:focus {
 <header>
   <h1>Transcribe Service Testing - Mock Console</h1>
   <span class="tag">Realtime WS + Kafka</span>
+  <div class="theme-switch">
+    <label for="theme-select">Theme</label>
+    <select id="theme-select" onchange="setTheme(this.value)">
+      <option value="one-dark">One Dark</option>
+      <option value="night-blue">Night Blue</option>
+      <option value="high-contrast">High Contrast</option>
+    </select>
+  </div>
   <nav class="tab-nav">
     <button class="tab-btn active" onclick="switchTab('scenario')">场景测试</button>
     <button class="tab-btn" onclick="switchTab('loadtest')">并发压测</button>
@@ -1086,6 +1282,14 @@ select.cp-select:focus {
           <div class="cp-scenario-runall">
             <button type="button" class="primary" onclick="runAllScenarios()" title="顺序 A→B→C→D1→D2→G；仅 A/B/C/G 使用参数 N">全部运行</button>
           </div>
+          <div class="cp-scenario-subcard">
+            <div class="cp-scenario-subtitle">场景编排器（拖拽排序）</div>
+            <div class="cp-scenario-subhint">拖拽下方项调整顺序，然后按顺序一键执行。</div>
+            <div id="scenario-playlist" class="scenario-playlist"></div>
+            <div class="cp-scenario-runall">
+              <button type="button" onclick="runScenarioPlaylist()">运行编排</button>
+            </div>
+          </div>
         </div>
       </section>
     </div>
@@ -1108,7 +1312,6 @@ select.cp-select:focus {
         <span>Kafka 消息</span>
         <div class="kafka-banner-actions">
           <span id="kafka-count" class="kafka-count-pill" title="当前列表可见条数">0</span>
-          <button type="button" class="panel-header-action" id="btn-kafka-copy-json" onclick="copyVisibleKafkaJson()" title="复制当前可见消息的 JSON">复制 JSON</button>
           <button type="button" class="panel-header-action" id="btn-kafka-toggle-expand" onclick="toggleAllKafkaMessages()">展开全部</button>
           <button type="button" class="panel-header-action" onclick="clearKafka()" title="清空消息列表与 conversationId 下拉缓存">清空列表</button>
           <button type="button" class="panel-header-action panel-header-action--purge" onclick="purgeKafkaTopic()" title="删除当前 Bootstrap/Topic 上已提交的全部消息（Kafka DeleteRecords）；会先停止消费者，若正在消费本 Topic 则清空后自动恢复">清空 Topic</button>
@@ -1135,6 +1338,25 @@ select.cp-select:focus {
                 <button type="button" class="danger" id="btn-kafka-stop" onclick="stopKafka()">停止</button>
               </div>
             </div>
+          </div>
+        </div>
+        <div class="kafka-pager" id="kafka-pager">
+          <div class="kafka-pager-info">
+            <span id="kafka-pager-summary">共 0 条</span>
+          </div>
+          <div class="kafka-pager-nav">
+            <label style="font-size:11px;color:var(--text2)">每页</label>
+            <select id="kafka-page-size" onchange="onKafkaPageSizeChange(this.value)">
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+            </select>
+            <button type="button" onclick="kafkaPageGo('first')" title="首页">⏮</button>
+            <button type="button" onclick="kafkaPageGo('prev')" title="上一页">◀</button>
+            <span id="kafka-pager-pos">1 / 1</span>
+            <button type="button" onclick="kafkaPageGo('next')" title="下一页">▶</button>
+            <button type="button" onclick="kafkaPageGo('last')" title="末页">⏭</button>
           </div>
         </div>
         <div id="kafka-messages" class="kafka-messages-scroll"></div>
@@ -1227,6 +1449,20 @@ select.cp-select:focus {
           </div>
         </section>
       </div>
+      <div class="play-insights">
+        <section class="insight-card">
+          <div class="insight-title">Latency Heatstrip (P95)</div>
+          <div class="heatstrip" id="latency-heatstrip"></div>
+        </section>
+        <section class="insight-card">
+          <div class="insight-title">错误码排行榜</div>
+          <ul class="error-rank-list" id="error-rank-list"></ul>
+        </section>
+        <section class="insight-card">
+          <div class="insight-title">连接生命周期时间线</div>
+          <div class="lifecycle-line" id="lifecycle-line"></div>
+        </section>
+      </div>
       <div class="load-errors-section" id="load-errors-panel" style="display:none" aria-live="polite">
         <div class="title">最近压测错误（保留约 100 条 · 可在终端看完整 WARNING）</div>
         <pre id="load-errors-pre"></pre>
@@ -1241,6 +1477,61 @@ const API = '';
 const knownConversationIds = new Set();
 const SCENARIOS_WITH_N = new Set(['A_normal_flow', 'B_idempotent', 'C_out_of_order', 'G_session_complete']);
 let kafkaExpandAll = false;
+const _kafkaAllMessages = [];
+let _kafkaPage = 1;
+let _kafkaPageSize = 50;
+const latencyHistory = [];
+let _loadUiRunning = false;
+
+/** 不再持久化压测结果；清除旧版本写入的存档，避免用户本地残留 */
+(function clearLegacyLoadPersist() {
+  try {
+    localStorage.removeItem('mockClient.lastLoadStats');
+    localStorage.removeItem('mockClient.lastLoadHeatstrip');
+  } catch (e) {}
+})();
+
+/** 场景编排列表；必须与 renderScenarioPlaylist 在首次 renderScenarioPlaylist() 调用之前定义，否则 const TDZ 会抛错、芯片不渲染 */
+const scenarioPlaylist = ['A_normal_flow', 'B_idempotent', 'C_out_of_order', 'D1_invalid_json', 'D2_schema_error', 'G_session_complete'];
+
+function renderScenarioPlaylist() {
+  const host = document.getElementById('scenario-playlist');
+  if (!host) return;
+  host.innerHTML = '';
+  scenarioPlaylist.forEach((name, idx) => {
+    const chip = document.createElement('span');
+    chip.className = 'scenario-chip';
+    chip.draggable = true;
+    chip.dataset.idx = String(idx);
+    chip.textContent = name;
+    chip.addEventListener('dragstart', () => chip.classList.add('dragging'));
+    chip.addEventListener('dragend', () => chip.classList.remove('dragging'));
+    chip.addEventListener('dragover', (e) => e.preventDefault());
+    chip.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const dragging = document.querySelector('.scenario-chip.dragging');
+      const from = dragging ? Number(dragging.dataset.idx) : NaN;
+      const to = Number(chip.dataset.idx);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return;
+      const [moved] = scenarioPlaylist.splice(from, 1);
+      scenarioPlaylist.splice(to, 0, moved);
+      renderScenarioPlaylist();
+    });
+    host.appendChild(chip);
+  });
+}
+
+function setTheme(themeName) {
+  document.documentElement.setAttribute('data-theme', themeName);
+  try { localStorage.setItem('mockClient.theme', themeName); } catch (e) {}
+}
+(function initTheme() {
+  let saved = 'one-dark';
+  try { saved = localStorage.getItem('mockClient.theme') || 'one-dark'; } catch (e) {}
+  setTheme(saved);
+  const sel = document.getElementById('theme-select');
+  if (sel) sel.value = saved;
+})();
 
 // ---------------------------------------------------------------------------
 // Tab 切换
@@ -1338,6 +1629,8 @@ function connectSSE() {
 }
 connectSSE();
 updateKafkaExpandButtonLabel();
+renderScenarioPlaylist();
+renderHeatstrip();
 
 (function initControlPanelCollapse() {
   const LS = 'mockClient.controlPanelCollapsed';
@@ -1369,6 +1662,12 @@ updateKafkaExpandButtonLabel();
 const scenarioCards = {};
 /** conversation_registered 可能比卡片创建更早到达 */
 const pendingScenarioCids = {};
+
+async function runScenarioPlaylist() {
+  for (const name of scenarioPlaylist) {
+    await runScenario(name);
+  }
+}
 
 function escapeScenarioTitle(name) {
   const d = document.createElement('div');
@@ -1542,6 +1841,9 @@ function resetStatsDisplay() {
 }
 
 function setLoadUiRunning(meta) {
+  latencyHistory.length = 0;
+  _loadUiRunning = true;
+  renderHeatstrip();
   resetStatsDisplay();
   switchTab('loadtest');
   const el = document.getElementById('load-status');
@@ -1568,6 +1870,7 @@ function setLoadUiRunning(meta) {
 function setLoadUiDone(d) {
   _clearLoadElapsedTimer();
   _loadStopRequested = false;
+  _loadUiRunning = false;
   const el = document.getElementById('load-status');
   if (!el) return;
   el.className = 'cp-load-status cp-load-status--done';
@@ -1626,39 +1929,44 @@ function rebuildKafkaCidSelect() {
   if (!sel) return;
   const prev = sel.value;
   sel.innerHTML = '';
+
+  const cidCounts = new Map();
+  _kafkaAllMessages.forEach(m => {
+    const cid = m.value?.metaData?.conversationId || m.key || '';
+    if (cid && cid !== '-') cidCounts.set(cid, (cidCounts.get(cid) || 0) + 1);
+  });
+
   const o0 = document.createElement('option');
   o0.value = '';
-  o0.textContent = '全部会话';
+  o0.textContent = `全部会话 (${_kafkaAllMessages.length})`;
   sel.appendChild(o0);
   [...knownConversationIds].sort().forEach(id => {
     const o = document.createElement('option');
     o.value = id;
+    const cnt = cidCounts.get(id) || 0;
     const shortLabel = id.length > 40 ? id.slice(0, 18) + '…' + id.slice(-12) : id;
-    o.textContent = shortLabel;
-    o.title = id;
+    o.textContent = `${shortLabel} (${cnt})`;
+    o.title = `${id} — ${cnt} 条`;
     sel.appendChild(o);
   });
   if (prev && knownConversationIds.has(prev)) sel.value = prev;
   else sel.value = '';
-  applyKafkaListFilter();
+  renderKafkaPage();
 }
 
 function onKafkaCidSelectChange() {
-  applyKafkaListFilter();
+  _kafkaPage = 1;
+  renderKafkaPage();
 }
 
-function applyKafkaListFilter() {
+function _getKafkaFiltered() {
   const sel = document.getElementById('kafka-cid-select');
-  const filter = (sel && sel.value ? sel.value : '').trim().toLowerCase();
-  const container = document.getElementById('kafka-messages');
-  let n = 0;
-  for (const el of container.children) {
-    const cid = (el.dataset.cid || '').toLowerCase();
-    const show = !filter || cid.includes(filter);
-    el.style.display = show ? '' : 'none';
-    if (show) n++;
-  }
-  document.getElementById('kafka-count').textContent = n;
+  const filter = (sel && sel.value ? sel.value : '').trim();
+  if (!filter) return _kafkaAllMessages;
+  return _kafkaAllMessages.filter(m => {
+    const cid = m.value?.metaData?.conversationId || m.key || '';
+    return cid === filter;
+  });
 }
 
 function updateKafkaExpandButtonLabel() {
@@ -1680,40 +1988,65 @@ function toggleAllKafkaMessages(forceExpanded) {
   updateKafkaExpandButtonLabel();
 }
 
-async function copyVisibleKafkaJson() {
-  const container = document.getElementById('kafka-messages');
-  const btn = document.getElementById('btn-kafka-copy-json');
-  if (!container || !btn) return;
-
-  const payloads = [];
-  for (const el of container.children) {
-    if (!(el instanceof HTMLElement)) continue;
-    if (el.style.display === 'none') continue;
-    const raw = el.dataset.rawJson;
-    if (!raw) continue;
-    try {
-      payloads.push(JSON.parse(raw));
-    } catch (e) {
-      // ignore
-    }
+async function copySingleKafkaJson(btnEl) {
+  const card = btnEl && btnEl.closest ? btnEl.closest('.kafka-msg') : null;
+  if (!card) return;
+  const raw = card.dataset.rawJson;
+  if (!raw) return;
+  const prev = btnEl.textContent;
+  try {
+    const obj = JSON.parse(raw);
+    await navigator.clipboard.writeText(JSON.stringify(obj, null, 2));
+    btnEl.textContent = '已复制';
+  } catch (e) {
+    btnEl.textContent = '失败';
   }
+  setTimeout(() => { btnEl.textContent = prev; }, 900);
+}
 
-  if (payloads.length === 0) {
-    btn.textContent = '无可复制';
-    setTimeout(() => { btn.textContent = '复制 JSON'; }, 900);
+async function replayKafkaMessage(btnEl) {
+  const card = btnEl && btnEl.closest ? btnEl.closest('.kafka-msg') : null;
+  if (!card) return;
+  const raw = card.dataset.rawJson;
+  if (!raw) return;
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (e) {
     return;
   }
-
-  const out = payloads.length === 1
-    ? JSON.stringify(payloads[0], null, 2)
-    : JSON.stringify(payloads, null, 2);
+  const cid = payload?.metaData?.conversationId;
+  const wsUrl = document.getElementById('ws-url')?.value || '';
+  if (!cid || !wsUrl) return;
+  const url = `${wsUrl}?conversationId=${encodeURIComponent(cid)}`;
+  btnEl.disabled = true;
+  const prev = btnEl.textContent;
+  btnEl.textContent = '回放中…';
   try {
-    await navigator.clipboard.writeText(out);
-    btn.textContent = `已复制 ${payloads.length} 条`;
+    const ws = new WebSocket(url);
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout')), 8000);
+      ws.onopen = () => ws.send(JSON.stringify(payload));
+      ws.onmessage = () => {
+        clearTimeout(timer);
+        ws.close();
+        resolve(null);
+      };
+      ws.onerror = () => {
+        clearTimeout(timer);
+        try { ws.close(); } catch (e) {}
+        reject(new Error('ws'));
+      };
+    });
+    btnEl.textContent = '已回放';
   } catch (e) {
-    btn.textContent = '复制失败';
+    btnEl.textContent = '失败';
+  } finally {
+    setTimeout(() => {
+      btnEl.disabled = false;
+      btnEl.textContent = prev || 'Replay';
+    }, 900);
   }
-  setTimeout(() => { btn.textContent = '复制 JSON'; }, 1200);
 }
 
 async function startKafka() {
@@ -1725,6 +2058,7 @@ async function startKafka() {
   btn.textContent = '连接中...';
   statusEl.textContent = '○ 连接中...';
   statusEl.style.color = 'var(--yellow)';
+  clearKafkaMessagesOnly();
   try {
     const resp = await fetch(`${API}/api/kafka/start?bootstrap=${encodeURIComponent(bs)}&topic=${encodeURIComponent(topic)}`, { method: 'POST' });
     const data = await resp.json();
@@ -1746,16 +2080,13 @@ async function stopKafka() {
 }
 
 function clearKafkaMessagesOnly() {
-  const container = document.getElementById('kafka-messages');
-  if (container) container.innerHTML = '';
-  const pill = document.getElementById('kafka-count');
-  if (pill) pill.textContent = '0';
-  // 清空 Topic 后，本地缓存的会话 ID 也应重置，避免下拉残留历史值。
+  _kafkaAllMessages.length = 0;
+  _kafkaPage = 1;
   knownConversationIds.clear();
   kafkaExpandAll = false;
   updateKafkaExpandButtonLabel();
   rebuildKafkaCidSelect();
-  applyKafkaListFilter();
+  renderKafkaPage();
 }
 
 async function purgeKafkaTopic() {
@@ -1805,7 +2136,22 @@ async function purgeKafkaTopic() {
 }
 
 function addKafkaMessage(msg) {
-  const container = document.getElementById('kafka-messages');
+  _kafkaAllMessages.push(msg);
+  const cidRaw = msg.value?.metaData?.conversationId || msg.key || '-';
+  if (cidRaw && cidRaw !== '-') registerConversationId(cidRaw);
+
+  const filtered = _getKafkaFiltered();
+  const totalPages = Math.max(1, Math.ceil(filtered.length / _kafkaPageSize));
+  const wasOnLast = (_kafkaPage >= totalPages - 1) || (_kafkaPage >= totalPages);
+  if (wasOnLast) {
+    _kafkaPage = totalPages;
+    renderKafkaPage();
+  } else {
+    _updateKafkaPager(filtered);
+  }
+}
+
+function _buildKafkaMsgEl(msg) {
   const div = document.createElement('div');
   div.className = 'kafka-msg';
   div.onclick = () => div.classList.toggle('expanded');
@@ -1813,7 +2159,6 @@ function addKafkaMessage(msg) {
   const cidRaw = msg.value?.metaData?.conversationId || msg.key || '-';
   const cidDisp = cidRaw === '-' ? '-' : cidRaw;
   div.dataset.cid = String(cidRaw === '-' ? '' : cidRaw);
-  if (cidRaw && cidRaw !== '-') registerConversationId(cidRaw);
 
   const sn = msg.value?.payload?.sequenceNumber;
   const hasSeq = sn !== null && sn !== undefined && sn !== '' && Number.isFinite(Number(sn));
@@ -1841,32 +2186,175 @@ function addKafkaMessage(msg) {
       <span>P${msg.partition}:${msg.offset}</span>
       <span>${cidDisp}</span>
       <span>${new Date(msg.timestamp).toLocaleTimeString()}</span>
+      <button type="button" class="panel-header-action" onclick="event.stopPropagation(); replayKafkaMessage(this)" title="用当前「场景」WebSocket URL 回放本条 JSON">Replay</button>
+      <button type="button" class="panel-header-action" onclick="event.stopPropagation(); copySingleKafkaJson(this)" title="复制本条消息 JSON">复制</button>
     </div>
     <pre class="body"><code>${highlightedJson}</code></pre>
   `;
   div.dataset.rawJson = JSON.stringify(msg.value ?? {});
   if (kafkaExpandAll) div.classList.add('expanded');
-  /* 与分区消费顺序一致：追加在底部（先发 seq3 再发 seq4 则自上而下为 …3、4） */
-  const stickToBottom =
-    container.scrollHeight - container.scrollTop - container.clientHeight < 120;
-  container.appendChild(div);
+  return div;
+}
 
-  while (container.children.length > 200) {
-    container.removeChild(container.firstChild);
+function renderKafkaPage() {
+  const container = document.getElementById('kafka-messages');
+  container.innerHTML = '';
+  const filtered = _getKafkaFiltered();
+  const totalPages = Math.max(1, Math.ceil(filtered.length / _kafkaPageSize));
+  if (_kafkaPage > totalPages) _kafkaPage = totalPages;
+  if (_kafkaPage < 1) _kafkaPage = 1;
+
+  const start = (_kafkaPage - 1) * _kafkaPageSize;
+  const end = Math.min(start + _kafkaPageSize, filtered.length);
+  const frag = document.createDocumentFragment();
+  for (let i = start; i < end; i++) {
+    frag.appendChild(_buildKafkaMsgEl(filtered[i]));
   }
-  if (stickToBottom) {
-    container.scrollTop = container.scrollHeight;
+  container.appendChild(frag);
+  container.scrollTop = 0;
+
+  _updateKafkaPager(filtered);
+}
+
+function _updateKafkaPager(filtered) {
+  if (!filtered) filtered = _getKafkaFiltered();
+  const total = _kafkaAllMessages.length;
+  const fLen = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(fLen / _kafkaPageSize));
+  const sel = document.getElementById('kafka-cid-select');
+  const hasFilter = sel && sel.value;
+
+  const summary = document.getElementById('kafka-pager-summary');
+  if (summary) {
+    if (hasFilter) {
+      summary.innerHTML = `筛选 <span class="kafka-pager-total">${fLen}</span> 条（共 ${total} 条）`;
+    } else {
+      summary.innerHTML = `共 <span class="kafka-pager-total">${total}</span> 条`;
+    }
   }
-  applyKafkaListFilter();
+  document.getElementById('kafka-count').textContent = fLen;
+
+  const pos = document.getElementById('kafka-pager-pos');
+  if (pos) pos.textContent = `${_kafkaPage} / ${totalPages}`;
+
+  const pager = document.getElementById('kafka-pager');
+  if (pager) {
+    const btns = pager.querySelectorAll('button');
+    btns[0].disabled = _kafkaPage <= 1;
+    btns[1].disabled = _kafkaPage <= 1;
+    btns[2].disabled = _kafkaPage >= totalPages;
+    btns[3].disabled = _kafkaPage >= totalPages;
+  }
+
+  _syncKafkaCidCounts();
+}
+
+function _syncKafkaCidCounts() {
+  const sel = document.getElementById('kafka-cid-select');
+  if (!sel) return;
+  const cidCounts = new Map();
+  _kafkaAllMessages.forEach(m => {
+    const cid = m.value?.metaData?.conversationId || m.key || '';
+    if (cid && cid !== '-') cidCounts.set(cid, (cidCounts.get(cid) || 0) + 1);
+  });
+  for (const opt of sel.options) {
+    if (opt.value === '') {
+      opt.textContent = `全部会话 (${_kafkaAllMessages.length})`;
+    } else {
+      const cnt = cidCounts.get(opt.value) || 0;
+      const id = opt.value;
+      const shortLabel = id.length > 40 ? id.slice(0, 18) + '…' + id.slice(-12) : id;
+      opt.textContent = `${shortLabel} (${cnt})`;
+      opt.title = `${id} — ${cnt} 条`;
+    }
+  }
+}
+
+function kafkaPageGo(action) {
+  const filtered = _getKafkaFiltered();
+  const totalPages = Math.max(1, Math.ceil(filtered.length / _kafkaPageSize));
+  switch (action) {
+    case 'first': _kafkaPage = 1; break;
+    case 'prev':  _kafkaPage = Math.max(1, _kafkaPage - 1); break;
+    case 'next':  _kafkaPage = Math.min(totalPages, _kafkaPage + 1); break;
+    case 'last':  _kafkaPage = totalPages; break;
+  }
+  renderKafkaPage();
+}
+
+function onKafkaPageSizeChange(val) {
+  _kafkaPageSize = Math.max(10, Number(val) || 50);
+  _kafkaPage = 1;
+  renderKafkaPage();
 }
 
 function clearKafka() {
-  document.getElementById('kafka-messages').innerHTML = '';
-  document.getElementById('kafka-count').textContent = '0';
+  _kafkaAllMessages.length = 0;
+  _kafkaPage = 1;
   knownConversationIds.clear();
   kafkaExpandAll = false;
   updateKafkaExpandButtonLabel();
   rebuildKafkaCidSelect();
+  renderKafkaPage();
+}
+
+function extractErrorCode(e) {
+  const c = e?.server_resp?.error?.code;
+  if (c) return String(c);
+  const m = (e?.detail || '').match(/\bE\d{4}\b/);
+  return m ? m[0] : 'UNKNOWN';
+}
+
+function renderHeatstrip() {
+  const el = document.getElementById('latency-heatstrip');
+  if (!el) return;
+  el.innerHTML = '';
+  const vals = latencyHistory.map((x) => Number(x.v)).filter((n) => Number.isFinite(n));
+  if (vals.length === 0) {
+    el.innerHTML = '<span class="heatstrip-empty">等待压测中…</span>';
+    return;
+  }
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const range = Math.max(1, max - min);
+  latencyHistory.forEach((p) => {
+    const v = Number.isFinite(Number(p.v)) ? Number(p.v) : 0;
+    const bar = document.createElement('span');
+    bar.className = 'bar';
+    const rel = (v - min) / range;
+    const abs = Math.min(v / 80, 1);
+    const score = 0.68 * rel + 0.32 * abs;
+    const h = 8 + Math.round(score * 52);
+    bar.style.height = `${h}px`;
+    bar.style.background = p.s ? 'rgba(198,120,221,0.55)' : 'rgba(97,175,239,0.55)';
+    bar.title = `${p.s ? 'server' : 'e2e'} P95=${v} ms`;
+    el.appendChild(bar);
+  });
+}
+
+function renderErrorRank(errs) {
+  const el = document.getElementById('error-rank-list');
+  if (!el) return;
+  const rank = {};
+  (errs || []).forEach((e) => {
+    const code = extractErrorCode(e);
+    rank[code] = (rank[code] || 0) + 1;
+  });
+  const rows = Object.entries(rank).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  el.innerHTML = rows.length
+    ? rows.map(([c, n]) => `<li><span>${c}</span><strong>${n}</strong></li>`).join('')
+    : '<li><span>暂无错误</span><strong>0</strong></li>';
+}
+
+function renderLifecycle(d) {
+  const el = document.getElementById('lifecycle-line');
+  if (!el) return;
+  el.innerHTML = `
+    <span class="lifecycle-dot"></span><span>Connect ${d.active_connections ?? 0}</span>
+    <span>→</span><span>Send ${d.sent ?? 0}</span>
+    <span>→</span><span>Ack ${d.ack ?? 0}</span>
+    <span>→</span><span>Error ${d.error ?? 0}</span>
+  `;
 }
 
 // ---------------------------------------------------------------------------
@@ -1884,6 +2372,21 @@ function updateStats(d) {
   document.getElementById('stat-server-p50').textContent = d.server_p50_ms ?? 0;
   document.getElementById('stat-server-p95').textContent = d.server_p95_ms ?? 0;
   document.getElementById('stat-server-p99').textContent = d.server_p99_ms ?? 0;
+
+  /* 仅在本轮压测 UI 为「进行中」时追加；勿用 d.load_running，否则服务端在 load_done 后仍可能短暂推送 load_running，导致 Heatstrip 停不下来 */
+  if (_loadUiRunning) {
+    const e2e = Number(d.p95_ms || 0);
+    const srv = Number(d.server_p95_ms || 0);
+    const hasSample = (Number(d.sent || 0) > 0 || Number(d.ack || 0) > 0);
+    if (hasSample || e2e > 0 || srv > 0) {
+      latencyHistory.push({ v: e2e, s: 0 });
+      latencyHistory.push({ v: srv, s: 1 });
+      while (latencyHistory.length > 60) latencyHistory.shift();
+    }
+  }
+  renderHeatstrip();
+  renderErrorRank(d.recent_errors || []);
+  renderLifecycle(d);
 
   const panel = document.getElementById('load-errors-panel');
   const pre = document.getElementById('load-errors-pre');
