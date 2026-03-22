@@ -35,6 +35,8 @@ cp .env.example .env
 | `KAFKA_REPLICATION_FACTOR` | 1 | 副本因子（生产环境≥2） |
 | `KAFKA_COMPRESSION_TYPE` | zstd | 压缩：`none`、`gzip`、`snappy`、`lz4`、`zstd` |
 | `KAFKA_SEND_TIMEOUT_SEC` | 2.0 | 发送超时（秒），快速失败；高负载下若误杀可酌情调大，需结合 broker 能力，见 [concurrency-capacity.md](concurrency-capacity.md) |
+| `KAFKA_LINGER_MS` | 1 | Producer 聚合等待时间（毫秒）；越小延迟越低，越大更利于批量吞吐 |
+| `KAFKA_BATCH_SIZE` | 32768 | Producer 批大小（bytes）；影响单批聚合上限与吞吐/延迟平衡 |
 
 ### WebSocket
 
@@ -67,6 +69,7 @@ cp .env.example .env
 | `STOP_TIMEOUT` | 120 | 优雅停机超时（秒） |
 | `LOG_LEVEL` | INFO | 日志级别 |
 | `LOG_FORMAT` | auto | 日志格式：`json`、`console`、`auto` |
+| `LOG_WS_ERROR_FRAMES` | false | 是否打印服务端发出的完整 ERROR 响应 JSON；排障时可开，压测时建议关闭 |
 
 ---
 

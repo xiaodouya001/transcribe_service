@@ -21,9 +21,9 @@
 
 | 项 | 结论 |
 |----|------|
-| 握手路径 | `ws_endpoint` → `ws.accept()`；之前仅 `shutdown.draining` 会拒连。 |
+| 握手路径 | 握手前由 middleware 执行准入检查；缺少 `conversationId`、服务 `draining`、超过 `WS_MAX_CONNECTIONS` 都会在 `ws.accept()` 前拒连。 |
 | Uvicorn | 已暴露 **`HTTP_BACKLOG`**（默认 **4096**），降低 SYN/accept 队列吃满时客户端读到一半 EOF 的概率；仍受 OS 限制。 |
-| `ConnectionRegistry` | 曾用 `remove(conversationId)` 无条件 `pop`：若同一 `conversationId` 被第二条连接覆盖，**先建立连接的 `finally` 会误删新连接登记**（极端竞态）。已改为 **`remove(conversationId, ws)` 仅当仍是该 `WebSocket` 实例时才删除**。 |
+| `ConnectionRegistry` | 当前按 **`conversationId -> list[WebSocket]`** 追踪真实连接数；`remove(conversationId, ws)` 仅移除目标实例，避免旧连接 `finally` 误删其它登记。 |
 | `WS_PING_INTERVAL` / `WS_PING_TIMEOUT` | 经 `main.py` 传入 Uvicorn；在 **`ws="websockets"`** 下驱动 **RFC Ping/Pong 保活**。旧版若用 **`wsproto`**，这两项**不会**用于主动发 Ping。 |
 
 **结论**：你看到的 `EOFError: connection closed while reading HTTP status line` **不是**某段 Python 在握手阶段主动写逻辑关连接；仍是 **对端或内核在 TCP/HTTP 层关连接**（过载、队列、或本机网络栈）。服务端能做的是 **加大 backlog**、**修正 registry 误删**、以及 **Redis 池 / Kafka** 减压（见其它节）。
@@ -32,7 +32,7 @@
 
 ## 3. 服务端（WebSocket 与编排）
 
-- **接入**：`ConnectionRegistry` 用字典持有连接，无固定上限；Linux/Windows 上仍受 **`ulimit` / 句柄数**、**反向代理空闲超时**（如 ALB）限制。
+- **接入**：`ConnectionRegistry` 按真实 socket 持有连接，无固定上限；Linux/Windows 上仍受 **`ulimit` / 句柄数**、**反向代理空闲超时**（如 ALB）限制。
 - **模型**：单 **Uvicorn** 进程、**单 asyncio 事件循环**，每条连接在 `receive_text` → `orchestrator.handle_message` → Redis/Kafka **await** 链上交替运行，理论上可支撑大量并发 **I/O**，前提是下游不拖死。
 - **CPU**：每条消息做 Pydantic 校验、序列化；1000 路 × 高频发包时 **CPU 会抬高延迟**，表现为 Mock 侧 **ACK 缺失或超时**（Mock 客户端对单轮回复有约 **10s** 超时）。
 

@@ -70,7 +70,7 @@ docker build -f docker/Dockerfile -t transcribe-service:latest .
 
 ## 5. 扩缩容
 
-- 同一 **conversationId** 的会话应由 **单 Task** 上的长连接处理至结束；水平扩展时由上游 **路由或重连** 到新实例（部署/缩容时常用 `Close 1001` 等信号）。
+- 建议同一 **conversationId** 的会话在同一时刻由上游路由到单一实例持续处理；当前服务端不强制拒绝同 `conversationId` 的重复建连，水平扩展时仍建议通过上游 **路由或重连** 收敛到目标实例（部署/缩容时常用 `Close 1001` 等信号）。
 - **跨实例一致性** 依赖 **Redis Lua 状态机**（期望序号与 2PC），非旧版 SETNX Dedup。
 - Kafka 以 `conversationId` 为分区键，保证单路通话在分区内有序。
 
