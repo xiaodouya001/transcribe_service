@@ -102,6 +102,42 @@ class TestScenarioD:
         assert result.disconnect is True
         assert result.close_code == 1008
 
+    async def test_invalid_timestamp_returns_e1005(
+        self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
+    ):
+        valid_ongoing_msg["metaData"]["callStartTimeStamp"] = "bad-ts"
+        result = await orchestrator.handle_message(valid_ongoing_msg)
+        assert result.response["error"]["code"] == "E1005"
+        assert result.disconnect is True
+        assert result.close_code == 1008
+
+    async def test_non_utc_timestamp_returns_e1005(
+        self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
+    ):
+        valid_ongoing_msg["payload"]["createdAtTimeStamp"] = "2025-03-21T18:32:20.000+08:00"
+        result = await orchestrator.handle_message(valid_ongoing_msg)
+        assert result.response["error"]["code"] == "E1005"
+        assert result.disconnect is True
+        assert result.close_code == 1008
+
+    async def test_business_rule_violation_returns_e1009(
+        self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
+    ):
+        valid_ongoing_msg["metaData"]["callEndTimeStamp"] = "2025-03-21T10:45:00.000Z"
+        result = await orchestrator.handle_message(valid_ongoing_msg)
+        assert result.response["error"]["code"] == "E1009"
+        assert result.disconnect is True
+        assert result.close_code == 1008
+
+    async def test_is_final_false_returns_e1009(
+        self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
+    ):
+        valid_ongoing_msg["payload"]["isFinal"] = False
+        result = await orchestrator.handle_message(valid_ongoing_msg)
+        assert result.response["error"]["code"] == "E1009"
+        assert result.disconnect is True
+        assert result.close_code == 1008
+
 
 class TestScenarioE:
     """E. Kafka 失败/超时 → E1008/E1012, 不 commit, 断连 1013。"""
@@ -181,11 +217,24 @@ class TestClassifyValidationError:
         c, w = TwoPhaseOrchestrator._classify_validation_error(e)
         assert c == ErrorCode.E1005
 
+    def test_branch_datetime_with_parsing_substring(self):
+        e = MagicMock()
+        e.errors.return_value = [{"type": "datetime_from_date_parsing"}]
+        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert c == ErrorCode.E1005
+
     def test_branch_bool_in_type(self):
         e = MagicMock()
         e.errors.return_value = [{"type": "boolean_error"}]
         c, w = TwoPhaseOrchestrator._classify_validation_error(e)
         assert c == ErrorCode.E1004
+
+    def test_branch_value_error(self):
+        e = MagicMock()
+        e.errors.return_value = [{"type": "value_error"}]
+        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert c == ErrorCode.E1009
+        assert w == WsCloseCode.POLICY_VIOLATION
 
     def test_fallback_no_match(self):
         e = MagicMock()

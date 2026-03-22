@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 
 class EventType(str, Enum):
@@ -29,9 +31,21 @@ class MetaData(BaseModel):
     agentId: str = Field(..., max_length=32)
     staffId: str = Field(..., max_length=32)
     customerId: str = Field(..., max_length=64)
-    callStartTimeStamp: str = Field(..., max_length=32)
-    callEndTimeStamp: Optional[str] = Field(None, max_length=32)
+    callStartTimeStamp: datetime
+    callEndTimeStamp: Optional[datetime] = None
     eventType: EventType
+
+    @field_validator("callStartTimeStamp", "callEndTimeStamp")
+    @classmethod
+    def _ensure_utc_timestamp(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        if value.utcoffset() != timezone.utc.utcoffset(None):
+            raise PydanticCustomError(
+                "datetime_not_utc",
+                "Input should be an ISO-8601 UTC timestamp",
+            )
+        return value
 
 
 class Payload(BaseModel):
@@ -43,7 +57,17 @@ class Payload(BaseModel):
     engineProvider: str = Field(..., max_length=64)
     dialect: Optional[str] = Field(None, max_length=32)
     isFinal: bool
-    createdAtTimeStamp: str = Field(..., max_length=32)
+    createdAtTimeStamp: datetime
+
+    @field_validator("createdAtTimeStamp")
+    @classmethod
+    def _ensure_utc_timestamp(cls, value: datetime) -> datetime:
+        if value.utcoffset() != timezone.utc.utcoffset(None):
+            raise PydanticCustomError(
+                "datetime_not_utc",
+                "Input should be an ISO-8601 UTC timestamp",
+            )
+        return value
 
 
 class InboundMessage(BaseModel):

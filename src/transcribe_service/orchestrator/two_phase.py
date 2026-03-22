@@ -202,7 +202,9 @@ class TwoPhaseOrchestrator:
         """将 Pydantic ValidationError 映射为 (应用错误码, WS Close Code)。"""
         for err in e.errors():
             err_type = err.get("type", "")
-            if "json" in err_type or "parsing" in err_type:
+            if "datetime" in err_type or "time" in err_type or "iso" in err_type:
+                return ErrorCode.E1005, WsCloseCode.POLICY_VIOLATION
+            if "json" in err_type:
                 return ErrorCode.E1001, WsCloseCode.INVALID_PAYLOAD
             if "missing" in err_type:
                 return ErrorCode.E1003, WsCloseCode.POLICY_VIOLATION
@@ -210,6 +212,6 @@ class TwoPhaseOrchestrator:
                 return ErrorCode.E1002, WsCloseCode.POLICY_VIOLATION
             if "type" in err_type or "int" in err_type or "bool" in err_type:
                 return ErrorCode.E1004, WsCloseCode.POLICY_VIOLATION
-            if "datetime" in err_type or "time" in err_type or "iso" in err_type:
-                return ErrorCode.E1005, WsCloseCode.POLICY_VIOLATION
+            if err_type == "value_error":
+                return ErrorCode.E1009, WsCloseCode.POLICY_VIOLATION
         return ErrorCode.E1003, WsCloseCode.POLICY_VIOLATION

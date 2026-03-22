@@ -37,10 +37,10 @@ class ConnectionRegistry:
     """追踪活跃 WebSocket 连接，支持优雅停机时批量关闭。"""
 
     def __init__(self) -> None:
-        self._connections: dict[str, WebSocket] = {}
+        self._connections: dict[str, list[WebSocket]] = {}
 
     def add(self, conversation_id: str, ws: WebSocket) -> None:
-        self._connections[conversation_id] = ws
+        self._connections.setdefault(conversation_id, []).append(ws)
 
     def remove(self, conversation_id: str, ws: WebSocket | None = None) -> None:
         """移除登记。若传入 ``ws``，仅当登记对象仍是该实例时才删除，避免重复 conversationId 或
@@ -49,23 +49,30 @@ class ConnectionRegistry:
         if ws is None:
             self._connections.pop(conversation_id, None)
             return
-        if self._connections.get(conversation_id) is ws:
+        sockets = self._connections.get(conversation_id)
+        if not sockets:
+            return
+        self._connections[conversation_id] = [
+            registered_ws for registered_ws in sockets if registered_ws is not ws
+        ]
+        if not self._connections[conversation_id]:
             self._connections.pop(conversation_id, None)
 
     @property
     def active_count(self) -> int:
-        return len(self._connections)
+        return sum(len(sockets) for sockets in self._connections.values())
 
     async def close_all(
         self, code: int = WsCloseCode.GOING_AWAY, reason: str = WS_CLOSE_REASON_GOING_AWAY
     ) -> None:
         """优雅停机：向所有存量连接发送 Close 帧。"""
-        for cid, ws in list(self._connections.items()):
-            try:
-                if ws.client_state == WebSocketState.CONNECTED:
-                    await ws.close(code=code, reason=reason)
-            except Exception:
-                pass
+        for cid, sockets in list(self._connections.items()):
+            for ws in list(sockets):
+                try:
+                    if ws.client_state == WebSocketState.CONNECTED:
+                        await ws.close(code=code, reason=reason)
+                except Exception:
+                    pass
             self._connections.pop(cid, None)
 
 

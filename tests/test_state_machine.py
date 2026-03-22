@@ -2,6 +2,8 @@
 
 import pytest
 import fakeredis.aioredis
+from redis.exceptions import NoScriptError
+from unittest.mock import AsyncMock, MagicMock
 
 from transcribe_service.state_machine.base import PrepareResult
 from transcribe_service.state_machine.redis_state import RedisStateMachine
@@ -74,6 +76,21 @@ class TestCommit:
         r = await sm.prepare("conv-1", 0)
         assert r == PrepareResult.IDEMPOTENT
 
+    async def test_commit_reload_script_after_noscript(self):
+        client = MagicMock()
+        client.evalsha = AsyncMock(side_effect=[NoScriptError(), None])
+        client.script_load = AsyncMock(return_value="sha-commit-new")
+
+        sm = RedisStateMachine(client=client)
+        sm._sha_commit = "sha-commit-old"
+        sm._ensure_scripts_loaded = AsyncMock()
+
+        await sm.commit("conv-1", 7)
+
+        assert sm._sha_commit == "sha-commit-new"
+        client.script_load.assert_awaited_once()
+        assert client.evalsha.await_count == 2
+
 
 class TestCleanup:
     async def test_cleanup_sets_short_ttl(self, sm: RedisStateMachine):
@@ -84,6 +101,21 @@ class TestCleanup:
         client = await sm._get_client()
         ttl = await client.ttl("transcript:session:conv-1")
         assert 0 < ttl <= 60
+
+    async def test_cleanup_reload_script_after_noscript(self):
+        client = MagicMock()
+        client.evalsha = AsyncMock(side_effect=[NoScriptError(), None])
+        client.script_load = AsyncMock(return_value="sha-cleanup-new")
+
+        sm = RedisStateMachine(client=client)
+        sm._sha_cleanup = "sha-cleanup-old"
+        sm._ensure_scripts_loaded = AsyncMock()
+
+        await sm.cleanup("conv-1")
+
+        assert sm._sha_cleanup == "sha-cleanup-new"
+        client.script_load.assert_awaited_once()
+        assert client.evalsha.await_count == 2
 
 
 class TestIsolation:

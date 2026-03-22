@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import orjson
 import pytest
 from httpx import ASGITransport, AsyncClient
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect, WebSocketState
+from unittest.mock import patch
 
 from transcribe_service.orchestrator.base import OrchestratorResult
 from transcribe_service.schemas.response import build_ack, build_error
@@ -233,6 +234,19 @@ class TestWebSocket:
         assert "E1008" in body
         assert "Too many connections" in body
 
+    def test_ws_max_connections_counts_same_conversation_socket(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        registry.add("conv-1", MagicMock())
+        app = create_app(mock_orchestrator, shutdown, registry, max_connections=1)
+        client = TestClient(app)
+        with pytest.raises(Exception) as ei:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ):
+                pass
+        assert hasattr(ei.value, "status_code") and ei.value.status_code == 429
+
     def test_ws_non_target_path_not_intercepted(self, app):
         client = TestClient(app)
         with pytest.raises(Exception) as ei:
@@ -271,6 +285,51 @@ class TestWebSocket:
             resp = orjson.loads(ws.receive_text())
             assert resp["metaData"]["eventType"] == "ERROR"
 
+    def test_ws_logs_error_frame_when_enabled(self, mock_orchestrator, shutdown, registry):
+        error_resp = build_error("conv-1", "E1006", "Out of order")
+        mock_orchestrator.handle_message.return_value = OrchestratorResult(
+            response=error_resp,
+            disconnect=False,
+        )
+        app = create_app(
+            mock_orchestrator,
+            shutdown,
+            registry,
+            log_ws_error_frames=True,
+        )
+        client = TestClient(app)
+        msg = {
+            "metaData": {
+                "conversationId": "conv-1",
+                "agentId": "A1",
+                "staffId": "S1",
+                "customerId": "C1",
+                "callStartTimeStamp": "2025-01-01T00:00:00Z",
+                "callEndTimeStamp": None,
+                "eventType": "SESSION_ONGOING",
+            },
+            "payload": {
+                "sequenceNumber": 0,
+                "speaker": "Agent",
+                "transcript": "Hello",
+                "engineProvider": "FanoLabs",
+                "isFinal": True,
+                "createdAtTimeStamp": "2025-01-01T00:00:01Z",
+            },
+        }
+        with patch("transcribe_service.transport.websocket_handler.log.info") as info_mock:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ) as ws:
+                ws.send_text(orjson.dumps(msg).decode())
+                resp = orjson.loads(ws.receive_text())
+                assert resp["metaData"]["eventType"] == "ERROR"
+            info_mock.assert_any_call(
+                "Transport: 发出 ERROR 响应帧",
+                conversation_id="conv-1",
+                response=error_resp,
+            )
+
 
 @pytest.mark.asyncio
 async def test_send_error_and_close_swallows_inner_failure():
@@ -283,6 +342,36 @@ async def test_send_error_and_close_swallows_inner_failure():
     await wh._send_error_and_close(
         ws, "conv-x", "E1001", "bad", wh.WsCloseCode.INVALID_PAYLOAD
     )
+
+
+@pytest.mark.asyncio
+async def test_send_error_and_close_logs_error_frame_when_enabled():
+    from transcribe_service.transport import websocket_handler as wh
+
+    ws = MagicMock()
+    ws.client_state = WebSocketState.CONNECTED
+    ws.send_text = AsyncMock()
+    ws.close = AsyncMock()
+    with patch("transcribe_service.transport.websocket_handler.log.info") as info_mock:
+        await wh._send_error_and_close(
+            ws,
+            "conv-x",
+            "E1001",
+            "bad",
+            wh.WsCloseCode.INVALID_PAYLOAD,
+            log_ws_error_frames=True,
+        )
+    info_mock.assert_any_call(
+        "Transport: 发出 ERROR 响应帧",
+        conversation_id="conv-x",
+        response=ANY,
+    )
+    logged_response = next(
+        kwargs["response"]
+        for args, kwargs in info_mock.call_args_list
+        if args == ("Transport: 发出 ERROR 响应帧",) and kwargs.get("conversation_id") == "conv-x"
+    )
+    assert logged_response["error"]["code"] == "E1001"
 
 
 class TestConnectionRegistry:
@@ -316,6 +405,25 @@ class TestConnectionRegistry:
         await registry.close_all()
         ws.close.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_close_all_closes_all_sockets_for_same_conversation(
+        self, registry: ConnectionRegistry
+    ):
+        ws1 = MagicMock()
+        ws1.client_state = WebSocketState.CONNECTED
+        ws1.close = AsyncMock()
+        ws2 = MagicMock()
+        ws2.client_state = WebSocketState.CONNECTED
+        ws2.close = AsyncMock()
+        registry.add("c1", ws1)
+        registry.add("c1", ws2)
+
+        await registry.close_all()
+
+        ws1.close.assert_awaited_once()
+        ws2.close.assert_awaited_once()
+        assert registry.active_count == 0
+
     def test_add_remove(self, registry: ConnectionRegistry):
         mock_ws = AsyncMock()
         registry.add("conv-1", mock_ws)
@@ -323,8 +431,21 @@ class TestConnectionRegistry:
         registry.remove("conv-1")
         assert registry.active_count == 0
 
+    def test_active_count_counts_duplicate_conversation_sockets(
+        self, registry: ConnectionRegistry
+    ):
+        ws_old = MagicMock()
+        ws_new = MagicMock()
+        registry.add("conv-1", ws_old)
+        registry.add("conv-1", ws_new)
+        assert registry.active_count == 2
+
     def test_remove_nonexistent(self, registry: ConnectionRegistry):
         registry.remove("nonexistent")
+        assert registry.active_count == 0
+
+    def test_remove_nonexistent_with_ws_is_noop(self, registry: ConnectionRegistry):
+        registry.remove("nonexistent", MagicMock())
         assert registry.active_count == 0
 
     def test_remove_with_ws_only_pops_same_instance(self, registry: ConnectionRegistry):
@@ -333,8 +454,17 @@ class TestConnectionRegistry:
         ws_new = MagicMock()
         registry.add("conv-1", ws_old)
         registry.add("conv-1", ws_new)
-        assert registry.active_count == 1
+        assert registry.active_count == 2
         registry.remove("conv-1", ws_old)
         assert registry.active_count == 1
         registry.remove("conv-1", ws_new)
         assert registry.active_count == 0
+
+    def test_remove_without_ws_drops_all_sockets_for_conversation(
+        self, registry: ConnectionRegistry
+    ):
+        registry.add("conv-1", MagicMock())
+        registry.add("conv-1", MagicMock())
+        registry.add("conv-2", MagicMock())
+        registry.remove("conv-1")
+        assert registry.active_count == 1

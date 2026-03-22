@@ -56,6 +56,21 @@ class TestInboundMessage:
         with pytest.raises(ValidationError):
             InboundMessage.model_validate(valid_ongoing_msg)
 
+    def test_invalid_timestamp_format_fails(self, valid_ongoing_msg: dict):
+        valid_ongoing_msg["metaData"]["callStartTimeStamp"] = "bad-ts"
+        with pytest.raises(ValidationError):
+            InboundMessage.model_validate(valid_ongoing_msg)
+
+    def test_non_utc_timestamp_fails(self, valid_ongoing_msg: dict):
+        valid_ongoing_msg["payload"]["createdAtTimeStamp"] = "2025-03-21T18:32:20.000+08:00"
+        with pytest.raises(ValidationError):
+            InboundMessage.model_validate(valid_ongoing_msg)
+
+    def test_non_utc_metadata_timestamp_fails(self, valid_ongoing_msg: dict):
+        valid_ongoing_msg["metaData"]["callStartTimeStamp"] = "2025-03-21T18:30:02.327+08:00"
+        with pytest.raises(ValidationError):
+            InboundMessage.model_validate(valid_ongoing_msg)
+
 
 class TestBuildAck:
     def test_ack_structure(self, conversation_id: str):
