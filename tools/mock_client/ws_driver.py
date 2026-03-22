@@ -277,11 +277,11 @@ def _format_ws_connect_error(exc: BaseException) -> tuple[str, dict | None]:
 
 async def _open_ws(
     ws_url: str,
-    conversation_id: str,
+    conversation_id: str | None,
     retries: int = 3,
     retry_delay: float = 0.5,
 ) -> websockets.WebSocketClientProtocol:
-    uri = f"{ws_url}?conversationId={conversation_id}"
+    uri = ws_url if conversation_id is None else f"{ws_url}?conversationId={conversation_id}"
     last_exc: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
@@ -305,6 +305,45 @@ async def _send_and_recv(
         return json.loads(resp)
     except (websockets.exceptions.ConnectionClosed, asyncio.TimeoutError):
         return None
+
+
+async def _send_expect_error_and_close(
+    ws: websockets.WebSocketClientProtocol,
+    msg: dict | str,
+    *,
+    action: str,
+    expected_code: str,
+    expected_close: int,
+    result: ScenarioResult,
+    emit: EventCallback,
+) -> None:
+    """发送一条预期触发 ERROR + Close 的消息，并校验错误码与关闭码。"""
+    resp = await _send_and_recv(ws, msg)
+    step = {"action": action, "resp_type": resp.get("metaData", {}).get("eventType") if resp else None}
+    if resp and resp.get("metaData", {}).get("eventType") == "ERROR":
+        err_code = resp.get("error", {}).get("code")
+        step["error_code"] = err_code
+        if err_code != expected_code:
+            result.passed = False
+            step["error"] = f"期望 {expected_code}，实际={err_code}"
+    else:
+        result.passed = False
+        step["error"] = "期望 ERROR 帧"
+    result.steps.append(step)
+    await emit("scenario_step", {"scenario": result.name, "step": step})
+
+    try:
+        await asyncio.wait_for(ws.wait_closed(), timeout=5)
+        close_code = ws.close_code
+        step_c = {"action": "verify_close", "close_code": close_code}
+        if close_code != expected_close:
+            result.passed = False
+            step_c["error"] = f"期望 close_code={expected_close}，实际={close_code}"
+        result.steps.append(step_c)
+        await emit("scenario_step", {"scenario": result.name, "step": step_c})
+    except asyncio.TimeoutError:
+        result.passed = False
+        result.steps.append({"action": "verify_close", "error": "等待关闭超时"})
 
 
 async def _session_ongoing_plus_complete_and_close(
@@ -358,12 +397,37 @@ async def _session_ongoing_plus_complete_and_close(
         result.steps.append({"action": "verify_close", "error": "等待关闭超时"})
 
 
+async def _session_ongoing_only(
+    ws: Any,
+    cid: str,
+    meta_base: dict[str, Any],
+    n_messages: int,
+    result: ScenarioResult,
+    emit: EventCallback,
+) -> None:
+    """按 N-01 仅发送 SESSION_ONGOING，并校验每条都返回 TRANSCRIPT_ACK。"""
+    total = max(1, n_messages)
+    for seq in range(total):
+        msg = generate_message(cid, seq, event_type="SESSION_ONGOING", **meta_base)
+        resp = await _send_and_recv(ws, msg)
+        step = {
+            "action": "send_ongoing",
+            "seq": seq,
+            "resp_type": resp.get("metaData", {}).get("eventType") if resp else None,
+        }
+        if not resp or resp.get("metaData", {}).get("eventType") != "TRANSCRIPT_ACK":
+            result.passed = False
+            step["error"] = "期望 TRANSCRIPT_ACK"
+        result.steps.append(step)
+        await emit("scenario_step", {"scenario": result.name, "step": step})
+
+
 async def scenario_a_normal_flow(
     ws_url: str, emit: EventCallback, n_messages: int = 5,
 ) -> ScenarioResult:
-    """A: 正常流 — 共 ``n_messages`` 条业务消息（含 1 条 SESSION_COMPLETE）。"""
-    result = ScenarioResult(name="A_normal_flow", passed=True)
-    cid = f"mock-A-{_random_hex(6)}"
+    """N-01：会话中正常处理，仅发送 ``SESSION_ONGOING``。"""
+    result = ScenarioResult(name="N-01", passed=True)
+    cid = f"mock-N01-{_random_hex(6)}"
     start_ts = _utc_now_iso()
     meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit(
@@ -380,11 +444,14 @@ async def scenario_a_normal_flow(
         return result
 
     try:
-        await _session_ongoing_plus_complete_and_close(
+        await _session_ongoing_only(
             ws, cid, meta_base, n_messages, result, emit,
         )
     finally:
-        await ws.close()
+        try:
+            await ws.close()
+        except Exception:
+            pass
 
     return result
 
@@ -394,9 +461,9 @@ async def scenario_b_idempotent(
     emit: EventCallback,
     n_messages: int = 5,
 ) -> ScenarioResult:
-    """B: 幂等重放 — 对每个 ``seq ∈ [0, n_messages)`` 先发 ``SESSION_ONGOING`` 再重放同一帧，两次都应 ACK。"""
-    result = ScenarioResult(name="B_idempotent", passed=True)
-    cid = f"mock-B-{_random_hex(6)}"
+    """N-02：幂等重放，对每个 ``seq ∈ [0, n_messages)`` 先发 ``SESSION_ONGOING`` 再重放同一帧，两次都应 ACK。"""
+    result = ScenarioResult(name="N-02", passed=True)
+    cid = f"mock-N02-{_random_hex(6)}"
     start_ts = _utc_now_iso()
     meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit(
@@ -449,10 +516,10 @@ async def scenario_c_out_of_order(
     emit: EventCallback,
     n_messages: int = 5,
 ) -> ScenarioResult:
-    """C: 序列号乱序 — seq 0 → 跳到 seq ``jump``（``jump=max(2,n_messages)``）→ 期望 E1006 + 断连 1008。"""
-    result = ScenarioResult(name="C_out_of_order", passed=True)
+    """E-09：序列号乱序，seq 0 → 跳到 seq ``jump``（``jump=max(2,n_messages)``）→ 期望 E1006 + 断连 1008。"""
+    result = ScenarioResult(name="E-09", passed=True)
     jump_seq = max(2, n_messages)
-    cid = f"mock-C-{_random_hex(6)}"
+    cid = f"mock-E09-{_random_hex(6)}"
     start_ts = _utc_now_iso()
     meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit(
@@ -518,9 +585,9 @@ async def scenario_c_out_of_order(
 
 
 async def scenario_d1_invalid_json(ws_url: str, emit: EventCallback) -> ScenarioResult:
-    """D1: 非法 JSON → E1001 + 断连 1007。"""
-    result = ScenarioResult(name="D1_invalid_json", passed=True)
-    cid = f"mock-D1-{_random_hex(6)}"
+    """E-04：非法 JSON → E1001 + 断连 1007。"""
+    result = ScenarioResult(name="E-04", passed=True)
+    cid = f"mock-E04-{_random_hex(6)}"
     await emit(
                 "conversation_registered",
                 {"conversation_id": cid, "scenario": result.name},
@@ -566,10 +633,48 @@ async def scenario_d1_invalid_json(ws_url: str, emit: EventCallback) -> Scenario
     return result
 
 
+async def scenario_e01_missing_query_conversation_id(
+    ws_url: str,
+    emit: EventCallback,
+) -> ScenarioResult:
+    """E-01：握手时缺少 query conversationId，期望 HTTP 400 / E1003。"""
+    result = ScenarioResult(name="E-01", passed=True)
+
+    try:
+        ws = await _open_ws(ws_url, None, retries=1)
+    except Exception as e:
+        detail, srv_resp = _format_ws_connect_error(e)
+        status_code = getattr(getattr(e, "response", None), "status_code", None) or getattr(
+            getattr(e, "response", None), "status", None
+        )
+        step = {
+            "action": "connect_without_query",
+            "resp_type": f"HTTP {status_code}" if status_code is not None else "HTTP ?",
+        }
+        if srv_resp:
+            step["error_code"] = (srv_resp.get("error") or {}).get("code")
+        expected_code = "E1003"
+        if status_code != 400 or step.get("error_code") != expected_code:
+            result.passed = False
+            step["error"] = f"期望 HTTP 400 / {expected_code}，实际：{detail}"
+        result.steps.append(step)
+        await emit("scenario_step", {"scenario": result.name, "step": step})
+        return result
+
+    result.passed = False
+    result.steps.append({"action": "connect_without_query", "error": "握手意外成功，应返回 HTTP 400 / E1003"})
+    await emit("scenario_step", {"scenario": result.name, "step": result.steps[-1]})
+    try:
+        await ws.close()
+    except Exception:
+        pass
+    return result
+
+
 async def scenario_d2_schema_error(ws_url: str, emit: EventCallback) -> ScenarioResult:
-    """D2: Schema 校验失败（缺少必填字段）→ ERROR + 断连 1008。"""
-    result = ScenarioResult(name="D2_schema_error", passed=True)
-    cid = f"mock-D2-{_random_hex(6)}"
+    """E-06：缺少必填字段 → ERROR + 断连 1008。"""
+    result = ScenarioResult(name="E-06", passed=True)
+    cid = f"mock-E06-{_random_hex(6)}"
     await emit(
                 "conversation_registered",
                 {"conversation_id": cid, "scenario": result.name},
@@ -616,14 +721,199 @@ async def scenario_d2_schema_error(ws_url: str, emit: EventCallback) -> Scenario
     return result
 
 
+async def scenario_e05_invalid_enum(ws_url: str, emit: EventCallback) -> ScenarioResult:
+    """E-05：枚举值非法，期望 E1002 + 断连 1008。"""
+    result = ScenarioResult(name="E-05", passed=True)
+    cid = f"mock-E05-{_random_hex(6)}"
+    start_ts = _utc_now_iso()
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
+
+    try:
+        ws = await _open_ws(ws_url, cid)
+    except Exception as e:
+        result.passed = False
+        result.steps.append({"action": "connect", "error": str(e)})
+        await emit("scenario_step", {"scenario": result.name, "step": result.steps[-1]})
+        return result
+
+    try:
+        bad_msg = generate_message(cid, 0, event_type="SESSION_ONGOING", **meta_base)
+        bad_msg["metaData"]["eventType"] = "INVALID"
+        await _send_expect_error_and_close(
+            ws,
+            bad_msg,
+            action="send_bad_enum",
+            expected_code="E1002",
+            expected_close=1008,
+            result=result,
+            emit=emit,
+        )
+    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+    return result
+
+
+async def scenario_e07_wrong_type(ws_url: str, emit: EventCallback) -> ScenarioResult:
+    """E-07：字段类型不符，期望 E1004 + 断连 1008。"""
+    result = ScenarioResult(name="E-07", passed=True)
+    cid = f"mock-E07-{_random_hex(6)}"
+    start_ts = _utc_now_iso()
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
+
+    try:
+        ws = await _open_ws(ws_url, cid)
+    except Exception as e:
+        result.passed = False
+        result.steps.append({"action": "connect", "error": str(e)})
+        await emit("scenario_step", {"scenario": result.name, "step": result.steps[-1]})
+        return result
+
+    try:
+        bad_msg = generate_message(cid, 0, event_type="SESSION_ONGOING", **meta_base)
+        bad_msg["metaData"]["conversationId"] = 123
+        await _send_expect_error_and_close(
+            ws,
+            bad_msg,
+            action="send_wrong_type",
+            expected_code="E1004",
+            expected_close=1008,
+            result=result,
+            emit=emit,
+        )
+    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+    return result
+
+
+async def scenario_e08_invalid_timestamp(ws_url: str, emit: EventCallback) -> ScenarioResult:
+    """E-08：时间格式无效，期望 E1005 + 断连 1008。"""
+    result = ScenarioResult(name="E-08", passed=True)
+    cid = f"mock-E08-{_random_hex(6)}"
+    start_ts = _utc_now_iso()
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
+
+    try:
+        ws = await _open_ws(ws_url, cid)
+    except Exception as e:
+        result.passed = False
+        result.steps.append({"action": "connect", "error": str(e)})
+        await emit("scenario_step", {"scenario": result.name, "step": result.steps[-1]})
+        return result
+
+    try:
+        bad_msg = generate_message(cid, 0, event_type="SESSION_ONGOING", **meta_base)
+        bad_msg["payload"]["createdAtTimeStamp"] = "2025-03-21T18:32:20.000+08:00"
+        await _send_expect_error_and_close(
+            ws,
+            bad_msg,
+            action="send_bad_timestamp",
+            expected_code="E1005",
+            expected_close=1008,
+            result=result,
+            emit=emit,
+        )
+    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+    return result
+
+
+async def scenario_e14_conversation_id_mismatch(ws_url: str, emit: EventCallback) -> ScenarioResult:
+    """E-14：query/body conversationId 不一致，期望 E1009 + 断连 1008。"""
+    result = ScenarioResult(name="E-14", passed=True)
+    cid = f"mock-E14-{_random_hex(6)}"
+    start_ts = _utc_now_iso()
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
+
+    try:
+        ws = await _open_ws(ws_url, cid)
+    except Exception as e:
+        result.passed = False
+        result.steps.append({"action": "connect", "error": str(e)})
+        await emit("scenario_step", {"scenario": result.name, "step": result.steps[-1]})
+        return result
+
+    try:
+        bad_msg = generate_message(cid, 0, event_type="SESSION_ONGOING", **meta_base)
+        bad_msg["metaData"]["conversationId"] = f"{cid}-other"
+        await _send_expect_error_and_close(
+            ws,
+            bad_msg,
+            action="send_conversation_id_mismatch",
+            expected_code="E1009",
+            expected_close=1008,
+            result=result,
+            emit=emit,
+        )
+    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+    return result
+
+
+async def scenario_e15_business_rule_violation(ws_url: str, emit: EventCallback) -> ScenarioResult:
+    """E-15：业务规则校验失败，期望 E1009 + 断连 1008。"""
+    result = ScenarioResult(name="E-15", passed=True)
+    cid = f"mock-E15-{_random_hex(6)}"
+    start_ts = _utc_now_iso()
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
+
+    try:
+        ws = await _open_ws(ws_url, cid)
+    except Exception as e:
+        result.passed = False
+        result.steps.append({"action": "connect", "error": str(e)})
+        await emit("scenario_step", {"scenario": result.name, "step": result.steps[-1]})
+        return result
+
+    try:
+        bad_msg = generate_message(cid, 0, event_type="SESSION_ONGOING", **meta_base)
+        bad_msg["payload"]["isFinal"] = False
+        await _send_expect_error_and_close(
+            ws,
+            bad_msg,
+            action="send_business_rule_violation",
+            expected_code="E1009",
+            expected_close=1008,
+            result=result,
+            emit=emit,
+        )
+    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+    return result
+
+
 async def scenario_g_session_complete(
     ws_url: str,
     emit: EventCallback,
     n_messages: int = 5,
 ) -> ScenarioResult:
-    """G: 与 A 相同的数据形状（``n_messages`` 会话总数含 COMPLETE）→ ACK + 断连 1000。"""
-    result = ScenarioResult(name="G_session_complete", passed=True)
-    cid = f"mock-G-{_random_hex(6)}"
+    """N-03：会话结束场景，``n_messages`` 会话总数含 COMPLETE，最终 ACK + 断连 1000。"""
+    result = ScenarioResult(name="N-03", passed=True)
+    cid = f"mock-N03-{_random_hex(6)}"
     start_ts = _utc_now_iso()
     meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit(
@@ -653,12 +943,18 @@ async def scenario_g_session_complete(
 
 
 SCENARIOS: dict[str, Any] = {
-    "A_normal_flow": scenario_a_normal_flow,
-    "B_idempotent": scenario_b_idempotent,
-    "C_out_of_order": scenario_c_out_of_order,
-    "D1_invalid_json": scenario_d1_invalid_json,
-    "D2_schema_error": scenario_d2_schema_error,
-    "G_session_complete": scenario_g_session_complete,
+    "N-01": scenario_a_normal_flow,
+    "N-02": scenario_b_idempotent,
+    "N-03": scenario_g_session_complete,
+    "E-01": scenario_e01_missing_query_conversation_id,
+    "E-04": scenario_d1_invalid_json,
+    "E-05": scenario_e05_invalid_enum,
+    "E-06": scenario_d2_schema_error,
+    "E-07": scenario_e07_wrong_type,
+    "E-08": scenario_e08_invalid_timestamp,
+    "E-09": scenario_c_out_of_order,
+    "E-14": scenario_e14_conversation_id_mismatch,
+    "E-15": scenario_e15_business_rule_violation,
 }
 
 

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import copy
 from unittest.mock import ANY, AsyncMock, MagicMock
 
+import fakeredis.aioredis
 import orjson
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -15,7 +18,12 @@ from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from transcribe_service.orchestrator.base import OrchestratorResult
 from transcribe_service.schemas.response import build_ack, build_error
 from transcribe_service.shutdown.graceful import GracefulShutdown
-from transcribe_service.transport.websocket_handler import ConnectionRegistry, create_app
+from transcribe_service.state_machine.redis_state import RedisStateMachine
+from transcribe_service.transport.websocket_handler import (
+    ConnectionRegistry,
+    _format_client_addr,
+    create_app,
+)
 
 
 @pytest.fixture
@@ -173,6 +181,52 @@ class TestWebSocket:
             assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
         mock_orchestrator.handle_message.assert_awaited_once()
 
+    def test_ws_disconnect_preserves_active_ttl_and_allows_resume(
+        self, shutdown, registry, valid_ongoing_msg
+    ):
+        fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        state_machine = RedisStateMachine(client=fake_redis, active_ttl_sec=120, final_ttl_sec=5)
+        producer = AsyncMock()
+        producer.send = AsyncMock()
+        app = create_app(TwoPhaseOrchestrator(state_machine, producer), shutdown, registry)
+        client = TestClient(app)
+
+        msg0 = copy.deepcopy(valid_ongoing_msg)
+        msg0["metaData"]["conversationId"] = "conv-reconnect"
+        msg0["payload"]["sequenceNumber"] = 0
+        msg1 = copy.deepcopy(msg0)
+        msg1["payload"]["sequenceNumber"] = 1
+
+        try:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-reconnect"
+            ) as ws:
+                ws.send_text(orjson.dumps(msg0).decode())
+                resp = orjson.loads(ws.receive_text())
+                assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+
+            key = "transcript:session:conv-reconnect"
+            ttl = asyncio.run(fake_redis.ttl(key))
+            assert 5 < ttl <= 120
+            assert asyncio.run(fake_redis.get(key)) == "1"
+
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-reconnect"
+            ) as ws:
+                ws.send_text(orjson.dumps(msg0).decode())
+                replay_resp = orjson.loads(ws.receive_text())
+                assert replay_resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+                assert producer.send.await_count == 1
+
+                ws.send_text(orjson.dumps(msg1).decode())
+                next_resp = orjson.loads(ws.receive_text())
+                assert next_resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+                assert producer.send.await_count == 2
+
+            assert asyncio.run(fake_redis.get(key)) == "2"
+        finally:
+            asyncio.run(state_machine.close())
+
     def test_ws_conversation_id_mismatch_e1009_not_orchestrator(
         self, app, mock_orchestrator
     ):
@@ -308,6 +362,9 @@ class TestWebSocket:
         body = getattr(ei.value, "text", "")
         assert "E1003" in body
         assert "Missing required field" in body
+
+    def test_format_client_addr_empty_without_client(self):
+        assert _format_client_addr({"type": "websocket"}) == ""
 
     def test_ws_draining_rejects(self, mock_orchestrator, shutdown, registry):
         shutdown._draining = True

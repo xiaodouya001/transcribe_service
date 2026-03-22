@@ -33,6 +33,37 @@ if TYPE_CHECKING:  # pragma: no cover
 log = structlog.get_logger(__name__)
 
 
+def _format_client_addr(scope: Scope) -> str:
+    client = scope.get("client")
+    if not client:
+        return ""
+    host, port = client
+    return f"{host}:{port}"
+
+
+def _log_handshake_reject(
+    scope: Scope,
+    *,
+    reason: str,
+    status_code: int,
+    error_response: dict,
+    conversation_id: str = "",
+    **extra: object,
+) -> None:
+    log.warning(
+        reason,
+        path=scope.get("path", ""),
+        client_addr=_format_client_addr(scope),
+        conversation_id=conversation_id,
+        http_status=status_code,
+        error_code=((error_response.get("error") or {}).get("code")),
+        error_message=((error_response.get("error") or {}).get("message")),
+        error_details=((error_response.get("error") or {}).get("details")),
+        error_response=error_response,
+        **extra,
+    )
+
+
 class ConnectionRegistry:
     """追踪活跃 WebSocket 连接，支持优雅停机时批量关闭。"""
 
@@ -117,31 +148,58 @@ class _WsGuardMiddleware:
         cid = self._extract_conversation_id(scope)
 
         if not cid:
-            log.warning("Transport: 缺少 conversationId，拒绝连接 (400)")
+            error_response = build_error(
+                "",
+                ErrorCode.E1003.value,
+                "Missing required field",
+                "Query parameter 'conversationId' is required",
+            )
+            _log_handshake_reject(
+                scope,
+                reason="Transport: 缺少 conversationId，拒绝连接",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_response=error_response,
+            )
             await _deny_websocket(
                 receive, send,
                 status=status.HTTP_400_BAD_REQUEST,
-                error_code=ErrorCode.E1003.value,
-                message="Missing required field",
-                details="Query parameter 'conversationId' is required",
+                error_response=error_response,
             )
             return
 
         if self._shutdown.draining:
-            log.warning("Transport: 服务 draining，拒绝新连接 (503)", conversation_id=cid)
+            error_response = build_error(
+                cid,
+                ErrorCode.E1008.value,
+                "Service draining",
+                "Server is shutting down, try again later",
+            )
+            _log_handshake_reject(
+                scope,
+                reason="Transport: 服务 draining，拒绝新连接",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                error_response=error_response,
+                conversation_id=cid,
+            )
             await _deny_websocket(
                 receive, send,
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                error_code=ErrorCode.E1008.value,
-                message="Service draining",
-                details="Server is shutting down, try again later",
-                conversation_id=cid,
+                error_response=error_response,
             )
             return
 
         if self._max_connections > 0 and self._registry.active_count >= self._max_connections:
-            log.warning(
-                "Transport: 连接数已达上限，拒绝新连接 (429)",
+            error_response = build_error(
+                cid,
+                ErrorCode.E1008.value,
+                "Too many connections",
+                f"Active {self._registry.active_count} >= limit {self._max_connections}",
+            )
+            _log_handshake_reject(
+                scope,
+                reason="Transport: 连接数已达上限，拒绝新连接",
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                error_response=error_response,
                 conversation_id=cid,
                 active=self._registry.active_count,
                 max=self._max_connections,
@@ -149,10 +207,7 @@ class _WsGuardMiddleware:
             await _deny_websocket(
                 receive, send,
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
-                error_code=ErrorCode.E1008.value,
-                message="Too many connections",
-                details=f"Active {self._registry.active_count} >= limit {self._max_connections}",
-                conversation_id=cid,
+                error_response=error_response,
             )
             return
 
@@ -410,13 +465,10 @@ async def _deny_websocket(
     send: Send,
     *,
     status: int,
-    error_code: str,
-    message: str,
-    details: str | None = None,
-    conversation_id: str = "",
+    error_response: dict,
 ) -> None:
     """在 WebSocket 握手前以 HTTP 状态码 + JSON ERROR 帧拒绝连接。"""
-    body = orjson.dumps(build_error(conversation_id, error_code, message, details))
+    body = orjson.dumps(error_response)
     await receive()
     await send({
         "type": "websocket.http.response.start",

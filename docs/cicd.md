@@ -8,7 +8,7 @@
 
 | 步骤 | 说明 |
 |------|------|
-| **Lint** | （可选）ruff / black 代码格式检查 |
+| **Lint** | 如启用，可执行 ruff / black 代码格式检查 |
 | **UT** | `pytest` + 覆盖率报告（见 `pyproject.toml` 的 `[tool.pytest.ini_options].addopts`） |
 | **Docker 构建** | 验证 `docker build` 成功 |
 
@@ -25,7 +25,7 @@ UT 使用 `fakeredis[lua]`（Lua 与生产 Redis 脚本一致）和 `unittest.mo
 
 ### 2.1 环境变量
 
-默认 UT 不需要 Redis/Kafka。若后续增加需真实中间件的集成测试，可在 GitHub Secrets 中配置并在 workflow 的 `env` 中注入，例如：
+默认 UT 不依赖 Redis/Kafka。需要引入依赖真实中间件的集成测试时，可在 GitHub Secrets 中配置并在 workflow 的 `env` 中注入，例如：
 
 - `REDIS_URL`
 - `KAFKA_BOOTSTRAP_SERVERS`

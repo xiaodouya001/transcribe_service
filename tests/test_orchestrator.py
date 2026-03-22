@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock
 
+import fakeredis.aioredis
 import pytest
 
 from unittest.mock import MagicMock
@@ -12,6 +13,7 @@ from unittest.mock import MagicMock
 from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from transcribe_service.schemas.errors import ErrorCode, WsCloseCode
 from transcribe_service.state_machine.base import PrepareResult
+from transcribe_service.state_machine.redis_state import RedisStateMachine
 
 
 @pytest.fixture
@@ -172,6 +174,37 @@ class TestScenarioE:
         assert result.close_code == 1013
         mock_sm.commit.assert_not_awaited()
 
+    async def test_retry_same_seq_after_kafka_failure_is_lossless(self, valid_ongoing_msg):
+        """首次 Kafka 失败不 commit；同一 seq 重试成功；再次重放命中幂等 ACK。"""
+        client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+        state_machine = RedisStateMachine(client=client, active_ttl_sec=3600, final_ttl_sec=60)
+        producer = AsyncMock()
+        producer.send = AsyncMock(side_effect=[RuntimeError("broker down"), None])
+        orchestrator = TwoPhaseOrchestrator(state_machine=state_machine, producer=producer)
+
+        try:
+            first = await orchestrator.handle_message(valid_ongoing_msg)
+            assert first.response["error"]["code"] == "E1008"
+            assert first.disconnect is True
+            assert first.close_code == 1013
+
+            cid = valid_ongoing_msg["metaData"]["conversationId"]
+            key = f"transcript:session:{cid}"
+            assert await client.get(key) == "0"
+
+            second = await orchestrator.handle_message(valid_ongoing_msg)
+            assert second.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+            assert second.disconnect is False
+            assert await client.get(key) == "1"
+
+            third = await orchestrator.handle_message(valid_ongoing_msg)
+            assert third.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+            assert third.disconnect is False
+            assert await client.get(key) == "1"
+            assert producer.send.await_count == 2
+        finally:
+            await state_machine.close()
+
 
 class TestScenarioF:
     """F. 服务端未捕获异常 → E1007, 断连 1011。"""
@@ -264,5 +297,20 @@ class TestScenarioG:
         assert result.response["payload"]["sequenceNumber"] == 42
         assert result.disconnect is True
         assert result.close_code == 1000
+        mock_sm.commit.assert_awaited_once()
+        mock_sm.cleanup.assert_awaited_once()
+
+    async def test_session_complete_cleanup_failure_degrades_to_ack(
+        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_complete_msg
+    ):
+        mock_sm.cleanup.side_effect = RuntimeError("cleanup boom")
+
+        result = await orchestrator.handle_message(valid_complete_msg)
+
+        assert result.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+        assert result.response["payload"]["sequenceNumber"] == 42
+        assert result.disconnect is True
+        assert result.close_code == 1000
+        mock_producer.send.assert_awaited_once()
         mock_sm.commit.assert_awaited_once()
         mock_sm.cleanup.assert_awaited_once()

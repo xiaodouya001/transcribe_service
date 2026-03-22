@@ -179,7 +179,16 @@ class TwoPhaseOrchestrator:
         # 5. SESSION_COMPLETE → cleanup + 主动断连 1000 (场景 G)
         # ------------------------------------------------------------------
         if event_type == EventType.SESSION_COMPLETE:
-            await self._sm.cleanup(cid)
+            try:
+                await self._sm.cleanup(cid)
+            except Exception as e:
+                # Kafka 与 commit 已完成；cleanup 仅用于缩短 TTL，失败时不应把整次完成语义翻转为 E1007
+                log.warning(
+                    "Orchestrator: SESSION_COMPLETE cleanup 失败，降级为 ACK",
+                    conversation_id=cid,
+                    seq=seq,
+                    error=str(e),
+                )
             log.info(
                 "Orchestrator: SESSION_COMPLETE 处理完成",
                 conversation_id=cid,

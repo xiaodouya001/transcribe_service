@@ -190,6 +190,104 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     sm.close.assert_awaited()
 
 
+@pytest.mark.asyncio
+async def test_run_graceful_shutdown_order(monkeypatch):
+    settings = MagicMock()
+    settings.redis_url = "redis://127.0.0.1:6379/0"
+    settings.log_level = "INFO"
+    settings.log_format = "json"
+    settings.kafka_bootstrap_servers = "127.0.0.1:9092"
+    settings.kafka_topic = "t"
+    settings.kafka_compression_type = "none"
+    settings.kafka_send_timeout_sec = 2.0
+    settings.kafka_topic_num_partitions = 1
+    settings.kafka_replication_factor = 1
+    settings.redis_max_connections = 10
+    settings.redis_active_ttl_sec = 3600
+    settings.redis_final_ttl_sec = 60
+    settings.stop_timeout = 120
+    settings.http_host = "127.0.0.1"
+    settings.http_port = 18083
+    settings.http_backlog = 4096
+    settings.kafka_startup_timeout_sec = 5.0
+    settings.ws_ping_interval = 20.0
+    settings.ws_ping_timeout = 21.0
+    settings.ws_max_connections = 0
+    settings.log_ws_error_frames = False
+
+    monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
+    monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
+
+    calls: list[str] = []
+
+    sm = MagicMock()
+
+    async def sm_close():
+        calls.append("state_machine.close")
+
+    sm.close = AsyncMock(side_effect=sm_close)
+    monkeypatch.setattr(main_mod, "RedisStateMachine", lambda **kw: sm)
+
+    prod = MagicMock()
+
+    async def prod_flush():
+        calls.append("producer.flush")
+
+    async def prod_close():
+        calls.append("producer.close")
+
+    prod.flush = AsyncMock(side_effect=prod_flush)
+    prod.close = AsyncMock(side_effect=prod_close)
+    monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: prod)
+
+    monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: MagicMock())
+
+    shutdown_inst = main_mod.GracefulShutdown(stop_timeout=1)
+    monkeypatch.setattr(main_mod, "GracefulShutdown", lambda **kw: shutdown_inst)
+
+    reg = MagicMock()
+
+    async def reg_close_all(*args, **kwargs):
+        calls.append("registry.close_all")
+
+    reg.close_all = AsyncMock(side_effect=reg_close_all)
+    monkeypatch.setattr(main_mod, "ConnectionRegistry", lambda: reg)
+    monkeypatch.setattr(main_mod, "create_app", lambda **kw: object())
+    monkeypatch.setattr(main_mod, "_check_redis", AsyncMock())
+    monkeypatch.setattr(main_mod, "_check_kafka", AsyncMock())
+
+    server_inst = MagicMock()
+    server_inst.should_exit = False
+    serve_started = asyncio.Event()
+
+    async def fake_serve():
+        serve_started.set()
+        while not server_inst.should_exit:
+            await asyncio.sleep(0.01)
+
+    server_inst.serve = fake_serve
+    monkeypatch.setattr(main_mod.uvicorn, "Config", lambda app, **kw: MagicMock(app=app))
+    monkeypatch.setattr(main_mod.uvicorn, "Server", lambda cfg: server_inst)
+
+    async def stop_soon():
+        await serve_started.wait()
+        await asyncio.sleep(0.02)
+        await shutdown_inst._on_signal()
+
+    stop_task = asyncio.create_task(stop_soon())
+    try:
+        await asyncio.wait_for(main_mod.run(), timeout=5.0)
+    finally:
+        await asyncio.wait([stop_task], timeout=1.0)
+
+    assert calls == [
+        "registry.close_all",
+        "producer.flush",
+        "producer.close",
+        "state_machine.close",
+    ]
+
+
 def test_main_sync_entry_invokes_asyncio_run(monkeypatch):
     seen = []
 

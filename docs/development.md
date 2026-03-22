@@ -91,8 +91,9 @@ UT 不依赖真实 Kafka/Redis 环境：
 
 ### 4.3 覆盖率
 
-- 排除：`main.py`、`config/logging_config.py`
-- 配置见 `pyproject.toml` 的 `[tool.coverage.run]`
+- 覆盖率由 `pytest-cov` 按 `pyproject.toml` 中的 `addopts` 收集。
+- 收集范围包括 `src/transcribe_service` 与 `config`。
+- 覆盖率阈值为 **100%**。
 
 ---
 

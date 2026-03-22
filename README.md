@@ -54,11 +54,17 @@ transcribe_service/
 
 | 文档 | 说明 |
 |------|------|
+| [docs/README.md](docs/README.md) | 文档总索引 |
 | [docs/configuration.md](docs/configuration.md) | 配置说明 |
+| [docs/concurrency-capacity.md](docs/concurrency-capacity.md) | 并发与容量说明 |
 | [docs/development.md](docs/development.md) | 本地开发与测试 |
 | [docs/deployment.md](docs/deployment.md) | 部署指南 |
 | [docs/cicd.md](docs/cicd.md) | CI/CD |
 | [docs/faq.md](docs/faq.md) | 常见问题 |
+| [docs/kafka-ui-usage.md](docs/kafka-ui-usage.md) | Kafka UI 使用说明 |
+| [docs/protocol-scenario-matrix.md](docs/protocol-scenario-matrix.md) | 协议场景矩阵 |
+| [docs/pyproject-config.md](docs/pyproject-config.md) | pyproject.toml 配置说明 |
+| [docs/design-guardrails.md](docs/design-guardrails.md) | 设计护栏定稿 |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | 故障排查 |
 
 ---

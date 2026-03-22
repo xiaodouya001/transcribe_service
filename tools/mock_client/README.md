@@ -1,7 +1,7 @@
 # Mock Client — Transcribe Service 虚拟测试客户端
 
 模拟 FanoLabs 客户端行为，通过 WebSocket 向 Transcribe Service 发送转写消息，
-验证全部业务场景（A-G）并支持并发压测和 Kafka 消息回显。
+验证契约矩阵中已落地的主要客户端可触发场景，并支持并发压测和 Kafka 消息回显。
 
 ## 前置条件
 
@@ -42,16 +42,25 @@ python server.py
 | 控件 | 说明 |
 |------|------|
 | WebSocket URL | Transcribe Service 的 WS 端点地址，默认 `ws://127.0.0.1:8080/ws/v1/realtime-transcriptions` |
-| 场景测试（两块） | **① 使用参数 N**：A / B / C / G + `参数 N` 输入框（含义见下表）。**② 不使用 N**：D1 / D2（首包异常，请求不携带 `n_messages`） |
-| 参数 N（仅 A / B / C / G） | **A、G** 业务消息总条数（含 COMPLETE）；**B** 幂等 seq 个数 `[0,N)`；**C** 乱序第二帧 `seq=max(2,N)`。 |
-| 全部运行 | 顺序 A→B→C→D1→D2→G；仅 A/B/C/G 会带 `n_messages` |
-| 并发压测 | **正常流负载**（与 A / G 同一消息形状）：每条连接内在「每连接消息总数」下按 `_session_message_split` 发 ONGOING + 最后 COMPLETE，均期望 ACK。<strong>不是</strong> B/C/D 等边界场景；用于打吞吐、延迟、并发连接。 |
+| 场景测试（两块） | **① 使用场景控制值**：`N-01`、`N-02`、`N-03`、`E-09` + 「场景控制值」输入框（含义见下表）。**② 固定错误场景**：`E-01`、`E-04`、`E-05`、`E-06`、`E-07`、`E-08`、`E-14`、`E-15`（直接构造固定握手错误、协议错误或业务规则错误；不会读取场景控制值） |
+| Benchmark 预设 | 可一键填充 `300 / 400 / 500` 并发基准档；参数参考 [env-profiles-300-400-500.md](../../PT/env-profiles-300-400-500.md) 的 Mock Client 建议，区间项默认取中值：`300 -> interval 70ms / ramp-up 25000ms`，`400 -> interval 78ms / ramp-up 30000ms`，`500 -> interval 85ms / ramp-up 37500ms`。手动修改任一字段后，下拉会自动回到「自定义」。 |
+| 场景控制值 | 含义随场景变化，见下方分项说明。 |
+| 全部运行 | 顺序 `N-01 → N-02 → N-03 → E-01 → E-04 → E-05 → E-06 → E-07 → E-08 → E-09 → E-14 → E-15`；仅 `N-01`、`N-02`、`N-03`、`E-09` 会读取场景控制值 |
+| 并发压测 | **正常闭环负载**：每条连接内在「每连接消息总数」下按 `_session_message_split` 发若干 `SESSION_ONGOING` + 最后一条 `SESSION_COMPLETE`，均期望 `TRANSCRIPT_ACK`。<strong>不包含</strong> `N-02`、`E-01`、`E-04`、`E-05`、`E-06`、`E-07`、`E-08`、`E-09`、`E-14`、`E-15` 等边界场景；用于打吞吐、延迟、并发连接。 |
 | 并发连接数 / 每连接消息数 / 消息间隔(ms) | **并发连接数** = 本轮**同时进行的对话路数**（≈ 同时在线 WebSocket 数），一轮共 **`concurrency` 路**，无额外倍率。「每连接消息数」= 每路业务消息**总数（含 COMPLETE）**；「消息间隔」= 同一路内相邻两条发送之间的间隔。再打一轮请再次点「启动压测」。 |
 | 压测何时结束 | 本轮 **`concurrency` 路**会话全部发完并关闭后推送 `load_done`。「停止」后尚未开始建连的路不再执行。 |
 | 启动压测 / 停止 | 启动或停止并发压测 |
 | **实时指标** | 卡片内「启动/停止压测」下方；**仅压测**写入统计，场景测试不影响；SSE `stats`（约 1s）与 `load_done` 更新；启动压测时先清零，避免显示上一轮残留 |
 
 **超高并发（如 1000 路）若 Mock UI 指标不刷新**：旧版曾向浏览器对**每路**发 `conversation_registered`，几分钟内几千条 SSE 会塞满队列并把订阅踢掉。现已默认**压测不发**该事件，并加大 SSE 缓冲 + 满则丢最旧帧。若仍长时间全 0，多半是 **Transcribe Service** 吃满 CPU/线程或拒连，请看其日志与机器资源。
+
+场景控制值说明：
+
+- `N-01`：表示发送多少条 `SESSION_ONGOING`
+- `N-02`：表示要测试的 seq 个数，每个 seq 会发送两次
+- `N-03`：表示每条通话的消息总数（含最后一条 COMPLETE）
+- `E-09`：表示第二条乱序消息的目标 seq，实际取 `max(2,N)`
+- 其余错误场景：不使用该参数
 
 ### 2. 场景结果（左侧主区域）
 
@@ -80,16 +89,22 @@ python server.py
 
 ## 场景说明
 
-| 场景 | 名称 | 操作 | 预期结果 |
+| 矩阵 ID | 内部名称 | 操作 | 预期结果 |
 |------|------|------|----------|
-| A | `A_normal_flow` | 共 N 条业务消息（N−1 条 `SESSION_ONGOING` + 1 条 `SESSION_COMPLETE`，seq 连续） | 每条收到 ACK，最后 close 1000 |
-| B | `B_idempotent` | 对每个 `seq ∈ [0,N)` 各发一次 `ONGOING` 再重放同一帧 | 每次首次与重放均收到 ACK |
-| C | `C_out_of_order` | seq 0 后跳到 `seq=max(2,N)`（默认 N=5 即跳 5） | 收到 E1006 ERROR + close 1008 |
-| D1 | `D1_invalid_json` | 连接后首包即非法 JSON（与 N 无关） | 收到 E1001 ERROR + close 1007 |
-| D2 | `D2_schema_error` | 连接后首包即缺字段 JSON（与 N 无关） | 收到 E1003 ERROR + close 1008 |
-| G | `G_session_complete` | 与 A 相同：共 N 条（含 COMPLETE），仅场景名/用例编号不同 | 每条 ACK，最后 close 1000 |
+| `N-01` | `N-01` | 连续发送 N 条 `SESSION_ONGOING`，验证每条都正常处理 | 每条都收到 `TRANSCRIPT_ACK`，服务端不主动断开 |
+| `N-02` | `N-02` | 对每个 `seq ∈ [0,N)` 各发一次 `SESSION_ONGOING` 再重放同一帧 | 每次首次与重放均收到 `TRANSCRIPT_ACK` |
+| `N-03` | `N-03` | 共 N 条业务消息（含最后一条 `SESSION_COMPLETE`），重点验证最终 COMPLETE 收尾 | 最后一条收到 `TRANSCRIPT_ACK`，随后 close `1000` |
+| `E-01` | `E-01` | 握手时不携带 query `conversationId` | 收到 HTTP `400` + `E1003` |
+| `E-04` | `E-04` | 连接后首包即非法 JSON（与 N 无关） | 收到 `ERROR(E1001)` + close `1007` |
+| `E-05` | `E-05` | 建连成功后发送 `eventType=INVALID` 的消息 | 收到 `ERROR(E1002)` + close `1008` |
+| `E-06` | `E-06` | 连接后首包即缺字段 JSON（与 N 无关） | 收到 `ERROR(E1003)` + close `1008` |
+| `E-07` | `E-07` | 将 `metaData.conversationId` 改为非字符串类型 | 收到 `ERROR(E1004)` + close `1008` |
+| `E-08` | `E-08` | 将 `createdAtTimeStamp` 改为非 UTC/非法时间格式 | 收到 `ERROR(E1005)` + close `1008` |
+| `E-09` | `E-09` | seq 0 后跳到 `seq=max(2,N)`（默认 N=5 即跳 5） | 收到 `ERROR(E1006)` + close `1008` |
+| `E-14` | `E-14` | query 中的 `conversationId` 与消息体里的 `metaData.conversationId` 不一致 | 收到 `ERROR(E1009)` + close `1008` |
+| `E-15` | `E-15` | 构造违反业务规则的消息（当前使用 `isFinal=false`） | 收到 `ERROR(E1009)` + close `1008` |
 
-> 场景 E（Kafka 故障）和 F（未捕获异常）无法从客户端触发，需手动测试（如停掉 Kafka 容器后发送消息）。
+> `E-02`、`E-03`、`E-10`、`E-11`、`E-12`、`E-13`、`N-04` 这类依赖服务状态、连接容量或故障注入的场景，无法稳定由普通客户端主动构造，需通过环境控制、测试桩或故障注入方式验证。
 
 ## API 接口
 
@@ -97,7 +112,7 @@ python server.py
 
 ```bash
 # 运行单个场景
-curl -X POST "http://127.0.0.1:8088/api/scenario/run?name=A_normal_flow&n_messages=5"
+curl -X POST "http://127.0.0.1:8088/api/scenario/run?name=N-01&n_messages=5"
 
 # 运行全部场景
 curl -X POST "http://127.0.0.1:8088/api/scenario/run-all"
@@ -136,7 +151,7 @@ tools/mock_client/
 
 ## 常见问题
 
-**Q: 场景 A 连接失败？**
+**Q: `N-01` 会话中正常处理连接失败？**
 确认 Transcribe Service 已启动且监听在 `ws://127.0.0.1:8080`。
 
 **Q: Kafka 消费看不到消息？**

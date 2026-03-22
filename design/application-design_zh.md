@@ -169,9 +169,17 @@ sequenceDiagram
         Trans->>Kafka: 阶段二：异步投递最终文本与结束信标
         Kafka-->>Trans: 返回投递成功 Ack
         
-        Trans->>Redis: 阶段三：缩短状态机 TTL（进入 30-60 秒宽限期）
-        Redis-->>Trans: 状态更新完成（保留短暂窗口兜住迟到包）
-        
+        Trans->>Redis: 阶段三：Commit（expected_seq = M+1）
+        Redis-->>Trans: 状态推进成功
+
+        Trans->>Redis: 阶段四：尝试缩短状态机 TTL（进入 30-60 秒宽限期）
+        alt cleanup 成功
+            Redis-->>Trans: TTL 缩短完成（保留短暂窗口兜住迟到包）
+        else cleanup 失败
+            Redis-->>Trans: 返回异常
+            Trans->>Trans: 记录告警；不翻转已成功的提交结果
+        end
+
         Trans-->>Vendor: 返回最终 TRANSCRIPT_ACK (seq=M)
     end
     
@@ -209,7 +217,7 @@ sequenceDiagram
             Trans->>Trans: 内部动作: Schema 校验
         end
 
-        alt Schema 校验失败 (E1002/E1003/E1004/E1005)
+        alt Schema / 业务规则校验失败 (E1002/E1003/E1004/E1005/E1009)
             Trans-->>Vendor: 发送 ERROR 帧 (code, message, details)
             Trans->>Vendor: 关闭连接 (Close Code 1008 策略违规)
         else Schema 通过，进入 Redis 预检

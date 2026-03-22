@@ -131,6 +131,99 @@
 [data-theme="dracula"] button.primary:hover {
   color: var(--btn-on-solid);
 }
+[data-theme="dracula"] button.success {
+  border-color: rgba(80, 250, 123, 0.42);
+  color: #50fa7b;
+  background: rgba(80, 250, 123, 0.1);
+  box-shadow: 0 2px 12px rgba(80, 250, 123, 0.12);
+}
+[data-theme="dracula"] button.success:hover {
+  background: #50fa7b;
+  color: #282a36;
+  border-color: #50fa7b;
+}
+[data-theme="dracula"] button.danger {
+  border-color: rgba(255, 85, 85, 0.45);
+  color: #ff5555;
+  background: rgba(255, 85, 85, 0.1);
+  box-shadow: 0 2px 12px rgba(255, 85, 85, 0.12);
+}
+[data-theme="dracula"] button.danger:hover {
+  background: #ff5555;
+  color: #f8f8f2;
+  border-color: #ff5555;
+}
+[data-theme="dracula"] .panel-header-action {
+  background: rgba(68, 71, 90, 0.78) !important;
+  border-color: rgba(139, 233, 253, 0.18) !important;
+  color: #8be9fd !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+[data-theme="dracula"] .panel-header-action:hover {
+  background: rgba(139, 233, 253, 0.14) !important;
+  color: #8be9fd !important;
+  border-color: rgba(139, 233, 253, 0.45) !important;
+}
+[data-theme="dracula"] .panel-header-action--purge {
+  background: rgba(255, 85, 85, 0.1) !important;
+  border-color: rgba(255, 85, 85, 0.32) !important;
+  color: #ff5555 !important;
+}
+[data-theme="dracula"] .panel-header-action--purge:hover {
+  background: #ff5555 !important;
+  color: #282a36 !important;
+  border-color: #ff5555 !important;
+}
+[data-theme="dracula"] button.btn-scenario {
+  background: rgba(68, 71, 90, 0.82);
+  border-color: rgba(189, 147, 249, 0.18);
+  color: #f8f8f2;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+[data-theme="dracula"] button.btn-scenario:hover {
+  background: rgba(189, 147, 249, 0.12);
+  border-color: rgba(189, 147, 249, 0.42);
+  color: #f8f8f2;
+}
+[data-theme="dracula"] .cp-scenario-subcard {
+  background: rgba(68, 71, 90, 0.34);
+  border-color: rgba(98, 114, 164, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+[data-theme="dracula"] .scenario-chip {
+  background: rgba(68, 71, 90, 0.82);
+  border-color: rgba(189, 147, 249, 0.18);
+  color: #f8f8f2;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+[data-theme="dracula"] .scenario-chip:hover {
+  border-color: rgba(189, 147, 249, 0.4);
+  background: rgba(189, 147, 249, 0.12);
+}
+[data-theme="dracula"] .scenario-chip.dragging {
+  border-color: rgba(255, 121, 198, 0.45);
+  background: rgba(255, 121, 198, 0.12);
+}
+[data-theme="dracula"] .scenario-chip-order {
+  background: rgba(189, 147, 249, 0.2);
+  border-color: rgba(189, 147, 249, 0.3);
+  color: #bd93f9;
+}
+[data-theme="dracula"] .scenario-chip-handle {
+  color: #6272a4;
+}
+[data-theme="dracula"] .kafka-count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 31px;
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(189, 147, 249, 0.16);
+  border: 1px solid rgba(189, 147, 249, 0.32);
+  color: #bd93f9;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
 [data-theme="dracula"] .load-page {
   background: rgba(98, 114, 164, 0.2);
 }
@@ -534,38 +627,64 @@ input:focus {
 .cp-scenario-toolbar {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 .scenario-playlist {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
   margin-top: 10px;
 }
 .scenario-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
   background: var(--bg3);
   border: 1px solid var(--border);
   color: var(--text);
-  border-radius: 999px;
-  padding: 5px 10px;
+  border-radius: 10px;
+  padding: 8px 11px;
   font-size: var(--fs-sm);
   font-weight: var(--fw-ui);
   cursor: grab;
   user-select: none;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
 }
 .scenario-chip.dragging {
   opacity: 0.65;
   border-color: var(--accent);
 }
+.scenario-chip-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: var(--fw-head);
+  flex: 0 0 auto;
+}
+.scenario-chip-label {
+  flex: 1;
+  min-width: 0;
+}
+.scenario-chip-handle {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+}
 .cp-scenario-subcard {
   background: var(--bg3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 12px 14px;
-}
-.cp-scenario-subcard--fixed {
-  border-style: dashed;
-  border-color: rgba(120, 140, 180, 0.28);
+  padding: 13px 15px;
 }
 .cp-scenario-subtitle {
   font-size: var(--fs-sm);
@@ -580,6 +699,9 @@ input:focus {
   line-height: 1.5;
   margin-bottom: 10px;
   font-weight: var(--fw-normal);
+}
+.cp-scenario-subhint > div + div {
+  margin-top: 4px;
 }
 .cp-scenario-runall {
   padding-top: 2px;
@@ -650,6 +772,7 @@ input:focus {
   align-items: flex-end;
   gap: 10px;
   flex-shrink: 0;
+  margin-bottom: 12px;
 }
 .cp-nmessages > .cp-label {
   margin-bottom: 0;
@@ -689,11 +812,13 @@ input:focus {
   font-weight: var(--fw-normal);
 }
 .cp-scenario-btns {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  align-items: stretch;
 }
+.cp-scenario-btns > button { width: 100%; }
+.cp-scenario-runall > button { width: 100%; }
 .cp-load-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -741,12 +866,18 @@ button:hover {
 }
 button:active { transform: scale(0.98); }
 button.btn-scenario {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 38px;
   padding: 7px 11px;
   font-size: var(--fs-sm);
   font-weight: var(--fw-ui);
   border-color: var(--border-strong);
   color: var(--text);
   background: var(--bg3);
+  text-align: left;
 }
 button.btn-scenario:hover {
   color: var(--accent);
@@ -1364,8 +1495,8 @@ select.cp-select:focus {
   <div class="theme-switch">
     <label for="theme-select">Theme</label>
     <select id="theme-select" onchange="setTheme(this.value)">
-      <option value="one-dark">One Dark</option>
       <option value="dracula">Dracula</option>
+      <option value="one-dark">One Dark</option>
       <option value="night-blue">Night Blue</option>
       <option value="high-contrast">High Contrast</option>
     </select>
@@ -1396,32 +1527,47 @@ select.cp-select:focus {
         <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>场景测试</h3>
         <div class="cp-scenario-toolbar">
           <div class="cp-scenario-subcard">
-            <div class="cp-scenario-subtitle">使用「会话参数 N」（A / B / C / G）</div>
-            <div class="cp-scenario-subhint">A、G：业务消息<strong>总条数</strong>（含 COMPLETE）；B：<strong>幂等</strong>的 seq 个数；C：乱序<strong>第二帧</strong> <code>seq = max(2, N)</code></div>
+            <div class="cp-scenario-subtitle">场景控制值（按场景解释）</div>
+            <div class="cp-scenario-subhint">
+              <div><code>N-01</code>：表示发送多少条 <strong>SESSION_ONGOING</strong> 消息</div>
+              <div><code>N-02</code>：表示要测试的 <strong>seq 个数</strong>，每个 seq 发送两次</div>
+              <div><code>N-03</code>：表示每条通话的<strong>消息总数</strong>（含最后一条 COMPLETE）</div>
+              <div><code>E-09</code>：表示第二条乱序消息的目标 seq，实际取 <code>max(2, N)</code></div>
+              <div>其余错误场景：不读取这个控制值</div>
+            </div>
             <div class="cp-nmessages">
-              <label class="cp-label" for="scenario-messages">参数 N</label>
-              <div class="cp-input-with-suffix" title="仅上方四类场景会传给后端">
+              <label class="cp-label" for="scenario-messages">场景控制值</label>
+              <div class="cp-input-with-suffix" title="控制值的含义随场景变化，仅使用该参数的场景会传给后端">
                 <input type="number" id="scenario-messages" value="5" min="1" max="100">
-                <span class="cp-suffix">条</span>
+                <span class="cp-suffix"></span>
               </div>
             </div>
             <div class="cp-scenario-btns">
-              <button type="button" class="btn-scenario" onclick="runScenario('A_normal_flow')">A 正常流</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('B_idempotent')">B 幂等</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('C_out_of_order')">C 乱序</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('G_session_complete')">G 会话结束</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('N-01')">N-01 会话中正常处理</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('N-02')">N-02 幂等命中</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('N-03')">N-03 会话结束</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-09')">E-09 序列号乱序</button>
             </div>
           </div>
           <div class="cp-scenario-subcard cp-scenario-subcard--fixed">
-            <div class="cp-scenario-subtitle">不使用 N（D1 / D2）</div>
-            <div class="cp-scenario-subhint">连接后<strong>首包</strong>即非法 JSON 或 Schema 错误；请求<strong>不会</strong>携带 <code>n_messages</code></div>
+            <div class="cp-scenario-subtitle">固定错误场景（无需场景控制值）</div>
+            <div class="cp-scenario-subhint">
+              <div>这些场景会直接构造固定的握手错误、协议错误或业务规则错误。</div>
+              <div>运行时不会读取上方的场景控制值。</div>
+            </div>
             <div class="cp-scenario-btns">
-              <button type="button" class="btn-scenario" onclick="runScenario('D1_invalid_json')">D1 非法 JSON</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('D2_schema_error')">D2 Schema</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-01')">E-01 缺少 query conversationId</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-04')">E-04 非法 JSON</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-05')">E-05 枚举值非法</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-06')">E-06 缺少必填字段</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-07')">E-07 字段类型不符</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-08')">E-08 时间格式无效</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-14')">E-14 query/body conversationId 不一致</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-15')">E-15 业务规则校验失败</button>
             </div>
           </div>
           <div class="cp-scenario-runall">
-            <button type="button" class="primary" onclick="runAllScenarios()" title="顺序 A→B→C→D1→D2→G；仅 A/B/C/G 使用参数 N">全部运行</button>
+            <button type="button" class="primary" onclick="runAllScenarios()" title="顺序 N-01 → N-02 → N-03 → E-01 → E-04 → E-05 → E-06 → E-07 → E-08 → E-09 → E-14 → E-15；仅 N-01、N-02、N-03、E-09 使用场景控制值">全部运行</button>
           </div>
           <div class="cp-scenario-subcard">
             <div class="cp-scenario-subtitle">场景编排器（拖拽排序）</div>
@@ -1476,7 +1622,7 @@ select.cp-select:focus {
                 <option value="">全部会话</option>
               </select>
               <div class="btn-row" style="margin:0">
-                <button type="button" id="btn-kafka-start" onclick="startKafka()">开始消费</button>
+                <button type="button" class="success" id="btn-kafka-start" onclick="startKafka()">开始消费</button>
                 <button type="button" class="danger" id="btn-kafka-stop" onclick="stopKafka()">停止</button>
               </div>
             </div>
@@ -1526,6 +1672,15 @@ select.cp-select:focus {
           点「启动」后所有连接一起建连、发消息、发完即关。
         </p>
         <div style="display:grid;gap:12px">
+          <div>
+            <label class="cp-label" for="load-benchmark-preset">Benchmark 预设</label>
+            <select id="load-benchmark-preset" class="cp-select" onchange="applyLoadBenchmarkPreset(this.value)" style="width:100%">
+              <option value="custom" selected>自定义</option>
+              <option value="benchmark-300">300 并发 Benchmark</option>
+              <option value="benchmark-400">400 并发 Benchmark</option>
+              <option value="benchmark-500">500 并发 Benchmark</option>
+            </select>
+          </div>
           <div>
             <label class="cp-label" for="load-concurrency">并发连接数</label>
             <input type="number" id="load-concurrency" value="10" min="1" max="10000" style="width:100%">
@@ -1617,7 +1772,26 @@ select.cp-select:focus {
 <script>
 const API = '';
 const knownConversationIds = new Set();
-const SCENARIOS_WITH_N = new Set(['A_normal_flow', 'B_idempotent', 'C_out_of_order', 'G_session_complete']);
+const SCENARIOS_WITH_N = new Set(['N-01', 'N-02', 'N-03', 'E-09']);
+const LOAD_BENCHMARK_PRESETS = {
+  'benchmark-300': { concurrency: 300, messages: 100, interval: 70, rampup: 25000 },
+  'benchmark-400': { concurrency: 400, messages: 100, interval: 78, rampup: 30000 },
+  'benchmark-500': { concurrency: 500, messages: 100, interval: 85, rampup: 37500 },
+};
+const SCENARIO_LABELS = {
+  'N-01': 'N-01 会话中正常处理',
+  'N-02': 'N-02 幂等命中',
+  'N-03': 'N-03 会话结束',
+  'E-01': 'E-01 缺少 query conversationId',
+  'E-04': 'E-04 非法 JSON',
+  'E-05': 'E-05 枚举值非法',
+  'E-06': 'E-06 缺少必填字段',
+  'E-07': 'E-07 字段类型不符',
+  'E-08': 'E-08 时间格式无效',
+  'E-09': 'E-09 序列号乱序',
+  'E-14': 'E-14 query/body conversationId 不一致',
+  'E-15': 'E-15 业务规则校验失败',
+};
 let kafkaExpandAll = false;
 const _kafkaAllMessages = [];
 let _kafkaPage = 1;
@@ -1634,7 +1808,57 @@ let _loadUiRunning = false;
 })();
 
 /** 场景编排列表；必须与 renderScenarioPlaylist 在首次 renderScenarioPlaylist() 调用之前定义，否则 const TDZ 会抛错、芯片不渲染 */
-const scenarioPlaylist = ['A_normal_flow', 'B_idempotent', 'C_out_of_order', 'D1_invalid_json', 'D2_schema_error', 'G_session_complete'];
+const scenarioPlaylist = [
+  'N-01',
+  'N-02',
+  'N-03',
+  'E-01',
+  'E-04',
+  'E-05',
+  'E-06',
+  'E-07',
+  'E-08',
+  'E-09',
+  'E-14',
+  'E-15',
+];
+
+function applyLoadBenchmarkPreset(name) {
+  const preset = LOAD_BENCHMARK_PRESETS[name];
+  if (!preset) return;
+  const concurrency = document.getElementById('load-concurrency');
+  const messages = document.getElementById('load-messages');
+  const interval = document.getElementById('load-interval');
+  const rampup = document.getElementById('load-rampup');
+  if (concurrency) concurrency.value = String(preset.concurrency);
+  if (messages) messages.value = String(preset.messages);
+  if (interval) interval.value = String(preset.interval);
+  if (rampup) rampup.value = String(preset.rampup);
+}
+
+function syncLoadBenchmarkPresetSelection() {
+  const sel = document.getElementById('load-benchmark-preset');
+  const concurrency = document.getElementById('load-concurrency');
+  const messages = document.getElementById('load-messages');
+  const interval = document.getElementById('load-interval');
+  const rampup = document.getElementById('load-rampup');
+  if (!sel || !concurrency || !messages || !interval || !rampup) return;
+
+  const current = {
+    concurrency: Number(concurrency.value),
+    messages: Number(messages.value),
+    interval: Number(interval.value),
+    rampup: Number(rampup.value),
+  };
+
+  const matched = Object.entries(LOAD_BENCHMARK_PRESETS).find(([, preset]) =>
+    preset.concurrency === current.concurrency &&
+    preset.messages === current.messages &&
+    preset.interval === current.interval &&
+    preset.rampup === current.rampup
+  );
+  sel.value = matched ? matched[0] : 'custom';
+}
 
 function renderScenarioPlaylist() {
   const host = document.getElementById('scenario-playlist');
@@ -1645,7 +1869,18 @@ function renderScenarioPlaylist() {
     chip.className = 'scenario-chip';
     chip.draggable = true;
     chip.dataset.idx = String(idx);
-    chip.textContent = name;
+    const order = document.createElement('span');
+    order.className = 'scenario-chip-order';
+    order.textContent = String(idx + 1);
+    const label = document.createElement('span');
+    label.className = 'scenario-chip-label';
+    label.textContent = SCENARIO_LABELS[name] || name;
+    const handle = document.createElement('span');
+    handle.className = 'scenario-chip-handle';
+    handle.textContent = '::';
+    chip.appendChild(order);
+    chip.appendChild(label);
+    chip.appendChild(handle);
     chip.addEventListener('dragstart', () => chip.classList.add('dragging'));
     chip.addEventListener('dragend', () => chip.classList.remove('dragging'));
     chip.addEventListener('dragover', (e) => e.preventDefault());
@@ -1668,11 +1903,11 @@ function setTheme(themeName) {
   try { localStorage.setItem('mockClient.theme', themeName); } catch (e) {}
 }
 (function initTheme() {
-  let saved = 'one-dark';
-  try { saved = localStorage.getItem('mockClient.theme') || 'one-dark'; } catch (e) {}
+  let saved = 'dracula';
+  try { saved = localStorage.getItem('mockClient.theme') || 'dracula'; } catch (e) {}
   if (saved === 'light') {
-    saved = 'one-dark';
-    try { localStorage.setItem('mockClient.theme', 'one-dark'); } catch (e) {}
+    saved = 'dracula';
+    try { localStorage.setItem('mockClient.theme', 'dracula'); } catch (e) {}
   }
   setTheme(saved);
   const sel = document.getElementById('theme-select');
@@ -1777,6 +2012,11 @@ connectSSE();
 updateKafkaExpandButtonLabel();
 renderScenarioPlaylist();
 renderHeatstrip();
+['load-concurrency', 'load-messages', 'load-interval', 'load-rampup'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', syncLoadBenchmarkPresetSelection);
+});
+syncLoadBenchmarkPresetSelection();
 
 (function initScenarioMainResizer() {
   const LS = 'mockClient.scenarioSplitPct';
@@ -1874,7 +2114,7 @@ async function runScenarioPlaylist() {
 
 function escapeScenarioTitle(name) {
   const d = document.createElement('div');
-  d.textContent = name;
+  d.textContent = SCENARIO_LABELS[name] || name;
   return d.innerHTML;
 }
 
@@ -2004,7 +2244,20 @@ async function runScenario(name) {
 }
 
 async function runAllScenarios() {
-  const names = ['A_normal_flow', 'B_idempotent', 'C_out_of_order', 'D1_invalid_json', 'D2_schema_error', 'G_session_complete'];
+  const names = [
+    'N-01',
+    'N-02',
+    'N-03',
+    'E-01',
+    'E-04',
+    'E-05',
+    'E-06',
+    'E-07',
+    'E-08',
+    'E-09',
+    'E-14',
+    'E-15',
+  ];
   for (const name of names) {
     await runScenario(name);
   }

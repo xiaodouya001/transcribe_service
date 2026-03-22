@@ -153,8 +153,11 @@ async def run_scenario(
         ge=1,
         le=100,
         description=(
-            "A/G：会话业务消息总数（含 SESSION_COMPLETE）。B：幂等 seq 个数 [0..N)。"
-            "C：乱序第二帧的 seq=max(2,N)。D1/D2：固定单条异常，忽略本参数。"
+            "N-01：发送多少条 SESSION_ONGOING。"
+            "N-02：幂等 seq 个数 [0..N)。"
+            "N-03：会话业务消息总数（含 SESSION_COMPLETE）。"
+            "E-09：乱序第二帧的 seq=max(2,N)。"
+            "其余固定错误场景忽略本参数。"
         ),
     ),
 ):
@@ -212,7 +215,7 @@ async def load_start(
         description="连接爬坡时间（毫秒）。> 0 时在此时段内均匀启动全部连接，避免瞬间洪峰打满 TCP backlog。0 = 同时发起。",
     ),
 ):
-    """启动并发压测（正常会话流：与场景 A/G 一致，有序 ONGOING + COMPLETE，不含 B/C/D）。"""
+    """启动并发压测（正常闭环流：若干 `SESSION_ONGOING` + 最后一条 `SESSION_COMPLETE`，不包含错误/边界场景）。"""
     global _load_stop_event, _load_task
     if _load_task and not _load_task.done():
         return {"error": "压测已在运行中"}

@@ -32,3 +32,5 @@ Transcribe Service 项目文档导航。
 | [troubleshooting.md](troubleshooting.md) | 故障排查 |
 | [faq.md](faq.md) | 常见问题 |
 | [kafka-ui-usage.md](kafka-ui-usage.md) | Kafka UI 使用说明 |
+| [design-guardrails.md](design-guardrails.md) | 设计护栏、测试策略与 AI 改码约束 |
+| [protocol-scenario-matrix.md](protocol-scenario-matrix.md) | 协议场景矩阵：错误码、关闭码、正常/异常流统一视图 |
