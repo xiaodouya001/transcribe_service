@@ -23,6 +23,19 @@ async def test_ensure_topic_swallows_create_error():
 
 
 @pytest.mark.asyncio
+async def test_ensure_topic_logs_warning_on_unexpected_error(monkeypatch):
+    admin = AsyncMock()
+    admin.start = AsyncMock()
+    admin.create_topics = AsyncMock(side_effect=RuntimeError("broker down"))
+    admin.close = AsyncMock()
+    warn_mock = MagicMock()
+    monkeypatch.setattr(kp.log, "warning", warn_mock)
+    with patch.object(kp, "AIOKafkaAdminClient", return_value=admin):
+        await kp._ensure_topic("127.0.0.1:9092", "t", 3, 1)
+    warn_mock.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_kafka_producer_none_compression():
     send_mock = AsyncMock()
     prod_mock = MagicMock()

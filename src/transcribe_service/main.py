@@ -138,7 +138,9 @@ async def run() -> None:
         access_log=True,
         backlog=settings.http_backlog,
         ws_ping_interval=settings.ws_ping_interval,
-        ws_ping_timeout=settings.ws_ping_timeout
+        ws_ping_timeout=settings.ws_ping_timeout,
+        log_config=None,
+        log_level=settings.log_level.lower(),
     )
     server = uvicorn.Server(config)
 

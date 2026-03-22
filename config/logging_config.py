@@ -77,12 +77,36 @@ _SHARED_PROCESSORS: list[structlog.typing.Processor] = [
     _add_service_context,
     _mask_sensitive_processor,
     structlog.contextvars.merge_contextvars,
+    structlog.stdlib.add_logger_name,
     structlog.processors.add_log_level,
     structlog.processors.TimeStamper(fmt="iso", utc=True),
     structlog.processors.StackInfoRenderer(),
     structlog.processors.format_exc_info,
     structlog.processors.UnicodeDecoder(),
 ]
+
+
+def _configure_stdlib_logging(log_level: int, renderer: structlog.processors.JSONRenderer | structlog.dev.ConsoleRenderer) -> None:
+    """Route stdlib logging (including uvicorn) through the same renderer as structlog."""
+    processor_formatter = structlog.stdlib.ProcessorFormatter(
+        processor=renderer,
+        foreign_pre_chain=_SHARED_PROCESSORS,
+    )
+
+    handler = logging.StreamHandler(stream=sys.stderr)
+    handler.setFormatter(processor_formatter)
+    handler.setLevel(log_level)
+
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.addHandler(handler)
+    root_logger.setLevel(log_level)
+
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi", "starlette"):
+        logger = logging.getLogger(name)
+        logger.handlers.clear()
+        logger.propagate = True
+        logger.setLevel(log_level)
 
 
 def configure_logging(
@@ -101,20 +125,27 @@ def configure_logging(
         use_json = fmt == "json"
 
     if use_json:
+        renderer = structlog.processors.JSONRenderer(serializer=_json_serializer)
+    else:
+        renderer = structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty(), pad_event_to=25)
+
+    _configure_stdlib_logging(log_level, renderer)
+
+    if use_json:
         processors = _SHARED_PROCESSORS + [
             structlog.processors.dict_tracebacks,
-            structlog.processors.JSONRenderer(serializer=_json_serializer),
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ]
     else:
         processors = _SHARED_PROCESSORS + [
-            structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty(), pad_event_to=25),
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ]
 
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(log_level),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        logger_factory=structlog.stdlib.LoggerFactory(),
         context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(file=sys.stderr),
         cache_logger_on_first_use=True,
     )
 

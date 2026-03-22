@@ -11,15 +11,22 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+
+# make project root importable for shared config
+_project_root = Path(__file__).resolve().parents[2]
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 import uvicorn
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from config.logging_config import configure_logging
 from kafka_viewer import KafkaViewer, purge_topic_messages
 from ws_driver import SCENARIOS, Stats, run_load_test
 
@@ -396,11 +403,7 @@ async def _stats_pusher():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    configure_logging()
     uvicorn.run(
         "server:app",
         host="0.0.0.0",
@@ -408,4 +411,5 @@ if __name__ == "__main__":
         reload=False,
         log_level="info",
         timeout_graceful_shutdown=3,
+        log_config=None,
     )

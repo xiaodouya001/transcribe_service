@@ -183,6 +183,8 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     assert kw["ws_ping_interval"] == 20.0
     assert kw["ws_ping_timeout"] == 21.0
     assert kw["backlog"] == 4096
+    assert kw["log_config"] is None
+    assert kw["log_level"] == "info"
 
     reg.close_all.assert_awaited()
     prod.flush.assert_awaited()

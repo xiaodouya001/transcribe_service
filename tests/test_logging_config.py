@@ -90,6 +90,17 @@ def test_configure_logging_json_explicit(monkeypatch):
     lc.get_logger("j").warning("w")
 
 
+def test_configure_logging_stdlib_logger_json(monkeypatch, capsys):
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    monkeypatch.delenv("LOG_FORMAT", raising=False)
+    lc.configure_logging(level="INFO", format="json")
+    logging.getLogger("uvicorn.access").info("GET /health 200")
+    out = capsys.readouterr().err
+    assert '"service": "transcribe-service"' in out
+    assert '"logger": "uvicorn.access"' in out
+    assert "GET /health 200" in out
+
+
 def test_configure_logging_auto_tty_json(monkeypatch):
     monkeypatch.delenv("LOG_LEVEL", raising=False)
     monkeypatch.delenv("LOG_FORMAT", raising=False)

@@ -92,7 +92,14 @@ class KafkaViewer:
         except asyncio.CancelledError:
             pass
         except Exception as exc:
-            log.exception("Kafka consume loop error")
+            log.exception(
+                "Kafka consume loop error",
+                bootstrap_servers=self._bootstrap,
+                topic=self._topic,
+                subscriber_count=len(self._subscribers),
+                exc_type=type(exc).__name__,
+                error=str(exc),
+            )
             if self._on_error:
                 self._on_error(str(exc))
 

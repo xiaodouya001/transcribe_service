@@ -26,8 +26,18 @@ async def _ensure_topic(
         await admin.create_topics(
             [NewTopic(name=topic, num_partitions=num_partitions, replication_factor=replication_factor)]
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        err_text = str(exc).lower()
+        log_fn = log.debug if any(token in err_text for token in ("exist", "already exists", "topic already")) else log.warning
+        log_fn(
+            "Kafka: 幂等建 Topic 失败，继续启动",
+            bootstrap_servers=bootstrap_servers,
+            topic=topic,
+            num_partitions=num_partitions,
+            replication_factor=replication_factor,
+            exc_type=type(exc).__name__,
+            error=str(exc),
+        )
     finally:
         await admin.close()
 
