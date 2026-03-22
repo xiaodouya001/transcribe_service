@@ -6,6 +6,8 @@
 - [设计护栏定稿](design-guardrails.md) 中“契约级场景矩阵”的落地文档
 - [契约级矩阵测试](../tests/test_contract_matrix.py) 的文档对照版本
 
+如本矩阵与 [API 契约](../design/transcribe-service-API-contract.md) 存在冲突，以 API 契约为准。
+
 ---
 
 ## 一、错误流程（统一视图）

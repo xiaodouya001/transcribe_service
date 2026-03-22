@@ -1,0 +1,7 @@
+---
+alwaysApply: true
+---
+- When UI, tests, implementation, and docs conflict, follow `design/transcribe-service-API-contract.md`.
+- Other docs, mock tool scenarios, and test cases must follow the API contract; they must not redefine contract semantics.
+- If behavior must change, explicitly treat it as a contract change first, then update the API contract, related docs, tests, and implementation together.
+- Use `docs/design-guardrails.md` as the maintenance baseline and `docs/protocol-scenario-matrix.md` as the contract scenario reference.

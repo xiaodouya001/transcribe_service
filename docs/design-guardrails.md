@@ -176,6 +176,12 @@
 
 若文档与代码不一致，优先修文档或明确宣布“设计已变更”。
 
+### 4.6 契约优先规则
+
+当 UI、测试、实现与 API 契约冲突时，以 [transcribe-service-API-contract.md](../design/transcribe-service-API-contract.md) 为准。
+
+其他文档和 mock tool 只能跟随契约，不得反过来改写契约语义。
+
 ---
 
 ## 5. 维护原则
