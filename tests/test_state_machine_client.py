@@ -20,7 +20,7 @@ async def test_get_client_lazy_and_close_calls_aclose():
 
     with patch("transcribe_service.state_machine.redis_state.Redis") as R:
         R.from_url.return_value = fake_redis
-        sm = RedisStateMachine(redis_url="redis://localhost:6379/0", max_connections=5)
+        sm = RedisStateMachine(redis_url="redis://127.0.0.1:6379/0", max_connections=5)
         assert sm._client is None
         r = await sm.prepare("c1", 0)
         assert r == PrepareResult.PRE_CHECK_OK
@@ -51,7 +51,7 @@ async def test_prepare_reload_script_on_noscript():
 
     with patch("transcribe_service.state_machine.redis_state.Redis") as R:
         R.from_url.return_value = fake_redis
-        sm = RedisStateMachine(redis_url="redis://localhost:6379/0")
+        sm = RedisStateMachine(redis_url="redis://127.0.0.1:6379/0")
         r = await sm.prepare("c1", 0)
         assert r == PrepareResult.PRE_CHECK_OK
         assert fake_redis.script_load.await_count == 4

@@ -50,8 +50,8 @@ def test_mask_redis_url_with_password():
 
 
 def test_mask_redis_url_hostname_only():
-    m = lc._mask_redis_url("redis://localhost:6379/0")
-    assert "localhost" in m
+    m = lc._mask_redis_url("redis://127.0.0.1:6379/0")
+    assert "127.0.0.1" in m
 
 
 def test_mask_redis_url_no_hostname_fallback():

@@ -17,13 +17,13 @@ class Settings(BaseSettings):
     )
 
     # --- Redis ---
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = "redis://127.0.0.1:6379/0"
     redis_max_connections: int = 100
     redis_active_ttl_sec: int = 3600
     redis_final_ttl_sec: int = 60
 
     # --- Kafka ---
-    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_bootstrap_servers: str = "127.0.0.1:9092"
     kafka_topic: str = "cc.transcript.realtime.v1"
     kafka_topic_num_partitions: int = 50
     kafka_replication_factor: int = 1
@@ -33,9 +33,9 @@ class Settings(BaseSettings):
     kafka_batch_size: int = 32768
 
     # --- WebSocket ---
+    # 传入 Uvicorn `ws="websockets"`：服务端按间隔发 RFC Ping、依赖对端 Pong（见 main.py）
     ws_ping_interval: float = 20.0
     ws_ping_timeout: float = 20.0
-    ws_max_size: int = 1048576  # 1MB
 
     # --- HTTP / Uvicorn ---
     http_host: str = "0.0.0.0"

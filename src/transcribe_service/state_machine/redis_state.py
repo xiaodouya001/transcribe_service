@@ -81,7 +81,7 @@ class RedisStateMachine:
 
     def __init__(
         self,
-        redis_url: str = "redis://localhost:6379/0",
+        redis_url: str = "redis://127.0.0.1:6379/0",
         *,
         max_connections: int = 100,
         active_ttl_sec: int = ACTIVE_TTL_SEC,

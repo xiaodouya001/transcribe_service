@@ -12,7 +12,7 @@
 
 1. 确认 Redis 已启动：`docker compose ps` 或 `redis-cli ping`
 2. 检查 `REDIS_URL` 是否正确
-3. 若在 Docker 网络内，使用服务名而非 localhost
+3. 若在 Docker 网络内，使用服务名而非 `127.0.0.1`
 
 ### 启动失败: Kafka 不可用
 

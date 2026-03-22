@@ -15,7 +15,7 @@ docker compose up -d   # Redis + Kafka + Kafka UI
 
 ```bash
 python -m transcribe_service.main
-# 默认监听 ws://localhost:8080/ws/v1/realtime-transcriptions
+# 默认监听 ws://127.0.0.1:8080/ws/v1/realtime-transcriptions
 ```
 
 3. **Python 依赖已安装**（均为项目已有依赖，无需额外安装）：
@@ -31,7 +31,7 @@ cd tools/mock_client
 python server.py
 ```
 
-浏览器打开 **http://localhost:8088**。
+浏览器打开 **http://127.0.0.1:8088**。
 
 ## UI 界面
 
@@ -41,7 +41,7 @@ python server.py
 
 | 控件 | 说明 |
 |------|------|
-| WebSocket URL | Transcribe Service 的 WS 端点地址，默认 `ws://localhost:8080/ws/v1/realtime-transcriptions` |
+| WebSocket URL | Transcribe Service 的 WS 端点地址，默认 `ws://127.0.0.1:8080/ws/v1/realtime-transcriptions` |
 | 场景测试（两块） | **① 使用参数 N**：A / B / C / G + `参数 N` 输入框（含义见下表）。**② 不使用 N**：D1 / D2（首包异常，请求不携带 `n_messages`） |
 | 参数 N（仅 A / B / C / G） | **A、G** 业务消息总条数（含 COMPLETE）；**B** 幂等 seq 个数 `[0,N)`；**C** 乱序第二帧 `seq=max(2,N)`。 |
 | 全部运行 | 顺序 A→B→C→D1→D2→G；仅 A/B/C/G 会带 `n_messages` |
@@ -97,29 +97,29 @@ python server.py
 
 ```bash
 # 运行单个场景
-curl -X POST "http://localhost:8088/api/scenario/run?name=A_normal_flow&n_messages=5"
+curl -X POST "http://127.0.0.1:8088/api/scenario/run?name=A_normal_flow&n_messages=5"
 
 # 运行全部场景
-curl -X POST "http://localhost:8088/api/scenario/run-all"
+curl -X POST "http://127.0.0.1:8088/api/scenario/run-all"
 
 # 启动压测（10 路同时会话，每路 10 条消息，间隔 20ms）
-curl -X POST "http://localhost:8088/api/load/start?concurrency=10&messages_per_conv=10&interval_ms=20"
+curl -X POST "http://127.0.0.1:8088/api/load/start?concurrency=10&messages_per_conv=10&interval_ms=20"
 
 # 停止压测
-curl -X POST "http://localhost:8088/api/load/stop"
+curl -X POST "http://127.0.0.1:8088/api/load/stop"
 
 # 查看统计（含最近约 100 条压测错误摘要 recent_errors）
-curl "http://localhost:8088/api/status"
+curl "http://127.0.0.1:8088/api/status"
 
 # 启动 Kafka 消费（消息通过 SSE 推送到 UI）
-curl -X POST "http://localhost:8088/api/kafka/start"
+curl -X POST "http://127.0.0.1:8088/api/kafka/start"
 
 # 停止 Kafka 消费
-curl -X POST "http://localhost:8088/api/kafka/stop"
+curl -X POST "http://127.0.0.1:8088/api/kafka/stop"
 
 # 清空 Topic 已提交消息（DeleteRecords；可与 kafka/start 相同 query 传 bootstrap、topic）
 # restart_consumer=true（默认）：若清空前正在消费同一 bootstrap+topic，清空后自动再次 start
-curl -X POST "http://localhost:8088/api/kafka/purge?bootstrap=localhost:9092&topic=cc.transcript.realtime.v1"
+curl -X POST "http://127.0.0.1:8088/api/kafka/purge?bootstrap=127.0.0.1:9092&topic=cc.transcript.realtime.v1"
 ```
 
 ## 文件结构
@@ -137,7 +137,7 @@ tools/mock_client/
 ## 常见问题
 
 **Q: 场景 A 连接失败？**
-确认 Transcribe Service 已启动且监听在 `ws://localhost:8080`。
+确认 Transcribe Service 已启动且监听在 `ws://127.0.0.1:8080`。
 
 **Q: Kafka 消费看不到消息？**
 确认已点击"开始消费"按钮，且 Kafka 容器健康（`docker compose ps`）。Consumer 使用 `auto_offset_reset=earliest`，无 group_id，每次启动会从 topic 最早的消息开始回放。

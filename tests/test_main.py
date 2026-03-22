@@ -19,7 +19,7 @@ async def test_check_redis_success():
     fake.ping = AsyncMock()
     fake.aclose = AsyncMock()
     with patch("redis.asyncio.Redis.from_url", return_value=fake):
-        await main_mod._check_redis("redis://localhost:6379/0")
+        await main_mod._check_redis("redis://127.0.0.1:6379/0")
     fake.ping.assert_awaited_once()
     fake.aclose.assert_awaited_once()
 
@@ -50,8 +50,25 @@ async def test_check_kafka_timeout():
 
     prod = MagicMock()
     prod.ensure_ready = AsyncMock(side_effect=slow)
+    prod.close = AsyncMock()
     with pytest.raises(RuntimeError, match="Kafka.*超时"):
         await main_mod._check_kafka(prod, timeout=0.05)
+    prod.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_check_kafka_timeout_close_raises_logged(monkeypatch):
+    async def slow():
+        await asyncio.sleep(10)
+
+    prod = MagicMock()
+    prod.ensure_ready = AsyncMock(side_effect=slow)
+    prod.close = AsyncMock(side_effect=RuntimeError("close failed"))
+    warn_mock = MagicMock()
+    monkeypatch.setattr(main_mod.log, "warning", warn_mock)
+    with pytest.raises(RuntimeError, match="Kafka.*超时"):
+        await main_mod._check_kafka(prod, timeout=0.05)
+    warn_mock.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -66,10 +83,10 @@ async def test_check_kafka_other_error():
 async def test_run_graceful_shutdown_path(monkeypatch):
     """Exercise run(): server serve loop, shutdown, registry, producer, state_machine."""
     settings = MagicMock()
-    settings.redis_url = "redis://localhost:6379/0"
+    settings.redis_url = "redis://127.0.0.1:6379/0"
     settings.log_level = "INFO"
     settings.log_format = "json"
-    settings.kafka_bootstrap_servers = "localhost:9092"
+    settings.kafka_bootstrap_servers = "127.0.0.1:9092"
     settings.kafka_topic = "t"
     settings.kafka_compression_type = "none"
     settings.kafka_send_timeout_sec = 2.0
@@ -81,7 +98,12 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     settings.stop_timeout = 120
     settings.http_host = "127.0.0.1"
     settings.http_port = 18080
+    settings.http_backlog = 4096
     settings.kafka_startup_timeout_sec = 5.0
+    settings.ws_ping_interval = 20.0
+    settings.ws_ping_timeout = 21.0
+    settings.ws_max_connections = 0
+    settings.log_ws_error_frames = False
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
@@ -130,11 +152,17 @@ async def test_run_graceful_shutdown_path(monkeypatch):
 
     server_inst.serve = fake_serve
 
+    config_calls: list[tuple[object, dict]] = []
+
+    def capture_config(app, **kw):
+        config_calls.append((app, kw))
+        return MagicMock(app=app)
+
     def server_factory(cfg):
         assert cfg.app is app_obj
         return server_inst
 
-    monkeypatch.setattr(main_mod.uvicorn, "Config", lambda app, **kw: MagicMock(app=app))
+    monkeypatch.setattr(main_mod.uvicorn, "Config", capture_config)
     monkeypatch.setattr(main_mod.uvicorn, "Server", server_factory)
 
     async def stop_soon():
@@ -147,6 +175,14 @@ async def test_run_graceful_shutdown_path(monkeypatch):
         await asyncio.wait_for(main_mod.run(), timeout=5.0)
     finally:
         await asyncio.wait([stop_task], timeout=1.0)
+
+    assert len(config_calls) == 1
+    _app, kw = config_calls[0]
+    assert _app is app_obj
+    assert kw["ws"] == "websockets"
+    assert kw["ws_ping_interval"] == 20.0
+    assert kw["ws_ping_timeout"] == 21.0
+    assert kw["backlog"] == 4096
 
     reg.close_all.assert_awaited()
     prod.flush.assert_awaited()
@@ -203,10 +239,10 @@ def test_bootstrap_inserts_project_root_into_syspath():
 @pytest.mark.asyncio
 async def test_run_propagates_exception(monkeypatch):
     settings = MagicMock()
-    settings.redis_url = "redis://localhost:6379/0"
+    settings.redis_url = "redis://127.0.0.1:6379/0"
     settings.log_level = "INFO"
     settings.log_format = "json"
-    settings.kafka_bootstrap_servers = "localhost:9092"
+    settings.kafka_bootstrap_servers = "127.0.0.1:9092"
     settings.kafka_topic = "t"
     settings.kafka_compression_type = "none"
     settings.kafka_send_timeout_sec = 2.0
@@ -255,10 +291,10 @@ async def test_run_propagates_exception(monkeypatch):
 async def test_run_port_conflict_system_exit(monkeypatch):
     """server.serve() 因端口占用抛出 SystemExit → RuntimeError。"""
     settings = MagicMock()
-    settings.redis_url = "redis://localhost:6379/0"
+    settings.redis_url = "redis://127.0.0.1:6379/0"
     settings.log_level = "INFO"
     settings.log_format = "json"
-    settings.kafka_bootstrap_servers = "localhost:9092"
+    settings.kafka_bootstrap_servers = "127.0.0.1:9092"
     settings.kafka_topic = "t"
     settings.kafka_compression_type = "none"
     settings.kafka_send_timeout_sec = 2.0

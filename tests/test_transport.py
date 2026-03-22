@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 from unittest.mock import patch
 
+from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from transcribe_service.orchestrator.base import OrchestratorResult
 from transcribe_service.schemas.response import build_ack, build_error
 from transcribe_service.shutdown.graceful import GracefulShutdown
@@ -90,7 +91,7 @@ class TestHealthEndpoints:
                 mock_orchestrator,
                 shutdown,
                 registry,
-                redis_url="redis://localhost:6379/0",
+                redis_url="redis://127.0.0.1:6379/0",
                 producer=prod,
             )
             async with AsyncClient(
@@ -113,7 +114,7 @@ class TestHealthEndpoints:
                 mock_orchestrator,
                 shutdown,
                 registry,
-                redis_url="redis://localhost:6379/0",
+                redis_url="redis://127.0.0.1:6379/0",
                 producer=None,
             )
             async with AsyncClient(
@@ -170,6 +171,108 @@ class TestWebSocket:
             ws.send_text(orjson.dumps(msg).decode())
             resp = orjson.loads(ws.receive_text())
             assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+        mock_orchestrator.handle_message.assert_awaited_once()
+
+    def test_ws_conversation_id_mismatch_e1009_not_orchestrator(
+        self, app, mock_orchestrator
+    ):
+        """query 与 body 中字符串 conversationId 不一致 → E1009 + 1008，不进入 orchestrator。"""
+        client = TestClient(app)
+        with client.websocket_connect(
+            "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+        ) as ws:
+            ws.send_text('{"metaData":{"conversationId":"conv-2"}}')
+            resp = orjson.loads(ws.receive_text())
+            assert resp["error"]["code"] == "E1009"
+            mock_orchestrator.handle_message.assert_not_awaited()
+            with pytest.raises(WebSocketDisconnect) as ei:
+                ws.receive_text()
+            assert ei.value.code == 1008
+
+    def test_ws_meta_conversation_id_missing_still_invokes_orchestrator(
+        self, shutdown, registry
+    ):
+        """metaData 缺少 conversationId 时不走 transport mismatch，而是返回 schema E1003。"""
+        sm = AsyncMock()
+        sm.prepare = AsyncMock()
+        sm.commit = AsyncMock()
+        sm.cleanup = AsyncMock()
+        producer = AsyncMock()
+        producer.send = AsyncMock()
+        app = create_app(TwoPhaseOrchestrator(sm, producer), shutdown, registry)
+        client = TestClient(app)
+        msg = {
+            "metaData": {
+                "agentId": "A1",
+                "staffId": "S1",
+                "customerId": "C1",
+                "callStartTimeStamp": "2025-01-01T00:00:00Z",
+                "callEndTimeStamp": None,
+                "eventType": "SESSION_ONGOING",
+            },
+            "payload": {
+                "sequenceNumber": 0,
+                "speaker": "Agent",
+                "transcript": "Hello",
+                "engineProvider": "FanoLabs",
+                "isFinal": True,
+                "createdAtTimeStamp": "2025-01-01T00:00:01Z",
+            },
+        }
+        with client.websocket_connect(
+            "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+        ) as ws:
+            ws.send_text(orjson.dumps(msg).decode())
+            resp = orjson.loads(ws.receive_text())
+            assert resp["error"]["code"] == "E1003"
+            with pytest.raises(WebSocketDisconnect) as ei:
+                ws.receive_text()
+            assert ei.value.code == 1008
+        sm.prepare.assert_not_awaited()
+        producer.send.assert_not_awaited()
+
+    def test_ws_meta_conversation_id_wrong_type_still_invokes_orchestrator(
+        self, shutdown, registry
+    ):
+        """metaData.conversationId 非字符串时不作 transport 一致性比对，而是返回 schema E1004。"""
+        sm = AsyncMock()
+        sm.prepare = AsyncMock()
+        sm.commit = AsyncMock()
+        sm.cleanup = AsyncMock()
+        producer = AsyncMock()
+        producer.send = AsyncMock()
+        app = create_app(TwoPhaseOrchestrator(sm, producer), shutdown, registry)
+        client = TestClient(app)
+        msg = {
+            "metaData": {
+                "conversationId": 123,
+                "agentId": "A1",
+                "staffId": "S1",
+                "customerId": "C1",
+                "callStartTimeStamp": "2025-01-01T00:00:00Z",
+                "callEndTimeStamp": None,
+                "eventType": "SESSION_ONGOING",
+            },
+            "payload": {
+                "sequenceNumber": 0,
+                "speaker": "Agent",
+                "transcript": "Hello",
+                "engineProvider": "FanoLabs",
+                "isFinal": True,
+                "createdAtTimeStamp": "2025-01-01T00:00:01Z",
+            },
+        }
+        with client.websocket_connect(
+            "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+        ) as ws:
+            ws.send_text(orjson.dumps(msg).decode())
+            resp = orjson.loads(ws.receive_text())
+            assert resp["error"]["code"] == "E1004"
+            with pytest.raises(WebSocketDisconnect) as ei:
+                ws.receive_text()
+            assert ei.value.code == 1008
+        sm.prepare.assert_not_awaited()
+        producer.send.assert_not_awaited()
 
     def test_ws_disconnect_on_error(self, app, mock_orchestrator):
         mock_orchestrator.handle_message.return_value = OrchestratorResult(

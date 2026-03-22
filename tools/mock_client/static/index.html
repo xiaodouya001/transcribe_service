@@ -1389,7 +1389,7 @@ select.cp-select:focus {
       <section class="cp-card scenario-endpoint-card">
         <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>服务端点</h3>
         <label class="cp-label" for="ws-url">WebSocket URL</label>
-        <input type="text" id="ws-url" value="ws://localhost:8080/ws/v1/realtime-transcriptions" autocomplete="off">
+        <input type="text" id="ws-url" value="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions" autocomplete="off">
       </section>
 
       <section class="cp-card">
@@ -1463,7 +1463,7 @@ select.cp-select:focus {
         <div class="kafka-toolbar">
           <div class="form-group" style="flex:1;min-width:140px;max-width:220px">
             <label>Bootstrap</label>
-            <input type="text" id="kafka-bootstrap" value="localhost:9092">
+            <input type="text" id="kafka-bootstrap" value="127.0.0.1:9092">
           </div>
           <div class="form-group" style="flex:1.2;min-width:160px;max-width:280px">
             <label>Topic</label>
@@ -1517,7 +1517,7 @@ select.cp-select:focus {
       <section class="cp-card">
         <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>服务端点</h3>
         <label class="cp-label" for="load-ws-url">WebSocket URL</label>
-        <input type="text" id="load-ws-url" value="ws://localhost:8080/ws/v1/realtime-transcriptions" autocomplete="off" style="width:100%">
+        <input type="text" id="load-ws-url" value="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions" autocomplete="off" style="width:100%">
       </section>
       <section class="cp-card">
         <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>连接参数</h3>
@@ -2268,6 +2268,9 @@ async function startKafka() {
     if (data.status === 'kafka_consumer_failed') {
       statusEl.textContent = '✗ ' + data.error;
       statusEl.style.color = 'var(--red)';
+    } else if (data.status === 'kafka_consumer_started') {
+      statusEl.textContent = '● 已连接 ' + (data.topic || topic);
+      statusEl.style.color = 'var(--green)';
     }
   } catch (e) {
     statusEl.textContent = '✗ 请求失败';
@@ -2564,17 +2567,21 @@ function renderLifecycle(d) {
 // 统计
 // ---------------------------------------------------------------------------
 function updateStats(d) {
+  const fmtInt = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.round(n) : 0;
+  };
   document.getElementById('stat-sent').textContent = d.sent ?? 0;
   document.getElementById('stat-ack').textContent = d.ack ?? 0;
   document.getElementById('stat-error').textContent = d.error ?? 0;
   document.getElementById('stat-active').textContent = d.active_connections ?? 0;
-  document.getElementById('stat-tps').textContent = d.tps ?? 0;
-  document.getElementById('stat-p50').textContent = d.p50_ms ?? 0;
-  document.getElementById('stat-p95').textContent = d.p95_ms ?? 0;
-  document.getElementById('stat-p99').textContent = d.p99_ms ?? 0;
-  document.getElementById('stat-server-p50').textContent = d.server_p50_ms ?? 0;
-  document.getElementById('stat-server-p95').textContent = d.server_p95_ms ?? 0;
-  document.getElementById('stat-server-p99').textContent = d.server_p99_ms ?? 0;
+  document.getElementById('stat-tps').textContent = fmtInt(d.tps);
+  document.getElementById('stat-p50').textContent = fmtInt(d.p50_ms);
+  document.getElementById('stat-p95').textContent = fmtInt(d.p95_ms);
+  document.getElementById('stat-p99').textContent = fmtInt(d.p99_ms);
+  document.getElementById('stat-server-p50').textContent = fmtInt(d.server_p50_ms);
+  document.getElementById('stat-server-p95').textContent = fmtInt(d.server_p95_ms);
+  document.getElementById('stat-server-p99').textContent = fmtInt(d.server_p99_ms);
 
   /* 仅在本轮压测 UI 为「进行中」时追加；勿用 d.load_running，否则服务端在 load_done 后仍可能短暂推送 load_running，导致 Heatstrip 停不下来 */
   if (_loadUiRunning) {

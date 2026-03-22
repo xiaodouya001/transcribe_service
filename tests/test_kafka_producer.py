@@ -17,7 +17,7 @@ async def test_ensure_topic_swallows_create_error():
     admin.create_topics = AsyncMock(side_effect=RuntimeError("exists"))
     admin.close = AsyncMock()
     with patch.object(kp, "AIOKafkaAdminClient", return_value=admin):
-        await kp._ensure_topic("localhost:9092", "t", 3, 1)
+        await kp._ensure_topic("127.0.0.1:9092", "t", 3, 1)
     admin.start.assert_awaited_once()
     admin.close.assert_awaited_once()
 
@@ -97,3 +97,34 @@ async def test_flush_close_no_producer():
     p = kp.KafkaProducer()
     await p.flush()
     await p.close()
+
+
+@pytest.mark.asyncio
+async def test_ensure_ready_producer_start_fails_stops_producer():
+    prod_mock = MagicMock()
+    prod_mock.start = AsyncMock(side_effect=RuntimeError("start failed"))
+    prod_mock.stop = AsyncMock()
+    admin = AsyncMock()
+    admin.start = AsyncMock()
+    admin.create_topics = AsyncMock()
+    admin.close = AsyncMock()
+    with patch.object(kp, "AIOKafkaAdminClient", return_value=admin), patch.object(
+        kp, "AIOKafkaProducer", return_value=prod_mock
+    ):
+        p = kp.KafkaProducer()
+        with pytest.raises(RuntimeError, match="start failed"):
+            await p.ensure_ready()
+        prod_mock.stop.assert_awaited_once()
+        assert p._producer is None
+
+
+@pytest.mark.asyncio
+async def test_ensure_ready_ensure_topic_raises():
+    with patch.object(
+        kp,
+        "_ensure_topic",
+        side_effect=RuntimeError("admin down"),
+    ):
+        p = kp.KafkaProducer()
+        with pytest.raises(RuntimeError, match="admin down"):
+            await p.ensure_ready()

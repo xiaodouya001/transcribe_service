@@ -169,8 +169,8 @@ sequenceDiagram
         Trans->>Kafka: 阶段二：异步投递最终文本与结束信标
         Kafka-->>Trans: 返回投递成功 Ack
         
-        Trans->>Redis: 阶段三：主动清理状态机 (DEL)
-        Redis-->>Trans: 状态清理完成
+        Trans->>Redis: 阶段三：缩短状态机 TTL（进入 30-60 秒宽限期）
+        Redis-->>Trans: 状态更新完成（保留短暂窗口兜住迟到包）
         
         Trans-->>Vendor: 返回最终 TRANSCRIPT_ACK (seq=M)
     end
@@ -216,7 +216,10 @@ sequenceDiagram
             Trans->>Redis: 阶段一：原子预检 (Lua 脚本)
         end
 
-        alt 序列号乱序/重复 (E1006)
+        alt 重复包 (IDEMPOTENT)
+            Redis-->>Trans: 返回 IDEMPOTENT
+            Trans-->>Vendor: 直接返回 TRANSCRIPT_ACK
+        else 序列号乱序 (E1006)
             Redis-->>Trans: 返回 OUT_OF_ORDER
             Trans-->>Vendor: 发送 ERROR 帧 (E1006)
             Trans->>Vendor: 关闭连接 (Close Code 1008)
@@ -284,8 +287,8 @@ sequenceDiagram
 | ------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | `main.py` *(主控入口)*        | 应用的起搏器与总指挥。管理应用生命周期与依赖注入。    | • 初始化外部连接池 (Redis/Kafka) • 实例化底层组件并注入到业务层 • 监听 `SIGTERM` 信号执行优雅停机                             | **绝对禁止**编写任何具体的业务判断逻辑或 JSON 解析代码。                                 |
 | `schemas/` *(契约层)*        | 系统的护城河。基于 Pydantic 的强类型数据网关。 | • 过滤清洗 Vendor 发来的冗余脏字段 • 确保必填项 (`conversationId`, `seq`) 存在且类型正确 • 组装标准化的下行响应 Payload         | **绝对禁止**包含任何网络 I/O 或数据库调用。只做纯粹的 CPU 内存级数据校验。                      |
-| `transport/` *(接入层)*      | 物理大门守卫。专职处理底层通信协议的脏活累活。      | • 管理 WebSocket 握手与 Token 鉴权 • 维持 20s Ping/Pong 心跳防 ALB 超时• 将底层异常转化为标准的协议 Close Code           | **绝对禁止**感知业务逻辑。只负责将收到的 JSON 抛给调度层，并将结果原封不动返回。                     |
-| `state_machine/` *(状态机层)* | 分布式交警。维护通话级上下文，拦截乱序与重放攻击。    | • 执行基于 Lua 的原子预检与状态推进 • 维护 15 分钟滚动续租 (Rolling TTL) • 抛出统一且标准的业务状态转移异常                         | **绝对禁止**包含向 Kafka 发送消息或感知下游业务逻辑的代码。只管状态流转。                        |
+| `transport/` *(接入层)*      | 物理大门守卫。专职处理底层通信协议的脏活累活。      | • 管理 WebSocket 握手与基础准入 • 维持协议层保活与连接关闭 • 执行协议一致性校验（如 query / body `conversationId`）• 将底层异常转化为标准的协议 Close Code           | **绝对禁止**承担业务编排、状态推进或下游投递职责；仅处理协议层校验、错误映射与必要的响应增强字段。                     |
+| `state_machine/` *(状态机层)* | 分布式交警。维护通话级上下文，拦截乱序与重放攻击。    | • 执行基于 Lua 的原子预检与状态推进 • 维护活跃阶段 1 小时 TTL，并在 `SESSION_COMPLETE` 后缩短为 30-60 秒宽限期 • 抛出统一且标准的业务状态转移异常                         | **绝对禁止**包含向 Kafka 发送消息或感知下游业务逻辑的代码。只管状态流转。                        |
 | `producer/` *(投递层)*       | 可靠的快递员。将安全的数据投递到目标消息总线。      | • 处理 Kafka 异步写入与 Partition Hash 路由 • 实施 2s 超时快速失败机制 • 维护断路器 (Circuit Breaker) 熔断逻辑            | **绝对禁止**修改或篡改原始 Payload 数据。只做纯粹的搬运与状态反馈。                          |
 | `orchestrator/` *(调度层)*   | 业务大脑。指挥各独立模块协同完成“两阶段提交”。     | • 调用 `state_machine` 预检并发锁 • 调用 `producer` 异步落盘 • 调用 `state_machine` 提交最终状态 • 组装并返回最终 ACK 结果 | **架构高压线**：绝对禁止直接 `import` 任何 `impl/` 下的具体实现类，只能依赖 `base.py` 抽象接口。 |
 
@@ -298,7 +301,7 @@ sequenceDiagram
 | **框架**        | FastAPI (ASGI) + Uvicorn     |
 | **异步生态**      | redis.asyncio、aiokafka       |
 | **并发模型**      | 单线程 Asyncio，每 vCPU 一个 Worker |
-| **WebSocket** | websockets，`max_size=1MB`    |
+| **WebSocket** | websockets                    |
 
 
 **选型理由**：I/O 密集型场景；Asyncio 规避 GIL 与上下文切换开销；每 vCPU 一进程实现多核并行。
@@ -388,14 +391,14 @@ sequenceDiagram
 在 ECS Fargate 触发版本发布或缩容时，系统必须平滑处理正在处理中的长连接。
 
 - 接收到容器编排发出的 `SIGTERM` 信号后，Transcribe Service 立即停止接收新连接。
-- 对存量 WebSocket 连接主动发送特定的 Close 帧（如 Code 1001/1012），通知对端暂停发送并准备重连至新节点。
+- 对存量 WebSocket 连接主动发送 Close 帧（Code 1001），通知对端暂停发送并准备重连至新节点。
 - 阻塞主进程退出，直至内存缓冲区中已校验的最后几条记录安全落盘至 Kafka，确保应用漂移期间的绝对零数据丢失。
 
 
 | 步骤  | 动作                         |
 | --- | -------------------------- |
 | 1   | 收到 SIGTERM 后停止接收新连接        |
-| 2   | 向存量连接发送 Close 帧（1001/1012） |
+| 2   | 向存量连接发送 Close 帧（1001） |
 | 3   | Flush Kafka 生产者缓冲区         |
 | 4   | 待飞行中消息落盘后退出                |
 
@@ -432,7 +435,7 @@ TBD
 | **Key**   | `transcript:session:{conversationId}`                               | 用于标识每个会话在 Redis 中的唯一进度 Key。                                                                 |
 | **Value** | 整数（期望下一个序号），或 Hash（包含 `expected_seq`、`start_time`、`last_active` 字段） | 保存该通话下一条应接收的 transcript 序号及元信息。                                                             |
 | **更新策略**  | Lua 脚本（乐观锁）                                                         | 仅允许传入的序列号严格递增，确保乱序或重复的数据自动被丢弃。                                                              |
-| **TTL**   | 活跃阶段：顺序每次写入自动续期 1 小时；结束阶段：写入 is_final 或 WebSocket 断开时缩短为 30-60 秒    | - 会话进行中，TTL 每次写入自动延长至 1 小时，防止异常断线占用内存。 - 通话结束（is_final/断开），TTL 降为 30-60 秒，阻挡迟到包，之后自动删除释放空间。 |
+| **TTL**   | 活跃阶段：顺序每次写入自动续期 1 小时；结束阶段：收到 `SESSION_COMPLETE` 后缩短为 30-60 秒    | - 会话进行中，TTL 每次写入自动延长至 1 小时，防止异常断线占用内存。 - 收到 `SESSION_COMPLETE` 后，TTL 降为 30-60 秒，阻挡迟到包，之后自动删除释放空间。 |
 | **内存**    | 约 100B/会话，1,000 会话 < 1MB                                            | 不立即删除 Key，留短暂宽限以兜住网络延迟下的迟到 transcript，防止数据重复或乱序写入。                                          |
 
 
@@ -441,4 +444,3 @@ TBD
 ## 附录 A — API 契约完整规格
 
 > **完整 API 契约请参见**：[Transcribe Service API Contract 契约文档](transcribe-service-API-contract.md)
-

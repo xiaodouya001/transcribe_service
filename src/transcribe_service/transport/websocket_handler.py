@@ -311,6 +311,31 @@ async def _message_loop(
             )
             return
 
+        # 握手 query 为会话唯一标识；若 body 显式提供字符串 conversationId，则必须与之一致
+        if isinstance(raw_json, dict):
+            meta = raw_json.get("metaData")
+            if isinstance(meta, dict):
+                body_cid = meta.get("conversationId")
+                if isinstance(body_cid, str) and body_cid != conversation_id:
+                    log.warning(
+                        "Transport: metaData.conversationId 与握手 query 不一致",
+                        conversation_id=conversation_id,
+                        body_conversation_id=body_cid,
+                    )
+                    await _send_error_and_close(
+                        ws,
+                        conversation_id,
+                        ErrorCode.E1009.value,
+                        "conversationId mismatch",
+                        WsCloseCode.POLICY_VIOLATION,
+                        details=(
+                            "metaData.conversationId must match query parameter "
+                            f"'conversationId' ({conversation_id!r})"
+                        ),
+                        log_ws_error_frames=log_ws_error_frames,
+                    )
+                    return
+
         result = await orchestrator.handle_message(raw_json)
         server_processing_ms = round((time.perf_counter() - t0) * 1000, 2)
         resp = result.response

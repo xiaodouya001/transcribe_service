@@ -5,6 +5,7 @@
 - 以下为**单实例（单 Pod / 单 Task）**目标并发配置。
 - 用于实时低延迟场景，优先保证 `P95` 与稳定性。
 - `KAFKA_TOPIC_NUM_PARTITIONS` 仅对新建 topic 生效，已有 topic 需手动扩分区。
+- `WS_PING_INTERVAL` / `WS_PING_TIMEOUT` 由 **`main.py` 传入 Uvicorn**（`ws="websockets"`），用于 **RFC WebSocket Ping/Pong** 保活；与业务 JSON 无关。
 
 ---
 
@@ -23,7 +24,6 @@
 | `LOG_LEVEL` | WARNING | WARNING | WARNING |
 | `WS_PING_INTERVAL` | 20.0 | 20.0 | 20.0 |
 | `WS_PING_TIMEOUT` | 20.0 | 20.0 | 20.0 |
-| `WS_MAX_SIZE` | 1048576 | 1048576 | 1048576 |
 | `STOP_TIMEOUT` | 120 | 120 | 120 |
 
 ---

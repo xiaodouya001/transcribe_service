@@ -40,7 +40,9 @@ class TwoPhaseOrchestrator:
         """处理一条上行消息。"""
         conversation_id = ""
         try:
-            conversation_id = (raw_json.get("metaData") or {}).get("conversationId", "")
+            raw_conversation_id = (raw_json.get("metaData") or {}).get("conversationId", "")
+            if isinstance(raw_conversation_id, str):
+                conversation_id = raw_conversation_id
             return await self._process(raw_json, conversation_id)
         except Exception as exc:
             # 场景 F: 未捕获异常 → E1007 + 断连 1011

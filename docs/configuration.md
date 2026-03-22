@@ -20,7 +20,7 @@ cp .env.example .env
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `REDIS_URL` | redis://localhost:6379/0 | Redis 连接地址 |
+| `REDIS_URL` | redis://127.0.0.1:6379/0 | Redis 连接地址 |
 | `REDIS_MAX_CONNECTIONS` | 100 | 连接池大小；**高并发 WebSocket（如 ~1000 路）时建议调至 256～1024**，见 [concurrency-capacity.md](concurrency-capacity.md) |
 | `REDIS_ACTIVE_TTL_SEC` | 3600 | 活跃会话 TTL（秒），每次写入自动续期 |
 | `REDIS_FINAL_TTL_SEC` | 60 | SESSION_COMPLETE 后残留 TTL（秒） |
@@ -29,7 +29,7 @@ cp .env.example .env
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `KAFKA_BOOTSTRAP_SERVERS` | localhost:9092 | Kafka 集群地址 |
+| `KAFKA_BOOTSTRAP_SERVERS` | 127.0.0.1:9092 | Kafka 集群地址 |
 | `KAFKA_TOPIC` | cc.transcript.realtime.v1 | Topic 名称 |
 | `KAFKA_TOPIC_NUM_PARTITIONS` | 50 | 新建 Topic 时的分区数 |
 | `KAFKA_REPLICATION_FACTOR` | 1 | 副本因子（生产环境≥2） |
@@ -40,9 +40,11 @@ cp .env.example .env
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `WS_PING_INTERVAL` | 20.0 | Ping 间隔（秒），防 ALB 60s 空闲超时 |
-| `WS_PING_TIMEOUT` | 20.0 | Pong 超时（秒） |
-| `WS_MAX_SIZE` | 1048576 | 单消息最大字节数（1MB） |
+| `WS_PING_INTERVAL` | 20.0 | 秒；**Uvicorn `websockets` 后端**下为服务端发出 **WebSocket Ping** 的间隔，用于保活（如防 ALB 空闲断开） |
+| `WS_PING_TIMEOUT` | 20.0 | 秒；等待 **Pong** 的超时；超时会关闭连接（由 Uvicorn/websockets 库处理） |
+| `WS_MAX_CONNECTIONS` | 0 | 最大同时在线 WebSocket；`0` 表示不限制；超限握手返回 429，见 [concurrency-capacity.md](concurrency-capacity.md) |
+
+> **说明**：`main.py` 固定使用 `uvicorn.Config(ws="websockets", …)`。若曾使用 `wsproto` 后端，Uvicorn **不会**把上述两项用于主动 Ping，表现为「配置了也不保活」。
 
 ### HTTP / Uvicorn
 
@@ -73,8 +75,8 @@ cp .env.example .env
 **本地开发**：
 
 ```env
-REDIS_URL=redis://localhost:6379/0
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+REDIS_URL=redis://127.0.0.1:6379/0
+KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092
 KAFKA_COMPRESSION_TYPE=zstd
 LOG_FORMAT=console
 ```

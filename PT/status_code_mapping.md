@@ -15,6 +15,7 @@
 | E-11 | **场景 E2**: Kafka 失败 | 握手后 | **E1008** | — | **1013** (Try Again Later) | 是 | 见 [E-08](#e-08-场景-e2-kafka-失败close-1013) |
 | E-12 | **场景 F1**: 编排层未捕获异常 | 握手后 | **E1007** | — | **1011** (Internal Error) | 是 | 见 [E-09](#e-09-场景-f1f2-未捕获异常close-1011) |
 | E-13 | **场景 F2**: 传输层未捕获异常 | 握手后 | **E1007** | — | **1011** (Internal Error) | 是 | 见 [E-09](#e-09-场景-f1f2-未捕获异常close-1011) |
+| E-14 | query 与 `metaData.conversationId` 不一致（均为字符串） | 握手后 | **E1009** | — | **1008** (Policy Violation) | 是 | 见 [E-14](#e-14-query-与-metadataconversationid-不一致close-1008) |
 
 > 握手前阶段 WebSocket 连接尚未建立，无法发送 WebSocket 文本帧；只能返回 HTTP + JSON body。握手后错误才会发送 WebSocket ERROR 帧并配合 Close Code 断连。
 
@@ -112,6 +113,22 @@
 }
 ```
 
+### E-14 query 与 `metaData.conversationId` 不一致（Close 1008）
+
+在 JSON 解析成功后、进入编排前校验：若 `metaData.conversationId` 为字符串且与握手 query 中的 `conversationId` 不同，则返回 **E1009** 并断开 **1008**；不调用编排器，不写入 Redis/Kafka。
+
+```json
+{
+  "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
+  "error": {
+    "code": "E1009",
+    "message": "conversationId mismatch",
+    "details": "metaData.conversationId must match query parameter 'conversationId' ('conv-1')",
+    "createdAtTimeStamp": "2026-03-21T03:00:00.000Z"
+  }
+}
+```
+
 ### E-04 场景 D1: JSON 解析失败（Close 1007）
 ```json
 {
@@ -200,4 +217,4 @@
 | **E1011** | 资源未找到 (404/1008) | **未实现** — 无对应业务检查 |
 | `conversationId` 缺失 | Contract 要求 400 | **已对齐：实际 400**（由 `_WsGuardMiddleware` 统一返回 JSON ERROR） |
 
-E1009/E1010/E1011 枚举值和 `close_code_for_error` 映射都已在 `errors.py` 中定义好了，后续实现鉴权和业务规则时可以直接使用。
+**E1009** 已用于传输层 **query / body `conversationId` 字符串不一致**；**E1010/E1011** 等枚举与 `close_code_for_error` 映射见 `errors.py`，鉴权等业务规则可继续复用。

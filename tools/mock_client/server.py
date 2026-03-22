@@ -3,7 +3,7 @@
 启动方式:
     cd tools/mock_client
     python server.py
-    # 浏览器打开 http://localhost:8088
+    # 浏览器打开 http://127.0.0.1:8088
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ _load_task: asyncio.Task | None = None
 _kafka_viewer: KafkaViewer | None = None
 _kafka_forward_task: asyncio.Task | None = None
 
-DEFAULT_WS_URL = "ws://localhost:8080/ws/v1/realtime-transcriptions"
-DEFAULT_KAFKA_BOOTSTRAP = "localhost:9092"
+DEFAULT_WS_URL = "ws://127.0.0.1:8080/ws/v1/realtime-transcriptions"
+DEFAULT_KAFKA_BOOTSTRAP = "127.0.0.1:9092"
 DEFAULT_KAFKA_TOPIC = "cc.transcript.realtime.v1"
 
 
@@ -253,7 +253,7 @@ async def load_start(
                 stop_event=_load_stop_event,
             )
         finally:
-            stats.load_running = False
+            stats.finish()
 
     _load_task = asyncio.create_task(_run())
     return {

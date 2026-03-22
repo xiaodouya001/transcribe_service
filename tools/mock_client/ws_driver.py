@@ -134,6 +134,7 @@ class Stats:
     latencies: list[float] = field(default_factory=list)
     server_latencies: list[float] = field(default_factory=list)
     start_time: float = field(default_factory=time.monotonic)
+    end_time: float | None = None
     recent_errors: deque = field(default_factory=lambda: deque(maxlen=100))
 
     def record_load_error(
@@ -163,7 +164,8 @@ class Stats:
         log.warning("压测错误 %s", entry)
 
     def snapshot(self) -> dict[str, Any]:
-        elapsed = max(time.monotonic() - self.start_time, 0.001)
+        finished_at = self.end_time if self.end_time is not None else time.monotonic()
+        elapsed = max(finished_at - self.start_time, 0.001)
         sorted_lat = sorted(self.latencies) if self.latencies else [0]
         sorted_srv_lat = sorted(self.server_latencies) if self.server_latencies else [0]
         def _pct(p: float) -> float:
@@ -180,7 +182,7 @@ class Stats:
             "ack": self.ack,
             "error": self.error,
             "active_connections": self.active_connections,
-            "tps": round(self.sent / elapsed, 1) if self.load_running else 0.0,
+            "tps": round(self.sent / elapsed, 1) if self.sent > 0 else 0.0,
             "p50_ms": _pct(0.5),
             "p95_ms": _pct(0.95),
             "p99_ms": _pct(0.99),
@@ -190,6 +192,11 @@ class Stats:
             "elapsed_sec": round(elapsed, 1),
             "recent_errors": list(self.recent_errors),
         }
+
+    def finish(self) -> None:
+        self.load_running = False
+        if self.end_time is None:
+            self.end_time = time.monotonic()
 
     def reset(self) -> None:
         self.load_running = False
@@ -201,6 +208,7 @@ class Stats:
         self.server_latencies.clear()
         self.recent_errors.clear()
         self.start_time = time.monotonic()
+        self.end_time = None
 
 
 # ---------------------------------------------------------------------------
@@ -813,7 +821,6 @@ async def run_load_test(
             err_sse_left -= 1
         await emit(event_type, data)
 
-    stats.reset()
     await emit_throttled("stats", stats.snapshot())
     sem = asyncio.Semaphore(concurrency)
     tasks: list[asyncio.Task] = []
@@ -844,4 +851,5 @@ async def run_load_test(
 
     await asyncio.gather(*tasks, return_exceptions=True)
     load_cancelled = bool(stop_event and stop_event.is_set())
+    stats.finish()
     await emit_throttled("load_done", {**stats.snapshot(), "load_cancelled": load_cancelled})

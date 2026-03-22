@@ -2,6 +2,9 @@
 
 import asyncio
 import sys
+import time
+from collections.abc import Awaitable
+from typing import Any
 from pathlib import Path
 
 _project_root = Path(__file__).resolve().parents[2]
@@ -40,6 +43,19 @@ async def _check_redis(redis_url: str) -> None:
         await client.aclose()
 
 
+async def _startup_phase_timed(phase: str, coro: Awaitable[Any]) -> None:
+    """执行单段启动检查并记录耗时（成功或失败都会记一次，便于排查「慢在哪」）。"""
+    t0 = time.perf_counter()
+    try:
+        await coro
+    finally:
+        log.info(
+            "Startup: 阶段结束",
+            phase=phase,
+            elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
+        )
+
+
 async def _check_kafka(producer: KafkaProducer, timeout: float) -> None:
     """验证 Kafka 可达。"""
     try:
@@ -49,6 +65,10 @@ async def _check_kafka(producer: KafkaProducer, timeout: float) -> None:
         )
     except asyncio.TimeoutError:
         log.error("启动失败: Kafka 连接超时", timeout_sec=timeout)
+        try:
+            await producer.close()
+        except Exception as close_exc:
+            log.warning("Kafka: 超时后关闭 producer 时出错", error=str(close_exc))
         raise RuntimeError(f"Kafka 不可用: 连接超时 {timeout}s") from None
     except Exception as e:
         log.error("启动失败: Kafka 不可用", error=str(e))
@@ -85,9 +105,19 @@ async def run() -> None:
     shutdown.register_signal()
     registry = ConnectionRegistry()
 
-    # --- 启动前检查 ---
-    await _check_redis(settings.redis_url)
-    await _check_kafka(producer, settings.kafka_startup_timeout_sec)
+    # --- 启动前检查（Redis 与 Kafka 并行，缩短冷启动；耗时见 Startup: 阶段结束）---
+    t_checks = time.perf_counter()
+    await asyncio.gather(
+        _startup_phase_timed("redis", _check_redis(settings.redis_url)),
+        _startup_phase_timed(
+            "kafka",
+            _check_kafka(producer, settings.kafka_startup_timeout_sec),
+        ),
+    )
+    log.info(
+        "Startup: Redis+Kafka 检查结束（并行）",
+        wall_ms=round((time.perf_counter() - t_checks) * 1000, 2),
+    )
 
     # --- 构建 FastAPI 应用 ---
     app = create_app(
@@ -104,9 +134,11 @@ async def run() -> None:
         app,
         host=settings.http_host,
         port=settings.http_port,
-        ws="wsproto",
+        ws="websockets",
         access_log=True,
         backlog=settings.http_backlog,
+        ws_ping_interval=settings.ws_ping_interval,
+        ws_ping_timeout=settings.ws_ping_timeout
     )
     server = uvicorn.Server(config)
 

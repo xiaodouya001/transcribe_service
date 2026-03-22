@@ -24,7 +24,7 @@
 | 握手路径 | `ws_endpoint` → `ws.accept()`；之前仅 `shutdown.draining` 会拒连。 |
 | Uvicorn | 已暴露 **`HTTP_BACKLOG`**（默认 **4096**），降低 SYN/accept 队列吃满时客户端读到一半 EOF 的概率；仍受 OS 限制。 |
 | `ConnectionRegistry` | 曾用 `remove(conversationId)` 无条件 `pop`：若同一 `conversationId` 被第二条连接覆盖，**先建立连接的 `finally` 会误删新连接登记**（极端竞态）。已改为 **`remove(conversationId, ws)` 仅当仍是该 `WebSocket` 实例时才删除**。 |
-| `WS_PING_*` / `WS_MAX_SIZE` | 目前在 **settings 里存在，但未传入 `create_app`**，对 Starlette WebSocket 行为无实际影响（与握手 EOF 无直接关系，属配置未接线）。 |
+| `WS_PING_INTERVAL` / `WS_PING_TIMEOUT` | 经 `main.py` 传入 Uvicorn；在 **`ws="websockets"`** 下驱动 **RFC Ping/Pong 保活**。旧版若用 **`wsproto`**，这两项**不会**用于主动发 Ping。 |
 
 **结论**：你看到的 `EOFError: connection closed while reading HTTP status line` **不是**某段 Python 在握手阶段主动写逻辑关连接；仍是 **对端或内核在 TCP/HTTP 层关连接**（过载、队列、或本机网络栈）。服务端能做的是 **加大 backlog**、**修正 registry 误删**、以及 **Redis 池 / Kafka** 减压（见其它节）。
 

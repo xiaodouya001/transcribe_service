@@ -12,7 +12,7 @@ Kafka UI 是开源 Web 界面，用于查看和管理 Kafka 集群；消息 Valu
 docker compose up -d
 ```
 
-会启动 Redis、Kafka 和 Kafka UI。Kafka UI 地址：**http://localhost:8090**（主机 8090 映射到容器 8080，避免与本服务 HTTP/WebSocket 监听 **8080** 冲突）。
+会启动 Redis、Kafka 和 Kafka UI。Kafka UI 地址：**http://127.0.0.1:8090**（主机 8090 映射到容器 8080，避免与本服务 HTTP/WebSocket 监听 **8080** 冲突）。
 
 ### 方式二：单独启动 Kafka UI（Kafka 已运行）
 
@@ -31,7 +31,7 @@ docker run -d -p 8090:8080 \
 
 ## 2. 查看消息
 
-1. 浏览器打开 **http://localhost:8090**（随 compose 启动时）
+1. 浏览器打开 **http://127.0.0.1:8090**（随 compose 启动时）
 2. 左侧选择 **Topics** → 选择与 [.env.example](../.env.example) / `KAFKA_TOPIC` 一致的 Topic（默认 **`cc.transcript.realtime.v1`**）
 3. 在 **Messages** 标签页查看消息
 4. Value 为 UTF-8 JSON，对应 API 契约中的上行结构（`metaData` + `payload` 等）

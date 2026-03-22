@@ -43,7 +43,7 @@ class KafkaProducer:
 
     def __init__(
         self,
-        bootstrap_servers: str = "localhost:9092",
+        bootstrap_servers: str = "127.0.0.1:9092",
         topic: str = "cc.transcript.realtime.v1",
         *,
         compression_type: str = "zstd",
@@ -80,12 +80,20 @@ class KafkaProducer:
                 linger_ms=self._linger_ms,
                 max_batch_size=self._batch_size,
             )
-            await self._producer.start()
+            try:
+                await self._producer.start()
+            except Exception:
+                await self.close()
+                raise
         return self._producer
 
     async def ensure_ready(self) -> None:
         """启动时验证 Kafka 可达。"""
-        await self._get_producer()
+        try:
+            await self._get_producer()
+        except Exception:
+            await self.close()
+            raise
 
     async def send(
         self,

@@ -102,6 +102,16 @@ class TestScenarioD:
         assert result.disconnect is True
         assert result.close_code == 1008
 
+    async def test_wrong_type_conversation_id_returns_e1004(
+        self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
+    ):
+        valid_ongoing_msg["metaData"]["conversationId"] = 123
+        result = await orchestrator.handle_message(valid_ongoing_msg)
+        assert result.response["error"]["code"] == "E1004"
+        assert result.response["metaData"]["conversationId"] == ""
+        assert result.disconnect is True
+        assert result.close_code == 1008
+
     async def test_invalid_timestamp_returns_e1005(
         self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
     ):

@@ -7,14 +7,13 @@ class TestSettings:
     def test_defaults(self):
         s = Settings(
             _env_file=None,
-            redis_url="redis://localhost:6379/0",
-            kafka_bootstrap_servers="localhost:9092",
+            redis_url="redis://127.0.0.1:6379/0",
+            kafka_bootstrap_servers="127.0.0.1:9092",
         )
         assert s.kafka_topic == "cc.transcript.realtime.v1"
         assert s.kafka_compression_type == "zstd"
         assert s.kafka_send_timeout_sec == 2.0
         assert s.ws_ping_interval == 20.0
-        assert s.ws_max_size == 1048576
         assert s.stop_timeout == 120
         assert s.http_host == "0.0.0.0"
         assert s.http_port == 8080
