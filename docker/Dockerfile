@@ -14,7 +14,6 @@ WORKDIR /app
 COPY --from=builder /root/.local /home/appuser/.local
 COPY config/ ./config/
 COPY src/ ./src/
-COPY pyproject.toml .
 
 ENV PATH=/home/appuser/.local/bin:$PATH
 ENV PYTHONPATH=/app:/app/src
