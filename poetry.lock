@@ -1565,4 +1565,4 @@ dev = ["fakeredis", "httpx", "pytest", "pytest-asyncio", "pytest-cov"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11"
-content-hash = "65b9983eed82baa37ef4f70e2136bd2bda07cf42344bc9207e6b84160808009c"
+content-hash = "55929a4f545334d9936316c609daa40cd62c4408e9139d2e6c89fffdcff385ac"
