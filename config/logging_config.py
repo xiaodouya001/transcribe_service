@@ -41,6 +41,14 @@ def _add_service_context(
     return event_dict
 
 
+def _ensure_conversation_id(
+    logger: logging.Logger, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    """Ensure every log event carries a conversation_id for global search."""
+    event_dict.setdefault("conversation_id", "-")
+    return event_dict
+
+
 def _mask_redis_url(url: str) -> str:
     """Mask password in redis URL for safe logging."""
     if not url or "redis" not in url.lower():
@@ -77,6 +85,7 @@ _SHARED_PROCESSORS: list[structlog.typing.Processor] = [
     _add_service_context,
     _mask_sensitive_processor,
     structlog.contextvars.merge_contextvars,
+    _ensure_conversation_id,
     structlog.stdlib.add_logger_name,
     structlog.processors.add_log_level,
     structlog.processors.TimeStamper(fmt="iso", utc=True),

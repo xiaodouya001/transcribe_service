@@ -98,7 +98,20 @@ def test_configure_logging_stdlib_logger_json(monkeypatch, capsys):
     out = capsys.readouterr().err
     assert '"service": "transcribe-service"' in out
     assert '"logger": "uvicorn.access"' in out
+    assert '"conversation_id": "-"' in out
     assert "GET /health 200" in out
+
+
+def test_configure_logging_structlog_json_includes_conversation_id(monkeypatch, capsys):
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    monkeypatch.delenv("LOG_FORMAT", raising=False)
+    lc.configure_logging(level="INFO", format="json")
+    lc.get_logger("app").info("ready")
+    out = capsys.readouterr().err.strip()
+    payload = json.loads(out)
+    assert payload["service"] == "transcribe-service"
+    assert payload["conversation_id"] == "-"
+    assert payload["event"] == "ready"
 
 
 def test_configure_logging_auto_tty_json(monkeypatch):
