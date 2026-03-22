@@ -39,8 +39,6 @@ transcribe_service/
 └── docker-compose.yml               # Redis + Kafka + Kafka UI
 ```
 
----
-
 ## 文档入口
 
 完整文档索引见 [docs/README.md](docs/README.md)。该目录页是 `docs/` 下所有设计、配置、开发、部署和排障文档的唯一索引入口。
@@ -54,7 +52,6 @@ transcribe_service/
 | [design/transcribe-service-API-contract.md](design/transcribe-service-API-contract.md) | API 契约 |
 | [docs/README.md](docs/README.md)                                                       | 文档总索引  |
 
-
 ---
 
 ## 部署
@@ -63,4 +60,4 @@ transcribe_service/
 docker build -f docker/Dockerfile -t transcribe-service:latest .
 ```
 
-目标环境：AWS ECS Fargate。详见 [docs/deployment.md](docs/deployment.md)
+目标环境：AWS ECS Fargate。详见 [docs/deployment.md](docs/deployment.md)。
