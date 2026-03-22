@@ -1,6 +1,6 @@
 # pyproject.toml 配置说明
 
-本文档说明 `pyproject.toml` 中各配置块的用途，以及针对 Local / Dev / Production 环境的使用方式。
+本文档说明 `pyproject.toml` 各配置块的用途，以及本地开发、测试与生产部署场景下的使用方式。
 
 ---
 
@@ -22,11 +22,14 @@ PEP 621 标准项目元数据，供 pip、Poetry 等工具读取。
 
 可选依赖组，按需安装。
 
-| 组名 | 说明 | 包含 |
-|------|------|------|
-| `dev` | 开发/测试/演示 | pytest、pytest-asyncio、fakeredis |
+| 组名 | 说明 | 包含（摘要） |
+|------|------|--------------|
+| `dev` | 开发/测试 | pytest、pytest-asyncio、pytest-cov、`fakeredis[lua]`、httpx |
 
-安装方式：`pip install -e ".[dev]"` 或 `poetry install --with dev`
+- `fakeredis[lua]`：单元测试需执行与生产一致的 Redis Lua 脚本。
+- `httpx`：ASGI/HTTP 测试客户端（如 WebSocket 相关测试）。
+
+安装：`pip install -e ".[dev]"` 或 `poetry install --with dev`。
 
 ### 1.3 [tool.pytest.ini_options]
 
@@ -36,78 +39,71 @@ pytest 配置，无需单独 `pytest.ini`。
 |------|------|
 | `asyncio_mode = "auto"` | 自动识别 async 测试 |
 | `asyncio_default_fixture_loop_scope` | fixture 作用域 |
+| `addopts` | 默认带 `--cov=...`、缺失行报告与 `--cov-fail-under=100`；覆盖率低于阈值时测试失败 |
 
-### 1.4 [build-system]
+### 1.4 [tool.coverage.run]
+
+覆盖率收集范围，包括 `src` 与 `config`。
+
+### 1.5 [build-system]
 
 构建后端，`pip install -e .` 时使用。
 
-### 1.5 [tool.setuptools.packages.find]
+### 1.6 [tool.setuptools.packages.find]
 
-setuptools 包发现，指定 `config` 和 `transcription_ingest` 的路径。
+setuptools 包发现，包含 `config` 与 `transcribe_service`（`src/`）。
 
-### 1.6 [tool.poetry]
+### 1.7 [tool.poetry]（可选）
 
-Poetry 专用配置（与 pip/venv 二选一）。`packages` 定义包结构，`[tool.poetry.group.dev.dependencies]` 对应 dev 依赖。
+Poetry 与 pip 可二选一。`[tool.poetry.group.dev.dependencies]` 与 `[project.optional-dependencies].dev` 保持相同用途：前者服务于 Poetry 安装路径，后者服务于标准 PEP 621 / pip 安装路径。
 
 ---
 
 ## 2. 环境使用指南
 
-### 2.1 Local（本地快速体验）
+### 2.1 Local（本地运行）
 
-需 Redis + Kafka（`docker compose up -d`），使用 Mock 服务器。
+需 Redis + Kafka（`docker compose up -d`），再启动服务：
 
 ```bash
-# 安装（仅运行时依赖）
 pip install -e .
 # 或
 poetry install
 
-# 运行生产服务（配置 STT_PROVIDER_URL 后）
-python -m transcription_ingest.main
+python -m transcribe_service.main
 ```
 
-- **依赖**：`[project].dependencies`（不含 dev）
-- **配置**：`.env` 中 `REDIS_URL`、`KAFKA_BOOTSTRAP_SERVERS`（默认 localhost）
+- **依赖**：`[project].dependencies`
+- **配置**：`.env` 中 `REDIS_URL`、`KAFKA_BOOTSTRAP_SERVERS` 等，见 [.env.example](../.env.example)
 
-### 2.2 Dev（开发 / 测试 / 演示）
+本服务以 **WebSocket 服务端** 形态运行，上游客户端通过 `ws://.../ws/v1/realtime-transcriptions?conversationId=...` 接入；无需配置 `STT_PROVIDER_URL` 或 `TRANSCRIBE_SERVICE_PROTOCOL` 等客户端侧历史兼容项。
 
-需要运行测试、使用 fakeredis 等。
+### 2.2 Dev（开发 / 测试）
 
 ```bash
-# 安装（含 dev 依赖）
 pip install -e ".[dev]"
 # 或
 poetry install --with dev
 
-# 运行测试
 pytest tests/ -v
-
+# 或
+poetry run pytest
 ```
 
-- **依赖**：`[project].dependencies` + `[project.optional-dependencies].dev`
-- **配置**：`.env` 中 Redis、Kafka 地址，本地 Mock 或真实 STT Provider URL
+- **依赖**：运行时 + `[project.optional-dependencies].dev`
 
 ### 2.3 Production（生产部署）
 
-连接真实 Redis、Kafka，可选 Redis Buffer。生产模式下自动启用长连接重连、WebSocket 心跳与优雅停机。
-
 ```bash
-# 安装（仅运行时依赖，不要 dev）
 pip install .
 # 或
 poetry install --no-dev
 
-# 运行服务
-python -m transcription_ingest.main
+python -m transcribe_service.main
 ```
 
 - **依赖**：仅 `[project].dependencies`
-- **配置**：`.env` 或环境变量：
-  - `STT_PROVIDER_URL`：真实 STT 地址
-  - `REDIS_URL`：ElastiCache 等
-  - `KAFKA_BOOTSTRAP_SERVERS`：MSK 等
-  - `redis_buffer_enabled=true`（推荐）
+- **配置**：环境变量，见 [configuration.md](configuration.md)、[deployment.md](deployment.md)
 
 ---
 
@@ -116,7 +112,9 @@ python -m transcription_ingest.main
 | 环境 | 命令 | 包含 |
 |------|------|------|
 | Local | `pip install -e .` | 运行时 |
-| Dev | `pip install -e ".[dev]"` | 运行时 + pytest、fakeredis 等 |
-| Production | `pip install .` | 仅运行时（无 -e，非可编辑） |
+| Dev | `pip install -e ".[dev]"` | 运行时 + dev 组 |
+| Production | `pip install .` | 仅运行时 |
 
-Poetry 用户：`poetry install`（默认含 dev）、`poetry install --with dev`、`poetry install --no-dev`。
+也可使用项目根目录的 `requirements.txt` / `requirements-dev.txt`（与 `pyproject` 对齐时）配合 `pip install -r`。
+
+Poetry 示例：`poetry install`、`poetry install --with dev`、`poetry install --without dev`。

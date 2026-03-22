@@ -4,39 +4,38 @@
 
 ## Q1：启动报 Redis/Kafka 不可用？
 
-启动前会校验 Redis、Kafka 连通性，失败则输出 `Transcription Ingest: 启动失败（Redis 不可用）` 或 `Transcription Ingest: 启动失败（Kafka 不可用）` 并退出。
+启动前会校验 Redis、Kafka 连通性，失败则退出。
 
 **解决**：确保 `docker compose up -d` 已执行，或配置正确的 `REDIS_URL`、`KAFKA_BOOTSTRAP_SERVERS`。
 
 ---
 
-## Q2：连接 STT 失败，502？
+## Q2：序列号乱序（E1006）？
 
-配置 `STT_PROVIDER_URL` 为真实 STT 地址。若服务未就绪，会输出 `Reconnect: 连接 STT 失败（STT 提供商服务未就绪，将自动重试）`。
+状态机通过 Redis Lua 原子预检，若 `sequenceNumber > expected`（跳号）则返回 `OUT_OF_ORDER`，服务端发送 ERROR 帧并断开连接（Close Code 1008）。
 
-**解决**：检查 STT Provider 服务是否启动，或使用 Demo 模式 `python -m transcription_ingest.demo.run_local` 本地验证。
+**解决**：确保上游 STT Provider 在同一 `conversationId` 下严格递增发送 `sequenceNumber`。断连后重连会从 Redis 中已保存的 expected 序号继续。
 
 ---
 
 ## Q3：Kafka 挂了会怎样？
 
-Buffer 模式下，Buffer 消费端发送失败时消息保留在 Redis Stream，不执行 XACK；约 10 秒超时后输出 `Buffer Consumer: 处理消息失败（Kafka 不可用，消息已保留在 Buffer，将自动重试）`。Kafka 恢复后自动重试。
+Kafka 发送超时/失败 → 返回 ERROR 帧（E1008/E1012）→ 断连（Close Code 1013）→ 不执行 Redis commit（expected 不前进）。上游重连后重发同一 seq，Redis 预检通过，实现无损重试。
 
 ---
 
-## Q4：如何修改去重 Key？
+## Q4：重复消息如何处理？
 
-通过 `DEDUP_KEY_PARTS` 配置，支持 `session_id`、`processing_id`、`seq_no`、`created_at` 的组合，逗号分隔。例如：`session_id,seq_no`。
+同一 `(conversationId, sequenceNumber)` 的重复消息命中 IDEMPOTENT，服务端直接返回 TRANSCRIPT_ACK，不再写入 Kafka，不推进 Redis 状态。
 
 ---
 
 ## Q5：Kafka 消息顺序？
 
-使用 `session_id` 作为 Kafka 消息 Key，相同 session 落入同一分区，分区内有序。
+使用 `conversationId` 作为 Kafka Partition Key，同一通话路由到同一分区，分区内有序。
 
 ---
 
-## Q6：Buffer 和 Dedup 如何配合？
+## Q6：优雅停机如何工作？
 
-- **Buffer**：Redis Stream 持久化 raw payload。Buffer 消费端读取后，成功写入 Kafka 则 XACK + XDEL；发送失败则不 XACK，消息保留在 Stream 待重试。
-- **Dedup**：按 `(session_id, processing_id, seq_no)` 去重。发送失败时撤销 dedup 记录，重试时可再次发送。
+收到 SIGTERM 后：标记 Drain（拒绝新连接）→ 向存量连接发送 Close 1001 → flush Kafka 缓冲区 → 释放 Redis 连接 → 退出。

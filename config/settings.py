@@ -16,49 +16,46 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
     )
 
-    # STT Provider (speech-to-text service URL)
-    stt_provider_url: str = "http://localhost:8765/sse"
-    mode: Literal["sse", "websocket"] = "sse"
+    # --- Redis ---
+    redis_url: str = "redis://127.0.0.1:6379/0"
+    redis_max_connections: int = 100
+    redis_active_ttl_sec: int = 3600
+    redis_final_ttl_sec: int = 60
 
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
-    dedup_key_parts: str = "session_id,processing_id,seq_no"
-    dedup_ttl_seconds: int = 60
+    # --- Kafka ---
+    kafka_bootstrap_servers: str = "127.0.0.1:9092"
+    kafka_topic: str = "cc.transcript.realtime.v1"
+    kafka_topic_num_partitions: int = 50
+    kafka_replication_factor: int = 1
+    kafka_compression_type: Literal["none", "gzip", "snappy", "lz4", "zstd"] = "zstd"
+    kafka_send_timeout_sec: float = 2.0
+    kafka_linger_ms: int = 1
+    kafka_batch_size: int = 32768
 
-    # Redis buffer (when redis_buffer_enabled)
-    redis_buffer_enabled: bool = True
-    redis_buffer_stream: str = "transcription:ingest:buffer"
-    redis_buffer_consumer_group: str = "transcription:ingest:consumer"
-    redis_buffer_maxlen: int = 10000
-    redis_buffer_block_ms: int = 50  # XREADGROUP block 时长(毫秒)，越小延迟越低、空闲时 Redis 往返越多
+    # --- WebSocket ---
+    # 传入 Uvicorn `ws="websockets"`：服务端按间隔发 RFC Ping、依赖对端 Pong（见 main.py）
+    ws_ping_interval: float = 20.0
+    ws_ping_timeout: float = 20.0
 
-    # Transform
-    cleaner_mode: str = "default"
+    # --- HTTP / Uvicorn ---
+    http_host: str = "0.0.0.0"
+    http_port: int = 8080
+    # listen() backlog；瞬时大量建连时过小可能导致对端在读到 101 前被 RST（默认 2048）
+    http_backlog: int = 4096
+    # 最大同时在线 WebSocket 连接数；超出后新连接以 1013 拒绝。0 = 不限制
+    ws_max_connections: int = 0
 
-    # Kafka
-    kafka_bootstrap_servers: str = "localhost:9092"
-    kafka_topic: str = "transcription_topic"
-    kafka_compression_type: Literal["none", "gzip", "snappy", "lz4"] = "none"
-    kafka_send_timeout_sec: float = 10.0  # 发送超时(秒)，Kafka 不可用时超时并输出错误日志
+    # --- Startup ---
+    kafka_startup_timeout_sec: float = 30.0
 
-    # Graceful shutdown timeout (seconds)
+    # --- Graceful shutdown ---
     stop_timeout: int = 120
 
-    # Long connection: reconnect
-    reconnect_enabled: bool = True
-    reconnect_max_retries: int = 0  # 0 = infinite
-    reconnect_initial_delay: float = 1.0
-    reconnect_max_delay: float = 60.0
-    reconnect_backoff_factor: float = 2.0
-
-    # Long connection: timeouts
-    sse_read_timeout: float | None = None  # None = no limit
-    ws_ping_interval: float | None = 20.0  # None = disable
-    ws_ping_timeout: float | None = 20.0
-
-    # Logging (LOG_LEVEL=INFO, LOG_FORMAT=json|console|auto)
+    # --- Logging ---
     log_level: str = "INFO"
     log_format: Literal["json", "console", "auto"] = "auto"
+    # 是否打印服务端发出的 ERROR 响应完整 JSON（默认关闭，避免压测日志过大）
+    log_ws_error_frames: bool = False
 
 
 @lru_cache

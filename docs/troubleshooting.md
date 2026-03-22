@@ -1,76 +1,72 @@
 # 故障排查
 
-本文档说明常见错误及排查步骤。
-
 ---
 
 ## 1. 启动失败
 
-### Transcription Ingest: 启动失败（Redis 不可用）
+### 启动失败: Redis 不可用
 
 **原因**：无法连接 Redis。
 
 **排查**：
 
 1. 确认 Redis 已启动：`docker compose ps` 或 `redis-cli ping`
-2. 检查 `REDIS_URL` 是否正确（host、port、db）
-3. 若在 Docker 网络内，使用服务名而非 localhost
+2. 检查 `REDIS_URL` 是否正确
+3. 在 Docker 网络内访问时，应使用服务名而非 `127.0.0.1`
 
-### Pipeline: 启动失败（Kafka 不可用）
+### 启动失败: Kafka 不可用
 
-**原因**：无法连接 Kafka。
+**原因**：无法连接 Kafka（30s 超时）。
 
 **排查**：
 
-1. 确认 Kafka 已启动：`docker compose ps`，Kafka 健康检查通过
+1. 确认 Kafka 已启动：`docker compose ps`，健康检查通过
 2. 检查 `KAFKA_BOOTSTRAP_SERVERS` 地址
 3. Kafka 启动较慢，可等待 30–60 秒后重试
 
 ---
 
-## 2. 连接 STT 失败
+## 2. WebSocket 连接问题
 
-### Reconnect: 连接 STT 失败（STT 提供商服务未就绪，将自动重试）
+### 客户端连接被拒绝（503）
 
-**原因**：502/503/504、connection refused 等，视为 STT 不可用。
+**原因**：服务处于 Drain 模式（优雅停机中）。
 
-**排查**：
+**解决**：等待新版本 Pod 就绪后重连。
 
-1. 确认 `STT_PROVIDER_URL` 正确
-2. 检查 STT 服务是否启动、端口是否开放
-3. 若为 HTTPS，检查证书、代理
+### 连接被关闭（Close Code 1008）
 
-### 其他连接错误
+**原因**：Schema 校验失败或序列号乱序。查看 ERROR 帧中的 `error.code` 和 `error.details`。
 
-非 502/503/504 的错误会输出 `Reconnect: 连接 STT 失败（将自动重试）`，同样会按指数退避重试。
+### 连接被关闭（Close Code 1013）
+
+**原因**：Kafka 不可用或超时。服务端暂时无法处理，待 Kafka 恢复后重新建立连接。
 
 ---
 
-## 3. Kafka 发送失败
+## 3. Kafka 发送问题
 
-### Buffer Consumer: 处理消息失败（Kafka 不可用，消息已保留在 Buffer，将自动重试）
+### Kafka: 发送超时
 
-**原因**：发送 Kafka 超时或异常。
-
-**行为**：消息保留在 Redis Stream，不 XACK；dedup 记录已撤销，Kafka 恢复后会自动重试。
+**原因**：Kafka 集群响应超过 `KAFKA_SEND_TIMEOUT_SEC`（默认 2s）。
 
 **排查**：
 
 1. 检查 Kafka 集群状态
-2. 检查 `KAFKA_SEND_TIMEOUT_SEC` 是否过短（默认 10 秒）
-3. 通过 Kafka UI 确认 Topic 存在、可写
+2. 通过 Kafka UI 确认 Topic 存在、可写
+3. 检查网络延迟
 
 ---
 
 ## 4. 日志关键字
 
-
-| 关键字                       | 含义            |
-| ------------------------- | ------------- |
-| `Transcription Ingest: 已启动`           | 启动成功          |
-| `Transcription Ingest: 正在关闭连接`        | 优雅停机中         |
-| `Dedup: 通过（新 transcript）` | 去重通过，将发送      |
-| `Dedup: 已过滤重复`            | 重复消息已过滤       |
-| `Kafka Producer: 已发送`     | 消息已成功写入 Kafka |
-
-
+| 关键字 | 含义 |
+|--------|------|
+| `Transcribe Service: 已启动` | 启动成功 |
+| `Transport: 连接已建立` | WebSocket 连接建立 |
+| `StateMachine.prepare` | Lua 预检结果 |
+| `StateMachine.commit` | 序列号推进 |
+| `Kafka: 已发送` | 消息已写入 Kafka |
+| `Orchestrator: 幂等命中` | 重复包被拦截 |
+| `Orchestrator: 序列号乱序` | 乱序包被拒绝 |
+| `Shutdown: 开始优雅停机` | 收到 SIGTERM |

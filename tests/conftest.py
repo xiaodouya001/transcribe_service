@@ -1,16 +1,58 @@
-"""Pytest fixtures."""
+"""Shared test fixtures."""
 
 import pytest
 
 
 @pytest.fixture
-def sample_transcript_event():
-    """Sample TranscriptionEvent-like dict for tests."""
+def conversation_id() -> str:
+    return "39449992-32f3-4581-a8a1-99d4109f37d4"
+
+
+@pytest.fixture
+def valid_ongoing_msg(conversation_id: str) -> dict:
+    """Valid SESSION_ONGOING message dict."""
     return {
-        "session_id": "39449992-32f3-4581-a8a1-99d4109f37d4",
-        "seq_no": 0,
-        "transcript": "喂您好這裡是有光科技",
-        "role": "Agent",
-        "created_at": "2025-03-21T10:32:20.000Z",
-        "processing_status": "IN_PROGRESS",
+        "metaData": {
+            "conversationId": conversation_id,
+            "agentId": "3210001",
+            "staffId": "45163407",
+            "customerId": "12345678",
+            "callStartTimeStamp": "2025-03-21T10:30:02.327Z",
+            "callEndTimeStamp": None,
+            "eventType": "SESSION_ONGOING",
+        },
+        "payload": {
+            "sequenceNumber": 0,
+            "speaker": "Agent",
+            "transcript": "thank you",
+            "engineProvider": "FanoLabs",
+            "dialect": "yue-x-auto",
+            "isFinal": True,
+            "createdAtTimeStamp": "2025-03-21T10:32:20.000Z",
+        },
+    }
+
+
+@pytest.fixture
+def valid_complete_msg(conversation_id: str) -> dict:
+    """Valid SESSION_COMPLETE message dict."""
+    return {
+        "metaData": {
+            "conversationId": conversation_id,
+            "agentId": "3210001",
+            "staffId": "45163407",
+            "customerId": "12345678",
+            "callStartTimeStamp": "2025-03-21T10:30:02.327Z",
+            "callEndTimeStamp": "2025-03-21T10:45:00.000Z",
+            "eventType": "SESSION_COMPLETE",
+        },
+        "payload": {
+            "sequenceNumber": 42,
+            "speaker": "Agent",
+            "transcript": "Good bye",
+            "engineProvider": "FanoLabs",
+            "dialect": "yue-x-auto",
+            "isFinal": True,
+            "createdAtTimeStamp": "2025-03-21T10:44:58.000Z",
+        },
     }

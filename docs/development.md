@@ -1,7 +1,5 @@
 # 本地开发与测试
 
-本文档说明环境要求、安装、本地运行、UT 及调试技巧。
-
 ---
 
 ## 1. 环境要求
@@ -20,7 +18,7 @@
 
 ```bash
 poetry install
-poetry install --with dev   # 含 pytest、pytest-cov、fakeredis
+poetry install --with dev   # 含 pytest、pytest-cov、fakeredis[lua]、httpx
 poetry shell
 ```
 
@@ -36,7 +34,7 @@ pip install -e ".[dev]"
 ### 2.3 验证
 
 ```bash
-python -c "import transcription_ingest; print('OK')"
+python -c "import transcribe_service; print('OK')"
 ```
 
 ---
@@ -51,29 +49,21 @@ docker compose up -d
 
 会启动 Redis、Kafka、Kafka UI。
 
-### 3.2 本地 Demo（Mock + 前端注入）
+### 3.2 运行服务
 
 ```bash
-python -m transcription_ingest.demo.run_local
+python -m transcribe_service.main
 ```
 
-浏览器打开 `http://127.0.0.1:8765/`，输入 JSON 点击「发送」，控制台打印完整链路日志。
+服务启动后监听 `0.0.0.0:8080`，WebSocket 端点为 `/ws/v1/realtime-transcriptions?conversationId=xxx`。
 
-### 3.3 生产模式本地运行
-
-```bash
-python -m transcription_ingest.main
-```
-
-需配置 `STT_PROVIDER_URL` 指向真实 STT 或 Mock 服务。
-
-### 3.4 服务地址（docker compose）
+### 3.3 服务地址（docker compose）
 
 | 服务 | 地址 |
 |------|------|
-| Redis | localhost:6379 |
-| Kafka | localhost:9092 |
-| Kafka UI | http://localhost:8080 |
+| Redis | 127.0.0.1:6379 |
+| Kafka | 127.0.0.1:9092 |
+| Kafka UI | http://127.0.0.1:8090 |
 
 Kafka UI 使用说明见 [kafka-ui-usage.md](kafka-ui-usage.md)。
 
@@ -85,7 +75,7 @@ Kafka UI 使用说明见 [kafka-ui-usage.md](kafka-ui-usage.md)。
 
 ```bash
 poetry run pytest tests/ -v
-# 或带覆盖率（要求 ≥90%）
+# 或带覆盖率
 poetry run pytest
 ```
 
@@ -95,21 +85,21 @@ UT 不依赖真实 Kafka/Redis 环境：
 
 | 组件 | Mock 方式 |
 |------|-----------|
-| **Redis** | [fakeredis](https://github.com/cunla/fakeredis-py) 模拟内存 Redis |
-| **Kafka** | `unittest.mock` 对 `AIOKafkaProducer` 做 patch |
-| **SSE/WebSocket** | `unittest.mock` 模拟 HTTP/WebSocket 响应 |
+| **Redis（状态机）** | [fakeredis[lua]](https://github.com/cunla/fakeredis-py) 模拟，支持 Lua 脚本 |
+| **Kafka** | `unittest.mock.AsyncMock` |
+| **WebSocket** | `starlette.testclient.TestClient` ASGI 测试 |
 
 ### 4.3 覆盖率
 
-- 目标：≥90%
-- 排除：`main.py`、`demo/*`、`config/logging_config.py`
-- 配置见 `pyproject.toml` 的 `[tool.coverage.run]`
+- 覆盖率由 `pytest-cov` 按 `pyproject.toml` 中的 `addopts` 收集。
+- 收集范围包括 `src/transcribe_service` 与 `config`。
+- 覆盖率阈值为 **100%**。
 
 ---
 
 ## 5. 调试技巧
 
-- **日志级别**：`LOG_LEVEL=DEBUG` 查看更详细日志
+- **日志级别**：`LOG_LEVEL=DEBUG` 查看详细日志
 - **日志格式**：`LOG_FORMAT=console` 本地开发时使用可读格式
-- **Kafka 消息**：通过 Kafka UI (http://localhost:8080) 查看 Topic `transcription_topic` 的消息
-- **断点调试**：在 IDE 中设置断点，以 `python -m transcription_ingest.main` 或 `python -m pytest` 启动
+- **Kafka 消息**：通过 Kafka UI (http://127.0.0.1:8090) 查看 Topic `cc.transcript.realtime.v1`
+- **断点调试**：以 `python -m transcribe_service.main` 或 `python -m pytest` 启动

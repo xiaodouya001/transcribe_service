@@ -1,9 +1,9 @@
-# Redis + Kafka for Transcription Ingest (local dev / production parity)
+# Redis + Kafka for Transcribe Service (local dev)
 # Usage: docker compose up -d
-# Then: python -m transcription_ingest.main (uses REDIS_URL and KAFKA_BOOTSTRAP_SERVERS from .env)
+# Then: python -m transcribe_service.main
+# WebSocket endpoint: ws://127.0.0.1:8080/ws/v1/realtime-transcriptions?conversationId=xxx
 #
-# Kafka data is ephemeral (no volume) to avoid permission issues with apache/kafka non-root user.
-# Redis data persists in redis_data volume.
+# Kafka data is ephemeral (no volume). Redis data persists in redis_data volume.
 
 services:
   redis:
@@ -12,6 +12,8 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    # 未指定 --maxclients 时沿用 redis:7-alpine 内置配置（一般为 10000，实际会受容器 ulimits/nofile 压缩）。
+    # 查看实值：docker compose exec redis redis-cli CONFIG GET maxclients
     command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -28,7 +30,8 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
-      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT_HOST://localhost:9092,PLAINTEXT://broker:19092"
+      # PLAINTEXT_HOST 给宿主机上的客户端（如本机 Python）：用 127.0.0.1，避免 Windows 上 IPv6 / advertised 地址不一致导致 aiokafka 长时间卡住
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT_HOST://127.0.0.1:9092,PLAINTEXT://broker:19092"
       KAFKA_PROCESS_ROLES: "broker,controller"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@broker:29093"
       KAFKA_LISTENERS: "CONTROLLER://:29093,PLAINTEXT_HOST://:9092,PLAINTEXT://:19092"
@@ -43,7 +46,7 @@ services:
       KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
       KAFKA_LOG_DIRS: "/tmp/kraft-combined-logs"
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 2>/dev/null || exit 1"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server 127.0.0.1:9092 2>/dev/null || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -52,7 +55,7 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     ports:
-      - "8080:8080"
+      - "8090:8080"  # 8090 避免与 Transcribe Service (8080) 冲突
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:19092

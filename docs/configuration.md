@@ -1,6 +1,6 @@
 # 配置说明
 
-本文档说明 Transcription Ingest 的环境变量配置，与 [config/settings.py](../config/settings.py) 对应。
+本文档说明 Transcribe Service 的环境变量配置，与 [config/settings.py](../config/settings.py) 对应。
 
 ---
 
@@ -16,60 +16,60 @@ cp .env.example .env
 
 ## 2. 配置项一览
 
-### STT Provider
+### Redis（状态机）
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `STT_PROVIDER_URL` | http://localhost:8765/sse | STT Provider SSE/WebSocket 地址 |
-| `MODE` | sse | 传输协议：`sse` 或 `websocket` |
-| `SSE_READ_TIMEOUT` | 空 | SSE 读超时（秒），空=无限制 |
-| `WS_PING_INTERVAL` | 20.0 | WebSocket ping 间隔（秒） |
-| `WS_PING_TIMEOUT` | 20.0 | WebSocket pong 超时（秒） |
-
-### Redis
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `REDIS_URL` | redis://localhost:6379/0 | Redis 连接地址 |
-| `DEDUP_KEY_PARTS` | session_id,processing_id,seq_no | 去重 Key 组成 |
-| `DEDUP_TTL_SECONDS` | 60 | 去重 Key 过期时间（秒） |
-
-### Redis Buffer
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `REDIS_BUFFER_ENABLED` | true | 是否启用 Redis Stream 缓冲 |
-| `REDIS_BUFFER_STREAM` | transcription:ingest:buffer | Redis Stream 名称 |
-| `REDIS_BUFFER_CONSUMER_GROUP` | transcription:ingest:consumer | Buffer 消费端使用的消费组名称 |
-| `REDIS_BUFFER_MAXLEN` | 10000 | Stream 最大长度 |
+| `REDIS_URL` | redis://127.0.0.1:6379/0 | Redis 连接地址 |
+| `REDIS_MAX_CONNECTIONS` | 100 | 连接池大小；高并发 WebSocket（如约 1000 路）场景可提升至 256～1024，见 [concurrency-capacity.md](concurrency-capacity.md) |
+| `REDIS_ACTIVE_TTL_SEC` | 3600 | 活跃会话 TTL（秒），每次写入自动续期 |
+| `REDIS_FINAL_TTL_SEC` | 60 | SESSION_COMPLETE 后残留 TTL（秒） |
 
 ### Kafka
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `KAFKA_BOOTSTRAP_SERVERS` | localhost:9092 | Kafka 集群地址 |
-| `KAFKA_TOPIC` | transcription_topic | Topic 名称 |
-| `KAFKA_COMPRESSION_TYPE` | none | 压缩：`none`、`gzip`、`snappy`、`lz4` |
-| `KAFKA_SEND_TIMEOUT_SEC` | 10 | 发送超时（秒），Kafka 不可用时超时并输出错误日志 |
+| `KAFKA_BOOTSTRAP_SERVERS` | 127.0.0.1:9092 | Kafka 集群地址 |
+| `KAFKA_TOPIC` | cc.transcript.realtime.v1 | Topic 名称 |
+| `KAFKA_TOPIC_NUM_PARTITIONS` | 50 | 新建 Topic 时的分区数 |
+| `KAFKA_REPLICATION_FACTOR` | 1 | 副本因子（生产环境≥2） |
+| `KAFKA_COMPRESSION_TYPE` | zstd | 压缩：`none`、`gzip`、`snappy`、`lz4`、`zstd` |
+| `KAFKA_SEND_TIMEOUT_SEC` | 2.0 | 发送超时（秒），用于快速失败；高负载下如出现误判，可结合 broker 能力适当调大，见 [concurrency-capacity.md](concurrency-capacity.md) |
+| `KAFKA_LINGER_MS` | 1 | Producer 聚合等待时间（毫秒）；越小延迟越低，越大更利于批量吞吐 |
+| `KAFKA_BATCH_SIZE` | 32768 | Producer 批大小（bytes）；影响单批聚合上限与吞吐/延迟平衡 |
 
-### 长连接与重连
+### WebSocket
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `RECONNECT_ENABLED` | true | 自动重连 |
-| `RECONNECT_MAX_RETRIES` | 0 | 最大重试次数，0=无限 |
-| `RECONNECT_INITIAL_DELAY` | 1.0 | 初始退避延迟（秒） |
-| `RECONNECT_MAX_DELAY` | 60.0 | 最大退避延迟（秒） |
-| `RECONNECT_BACKOFF_FACTOR` | 2.0 | 退避因子 |
+| `WS_PING_INTERVAL` | 20.0 | 秒；**Uvicorn `websockets` 后端**下为服务端发出 **WebSocket Ping** 的间隔，用于保活（如防 ALB 空闲断开） |
+| `WS_PING_TIMEOUT` | 20.0 | 秒；等待 **Pong** 的超时；超时会关闭连接（由 Uvicorn/websockets 库处理） |
+| `WS_MAX_CONNECTIONS` | 0 | 最大同时在线 WebSocket；`0` 表示不限制；超限握手返回 429，见 [concurrency-capacity.md](concurrency-capacity.md) |
+
+> **说明**：本服务通过 `uvicorn.Config(ws="websockets", …)` 启用 WebSocket 运行时；`WS_PING_INTERVAL` 与 `WS_PING_TIMEOUT` 由 Uvicorn `websockets` backend 负责执行。
+
+### HTTP / Uvicorn
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `HTTP_HOST` | 0.0.0.0 | 监听地址（容器内通常 0.0.0.0） |
+| `HTTP_PORT` | 8080 | 监听端口 |
+| `HTTP_BACKLOG` | 4096 | Uvicorn `listen(backlog)`；瞬时大量 WebSocket 握手时可减小对端「读 101 前被关」概率 |
+
+### 启动检查
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `KAFKA_STARTUP_TIMEOUT_SEC` | 30.0 | Kafka 启动连通性检查超时（秒） |
 
 ### 其它
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `CLEANER_MODE` | default | 数据清洗：`default`（raw+cleaned）、`identity`（透传） |
 | `STOP_TIMEOUT` | 120 | 优雅停机超时（秒） |
 | `LOG_LEVEL` | INFO | 日志级别 |
 | `LOG_FORMAT` | auto | 日志格式：`json`、`console`、`auto` |
+| `LOG_WS_ERROR_FRAMES` | false | 是否打印服务端发出的完整 ERROR 响应 JSON；排障时可开启，压测场景通常保持关闭 |
 
 ---
 
@@ -78,34 +78,19 @@ cp .env.example .env
 **本地开发**：
 
 ```env
-STT_PROVIDER_URL=http://localhost:8765/sse
-MODE=sse
-REDIS_URL=redis://localhost:6379/0
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+REDIS_URL=redis://127.0.0.1:6379/0
+KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092
+KAFKA_COMPRESSION_TYPE=zstd
+LOG_FORMAT=console
 ```
 
 **生产**：
 
 ```env
-STT_PROVIDER_URL=https://your-stt-provider.example.com/sse
-MODE=sse
 REDIS_URL=redis://your-elasticache:6379/0
 KAFKA_BOOTSTRAP_SERVERS=your-msk:9092
-KAFKA_COMPRESSION_TYPE=gzip
+KAFKA_TOPIC=cc.transcript.realtime.v1
+KAFKA_TOPIC_NUM_PARTITIONS=100
+KAFKA_REPLICATION_FACTOR=3
 LOG_FORMAT=json
 ```
-
----
-
-## 4. CLEANER_MODE 说明
-
-| 值 | 说明 | Kafka 输出 |
-|------|------|------------|
-| `default` | 提取结构化字段 + 保留原始 | `{raw, cleaned}` |
-| `identity` | 透传原始 payload | `{raw}` |
-
----
-
-## 5. 相关文档
-
-- [pyproject-config.md](pyproject-config.md) - pyproject.toml 构建与依赖配置
