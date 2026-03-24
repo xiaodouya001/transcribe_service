@@ -152,14 +152,14 @@ class TestScenarioD:
 
 
 class TestScenarioE:
-    """E. Kafka 失败/超时 → E1008/E1012, 不 commit, 断连 1013。"""
+    """E. Kafka 失败/超时 → E1008/E1011, 不 commit, 断连 1013。"""
 
     async def test_kafka_timeout(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_ongoing_msg
     ):
         mock_producer.send.side_effect = asyncio.TimeoutError()
         result = await orchestrator.handle_message(valid_ongoing_msg)
-        assert result.response["error"]["code"] == "E1012"
+        assert result.response["error"]["code"] == "E1011"
         assert result.disconnect is True
         assert result.close_code == 1013
         mock_sm.commit.assert_not_awaited()

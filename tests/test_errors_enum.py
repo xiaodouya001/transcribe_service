@@ -16,10 +16,9 @@ from transcribe_service.schemas.errors import ErrorCode, WsCloseCode, close_code
         (ErrorCode.E1006, WsCloseCode.POLICY_VIOLATION),
         (ErrorCode.E1007, WsCloseCode.INTERNAL_ERROR),
         (ErrorCode.E1008, WsCloseCode.TRY_AGAIN_LATER),
-        (ErrorCode.E1012, WsCloseCode.TRY_AGAIN_LATER),
         (ErrorCode.E1009, WsCloseCode.POLICY_VIOLATION),
         (ErrorCode.E1010, WsCloseCode.POLICY_VIOLATION),
-        (ErrorCode.E1011, WsCloseCode.POLICY_VIOLATION),
+        (ErrorCode.E1011, WsCloseCode.TRY_AGAIN_LATER),
     ],
 )
 def test_close_code_for_error(code: ErrorCode, expected: WsCloseCode):

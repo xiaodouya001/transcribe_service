@@ -62,7 +62,7 @@
 
 已落地测试明确锁死以下语义：
 
-- 第一次请求：`prepare OK -> Kafka fail -> 返回 E1008/E1012 -> 不 commit`
+- 第一次请求：`prepare OK -> Kafka fail -> 返回 E1008/E1011 -> 不 commit`
 - 第二次同一 `conversationId + seq` 重发：仍可通过 `prepare`
 - 第二次成功后：返回 ACK，执行 Kafka send 与 commit
 - 成功后再次重放旧 seq：命中幂等 ACK，不再重复写 Kafka
@@ -112,7 +112,7 @@
 - duplicate seq -> ACK + 不断连
 - out-of-order -> `E1006 + 1008`
 - internal exception -> `E1007 + 1011`
-- downstream fail/timeout -> `E1008/E1012 + 1013`
+- downstream fail/timeout -> `E1008/E1011 + 1013`
 - `conversationId` mismatch -> `E1009 + 1008`
 - business-rule violation -> `E1009 + 1008`
 

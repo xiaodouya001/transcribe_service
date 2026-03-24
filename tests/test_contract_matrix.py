@@ -3,7 +3,7 @@
 目标：将最关键的错误码 / 关闭码 / ACK 语义集中锁成一组测试，
 避免后续实现调整时悄悄偏离 API 契约与既有设计。
 
-说明：`E1010` / `E1011` 在契约中已预留，但鉴权与资源存在性校验当前尚未实现，
+说明：`E1010` 在契约中已预留，但鉴权校验当前尚未实现，
 因此不纳入本文件的可执行场景矩阵。
 """
 
@@ -251,16 +251,16 @@ class TestOrchestratorContractMatrix:
         mock_producer.send.assert_not_awaited()
         mock_sm.commit.assert_not_awaited()
 
-    async def test_downstream_timeout_returns_e1012_and_close_1013(
+    async def test_downstream_timeout_returns_e1011_and_close_1013(
         self, valid_ongoing_msg, mock_sm, mock_producer
     ):
-        """E-10：下游超时时返回 E1012，并以 1013 断开。"""
+        """E-10：下游超时时返回 E1011，并以 1013 断开。"""
         mock_producer.send.side_effect = TimeoutError()
         orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
 
         result = await orchestrator.handle_message(copy.deepcopy(valid_ongoing_msg))
 
-        assert result.response["error"]["code"] == "E1012"
+        assert result.response["error"]["code"] == "E1011"
         assert result.disconnect is True
         assert result.close_code == 1013
         mock_sm.commit.assert_not_awaited()

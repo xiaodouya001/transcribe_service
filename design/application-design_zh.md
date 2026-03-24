@@ -236,9 +236,9 @@ sequenceDiagram
             Trans->>Kafka: 阶段二：异步投递
         end
 
-        alt 下游不可用或超时 (E1008/E1012)
+        alt 下游不可用或超时 (E1008/E1011)
             Kafka-->>Trans: 超时或连接失败
-            Trans-->>Vendor: 发送 ERROR 帧 (E1008 或 E1012)
+            Trans-->>Vendor: 发送 ERROR 帧 (E1008 或 E1011)
             Trans->>Vendor: 关闭连接 (Close Code 1013)
         else Kafka 投递成功
             Kafka-->>Trans: 返回 Ack

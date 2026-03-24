@@ -135,7 +135,7 @@ class TwoPhaseOrchestrator:
         try:
             await self._producer.send(cid, kafka_payload)
         except asyncio.TimeoutError:
-            # 场景 E: Kafka 超时 → E1012 + 不 commit + 断连 1013
+            # 场景 E: Kafka 超时 → E1011 + 不 commit + 断连 1013
             log.error(
                 "Orchestrator: Kafka 超时",
                 conversation_id=cid,
@@ -144,7 +144,7 @@ class TwoPhaseOrchestrator:
             return OrchestratorResult(
                 response=build_error(
                     conversation_id=cid,
-                    code=ErrorCode.E1012.value,
+                    code=ErrorCode.E1011.value,
                     message="Downstream timeout",
                     details="Kafka send timed out",
                 ),

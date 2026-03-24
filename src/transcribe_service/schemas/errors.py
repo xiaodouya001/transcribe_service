@@ -18,8 +18,7 @@ class ErrorCode(str, Enum):
     E1008 = "E1008"  # 下游不可用
     E1009 = "E1009"  # 策略冲突
     E1010 = "E1010"  # 鉴权失败
-    E1011 = "E1011"  # 资源未找到
-    E1012 = "E1012"  # 下游超时
+    E1011 = "E1011"  # 下游超时
 
 
 class WsCloseCode(int, Enum):
@@ -47,6 +46,6 @@ def close_code_for_error(code: ErrorCode) -> WsCloseCode:
         return WsCloseCode.POLICY_VIOLATION
     if code == ErrorCode.E1007:
         return WsCloseCode.INTERNAL_ERROR
-    if code in (ErrorCode.E1008, ErrorCode.E1012):
+    if code in (ErrorCode.E1008, ErrorCode.E1011):
         return WsCloseCode.TRY_AGAIN_LATER
     return WsCloseCode.POLICY_VIOLATION

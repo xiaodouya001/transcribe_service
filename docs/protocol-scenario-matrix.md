@@ -23,7 +23,7 @@
 | E-07 | 字段类型不符 | 握手后 | **E1004** | — | **1008** (Policy Violation) | 是 | 见下文 E-07 |
 | E-08 | 时间格式无效 | 握手后 | **E1005** | — | **1008** (Policy Violation) | 是 | 见下文 E-08 |
 | E-09 | 序列号乱序 | 握手后 | **E1006** | — | **1008** (Policy Violation) | 是 | 见下文 E-09 |
-| E-10 | Kafka 超时 | 握手后 | **E1012** | — | **1013** (Try Again Later) | 是 | 见下文 E-10 |
+| E-10 | Kafka 超时 | 握手后 | **E1011** | — | **1013** (Try Again Later) | 是 | 见下文 E-10 |
 | E-11 | Kafka 失败 | 握手后 | **E1008** | — | **1013** (Try Again Later) | 是 | 见下文 E-11 |
 | E-12 | 编排层未捕获异常 | 握手后 | **E1007** | — | **1011** (Internal Error) | 是 | 见下文 E-12 |
 | E-13 | 传输层未捕获异常 | 握手后 | **E1007** | — | **1011** (Internal Error) | 是 | 见下文 E-13 |
@@ -213,7 +213,7 @@
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
   "error": {
-    "code": "E1012",
+    "code": "E1011",
     "message": "Downstream timeout",
     "details": "Kafka send timed out",
     "createdAtTimeStamp": "2026-03-21T03:00:00.000Z"
@@ -296,7 +296,7 @@
 | **错误码** | **Contract 定义** | **代码现状** |
 | --- | --- | --- |
 | **E1010** | 鉴权失败 (401/1008) | **未实现** — 无 Auth 中间件 |
-| **E1011** | 资源未找到 (404/1008) | **未实现** — 无对应业务检查 |
+| **E1011** | 下游超时 (504/1013) | **已实现** — Kafka/下游超时返回该错误码 |
 | `conversationId` 缺失 | Contract 要求 400 | **已对齐：实际 400**（由 `_WsGuardMiddleware` 统一返回 JSON ERROR） |
 
-**E1009** 用于两类场景：**传输层 query / body `conversationId` 字符串不一致**，以及 **schema 通过后触发的业务规则校验失败**。**E1010/E1011** 等枚举与 `close_code_for_error` 的对应关系见 `errors.py`。鉴权或资源校验类场景目前未纳入实现，后续引入时应同步补充契约、矩阵文档与测试。
+**E1009** 用于两类场景：**传输层 query / body `conversationId` 字符串不一致**，以及 **schema 通过后触发的业务规则校验失败**。**E1010** 仍为预留鉴权错误码，后续若引入 Auth，应同步补充契约、矩阵文档与测试。
