@@ -46,21 +46,31 @@ def test_sync_signal_handler():
 
 def test_register_signal_windows_fallback_when_add_handler_fails(monkeypatch):
     gs = GracefulShutdown()
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
-    def raise_ni(*_a, **_k):
-        raise NotImplementedError
+    try:
+        def raise_ni(*_a, **_k):
+            raise NotImplementedError
 
-    monkeypatch.setattr(loop, "add_signal_handler", raise_ni)
-    with patch.object(sys, "platform", "win32"), patch("signal.signal") as sig_mock:
-        gs.register_signal()
-    assert sig_mock.call_count >= 1
+        monkeypatch.setattr(loop, "add_signal_handler", raise_ni)
+        with patch.object(sys, "platform", "win32"), patch("signal.signal") as sig_mock:
+            gs.register_signal()
+        assert sig_mock.call_count >= 1
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
 
 
 def test_register_signal_skips_when_not_win32_and_no_handler(monkeypatch):
     """Unix: add_signal_handler raises → 非 win32 时不注册 sync handler。"""
     gs = GracefulShutdown()
-    loop = asyncio.get_event_loop()
-    monkeypatch.setattr(loop, "add_signal_handler", MagicMock(side_effect=NotImplementedError))
-    with patch.object(sys, "platform", "linux"):
-        gs.register_signal()  # should not raise
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        monkeypatch.setattr(loop, "add_signal_handler", MagicMock(side_effect=NotImplementedError))
+        with patch.object(sys, "platform", "linux"):
+            gs.register_signal()  # should not raise
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()

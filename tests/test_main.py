@@ -104,6 +104,7 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     settings.ws_ping_timeout = 21.0
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
+    settings.redis_conversation_owner_ttl_sec = 30
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
@@ -111,6 +112,10 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     sm = MagicMock()
     sm.close = AsyncMock()
     monkeypatch.setattr(main_mod, "RedisStateMachine", lambda **kw: sm)
+
+    owner = MagicMock()
+    owner.close = AsyncMock()
+    monkeypatch.setattr(main_mod, "RedisConversationOwner", lambda **kw: owner)
 
     prod = MagicMock()
     prod.flush = AsyncMock()
@@ -190,6 +195,7 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     prod.flush.assert_awaited()
     prod.close.assert_awaited()
     sm.close.assert_awaited()
+    owner.close.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -216,6 +222,7 @@ async def test_run_graceful_shutdown_order(monkeypatch):
     settings.ws_ping_timeout = 21.0
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
+    settings.redis_conversation_owner_ttl_sec = 30
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
@@ -229,6 +236,14 @@ async def test_run_graceful_shutdown_order(monkeypatch):
 
     sm.close = AsyncMock(side_effect=sm_close)
     monkeypatch.setattr(main_mod, "RedisStateMachine", lambda **kw: sm)
+
+    owner = MagicMock()
+
+    async def owner_close():
+        calls.append("conversation_owner.close")
+
+    owner.close = AsyncMock(side_effect=owner_close)
+    monkeypatch.setattr(main_mod, "RedisConversationOwner", lambda **kw: owner)
 
     prod = MagicMock()
 
@@ -287,6 +302,7 @@ async def test_run_graceful_shutdown_order(monkeypatch):
         "producer.flush",
         "producer.close",
         "state_machine.close",
+        "conversation_owner.close",
     ]
 
 
@@ -355,10 +371,16 @@ async def test_run_propagates_exception(monkeypatch):
     settings.http_host = "127.0.0.1"
     settings.http_port = 18081
     settings.kafka_startup_timeout_sec = 5.0
+    settings.redis_conversation_owner_ttl_sec = 30
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
     monkeypatch.setattr(main_mod, "RedisStateMachine", lambda **kw: MagicMock(close=AsyncMock()))
+    monkeypatch.setattr(
+        main_mod,
+        "RedisConversationOwner",
+        lambda **kw: MagicMock(close=AsyncMock()),
+    )
     monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: MagicMock(flush=AsyncMock(), close=AsyncMock()))
     monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: MagicMock())
 
@@ -407,11 +429,14 @@ async def test_run_port_conflict_system_exit(monkeypatch):
     settings.http_host = "127.0.0.1"
     settings.http_port = 18082
     settings.kafka_startup_timeout_sec = 5.0
+    settings.redis_conversation_owner_ttl_sec = 30
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
     sm = MagicMock(close=AsyncMock())
     monkeypatch.setattr(main_mod, "RedisStateMachine", lambda **kw: sm)
+    owner = MagicMock(close=AsyncMock())
+    monkeypatch.setattr(main_mod, "RedisConversationOwner", lambda **kw: owner)
     prod = MagicMock(flush=AsyncMock(), close=AsyncMock())
     monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: prod)
     monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: MagicMock())

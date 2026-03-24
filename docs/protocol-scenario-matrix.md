@@ -29,6 +29,7 @@
 | E-13 | 传输层未捕获异常 | 握手后 | **E1007** | — | **1011** (Internal Error) | 是 | 见下文 E-13 |
 | E-14 | query 与 `metaData.conversationId` 不一致（均为字符串） | 握手后 | **E1009** | — | **1008** (Policy Violation) | 是 | 见下文 E-14 |
 | E-15 | 业务规则校验失败（如 `SESSION_ONGOING` 带 `callEndTimeStamp`、`isFinal=false`） | 握手后 | **E1009** | — | **1008** (Policy Violation) | 是 | 见下文 E-15 |
+| E-16 | 第二个连接并发发送同一 `conversationId` | 握手后 | **E1009** | — | **1008** (Policy Violation) | 是 | 见下文 E-16 |
 
 > 握手前阶段 WebSocket 连接尚未建立，无法发送 WebSocket 文本帧；只能返回 HTTP + JSON body。握手后错误才会发送 WebSocket ERROR 帧并配合 Close Code 断连。
 
@@ -289,6 +290,19 @@
 }
 ```
 
+### E-16 同会话并发发送冲突（Close 1008）
+```json
+{
+  "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
+  "error": {
+    "code": "E1009",
+    "message": "Only one sender connection is allowed",
+    "details": "another connection is already sending messages for this conversation",
+    "createdAtTimeStamp": "2026-03-21T03:00:00.000Z"
+  }
+}
+```
+
 ---
 
 ## 五、实现说明
@@ -299,4 +313,4 @@
 | **E1011** | 下游超时 (504/1013) | **已实现** — Kafka/下游超时返回该错误码 |
 | `conversationId` 缺失 | Contract 要求 400 | **已对齐：实际 400**（由 `_WsGuardMiddleware` 统一返回 JSON ERROR） |
 
-**E1009** 用于两类场景：**传输层 query / body `conversationId` 字符串不一致**，以及 **schema 通过后触发的业务规则校验失败**。**E1010** 仍为预留鉴权错误码，后续若引入 Auth，应同步补充契约、矩阵文档与测试。
+**E1009** 当前用于三类场景：**传输层 query / body `conversationId` 字符串不一致**、**schema 通过后触发的业务规则校验失败**，以及 **同一 `conversationId` 出现第二个并发发送连接**。**E1010** 仍为预留鉴权错误码，后续若引入 Auth，应同步补充契约、矩阵文档与测试。

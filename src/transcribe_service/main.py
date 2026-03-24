@@ -15,6 +15,7 @@ import uvicorn
 
 from config.logging_config import configure_logging, get_logger
 from config.settings import get_settings
+from transcribe_service.conversation_owner.redis_owner import RedisConversationOwner
 from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from transcribe_service.producer.kafka_producer import KafkaProducer
 from transcribe_service.shutdown.graceful import GracefulShutdown
@@ -87,6 +88,11 @@ async def run() -> None:
         active_ttl_sec=settings.redis_active_ttl_sec,
         final_ttl_sec=settings.redis_final_ttl_sec,
     )
+    conversation_owner = RedisConversationOwner(
+        redis_url=settings.redis_url,
+        max_connections=settings.redis_max_connections,
+        owner_ttl_sec=settings.redis_conversation_owner_ttl_sec,
+    )
     producer = KafkaProducer(
         bootstrap_servers=settings.kafka_bootstrap_servers,
         topic=settings.kafka_topic,
@@ -124,6 +130,7 @@ async def run() -> None:
         orchestrator=orchestrator,
         shutdown=shutdown,
         registry=registry,
+        conversation_owner=conversation_owner,
         redis_url=settings.redis_url,
         producer=producer,
         max_connections=settings.ws_max_connections,
@@ -185,6 +192,7 @@ async def run() -> None:
         log.info("Shutdown: 释放资源")
         await producer.close()
         await state_machine.close()
+        await conversation_owner.close()
         log.info("Transcribe Service: 已安全退出")
 
 

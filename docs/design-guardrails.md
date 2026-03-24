@@ -24,6 +24,7 @@
 - 上行消息必须通过 schema 校验；时间字段必须是 ISO-8601 UTC。
 - 握手 query 中的 `conversationId` 是连接级唯一标识。
 - 若消息体 `metaData.conversationId` 存在且为字符串，则必须与握手 query 一致；不一致时在 transport 层直接拒绝，返回 `E1009 + 1008`。
+- 同一 `conversationId` 在任一时刻只允许一个连接发送消息；新连接若与现有发送连接冲突，必须返回 `E1009 + 1008`，不得进入 orchestrator。
 - 缺字段、类型错误、枚举错误、业务规则错误必须稳定映射到既定错误码，不允许“因为实现细节变化而改码”。
 
 ### 2.2 状态机与序列语义
@@ -83,7 +84,7 @@
 
 已落地测试明确锁死以下顺序：
 
-- `close_all -> flush -> close producer/state_machine`
+- `close_all -> flush -> close producer/state_machine/conversation_owner`
 
 这条测试保护的是停机顺序本身，而不是单纯“方法被调用过”。
 
@@ -115,6 +116,7 @@
 - downstream fail/timeout -> `E1008/E1011 + 1013`
 - `conversationId` mismatch -> `E1009 + 1008`
 - business-rule violation -> `E1009 + 1008`
+- concurrent sender conflict -> `E1009 + 1008`
 
 这类测试不追求模块实现细节，而是直接保护协议契约。
 

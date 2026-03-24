@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     redis_max_connections: int = 100
     redis_active_ttl_sec: int = 3600
     redis_final_ttl_sec: int = 60
+    redis_conversation_owner_ttl_sec: int = 30
 
     # --- Kafka ---
     kafka_bootstrap_servers: str = "127.0.0.1:9092"

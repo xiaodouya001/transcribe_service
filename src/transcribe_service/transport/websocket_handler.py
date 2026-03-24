@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
+import uuid
 from typing import TYPE_CHECKING
 
 import orjson
@@ -27,10 +29,12 @@ from transcribe_service.schemas.errors import ErrorCode, WsCloseCode
 from transcribe_service.schemas.response import build_error
 
 if TYPE_CHECKING:  # pragma: no cover
+    from transcribe_service.conversation_owner.base import ConversationOwnerBackend
     from transcribe_service.orchestrator.base import OrchestratorBackend
     from transcribe_service.shutdown.graceful import GracefulShutdown
 
 log = structlog.get_logger(__name__)
+OWNER_REFRESH_INTERVAL_SEC = 5.0
 
 
 def _format_client_addr(scope: Scope) -> str:
@@ -219,9 +223,11 @@ def create_app(
     shutdown: GracefulShutdown,
     registry: ConnectionRegistry,
     *,
+    conversation_owner: ConversationOwnerBackend | None = None,
     redis_url: str = "",
     producer: object | None = None,
     max_connections: int = 0,
+    owner_refresh_interval_sec: float = OWNER_REFRESH_INTERVAL_SEC,
     log_ws_error_frames: bool = False,
 ) -> FastAPI:
     """构建 FastAPI 应用，包含 WebSocket 端点和健康检查。"""
@@ -235,6 +241,7 @@ def create_app(
     app.state.orchestrator = orchestrator
     app.state.shutdown = shutdown
     app.state.registry = registry
+    app.state.conversation_owner = conversation_owner
 
     app.add_middleware(
         _WsGuardMiddleware,
@@ -282,6 +289,9 @@ def create_app(
         conversationId: str = Query("", max_length=64),
     ):
         """主 WebSocket 端点：FanoLabs 作为客户端连接此服务端。"""
+        owner_token = uuid.uuid4().hex
+        owner_acquired = False
+        owner_refresh_task: asyncio.Task[None] | None = None
         log.info(
             "Transport: WebSocket 即将 accept",
             conversation_id=conversationId,
@@ -296,11 +306,58 @@ def create_app(
                 error=str(exc),
             )
             return
+        if conversation_owner is not None:
+            try:
+                owner_acquired = await conversation_owner.claim_or_refresh(
+                    conversationId, owner_token
+                )
+            except Exception as exc:
+                log.error(
+                    "Transport: 会话 owner 获取失败",
+                    conversation_id=conversationId,
+                    error=str(exc),
+                )
+                await _send_error_and_close(
+                    ws,
+                    conversationId,
+                    ErrorCode.E1008.value,
+                    "Downstream unavailable",
+                    WsCloseCode.TRY_AGAIN_LATER,
+                    details="Conversation owner store unavailable",
+                    log_ws_error_frames=log_ws_error_frames,
+                )
+                return
+            if not owner_acquired:
+                log.warning(
+                    "Transport: 会话已有连接在发送，拒绝新连接",
+                    conversation_id=conversationId,
+                )
+                await _send_error_and_close(
+                    ws,
+                    conversationId,
+                    ErrorCode.E1009.value,
+                    "Only one sender connection is allowed",
+                    WsCloseCode.POLICY_VIOLATION,
+                    details="another connection is already sending messages for this conversation",
+                    log_ws_error_frames=log_ws_error_frames,
+                )
+                return
         registry.add(conversationId, ws)
         log.info(
             "Transport: 连接已建立",
             conversation_id=conversationId,
         )
+        if conversation_owner is not None and owner_acquired:
+            owner_refresh_task = asyncio.create_task(
+                _owner_refresh_loop(
+                    ws,
+                    conversationId,
+                    conversation_owner=conversation_owner,
+                    owner_token=owner_token,
+                    refresh_interval_sec=owner_refresh_interval_sec,
+                    log_ws_error_frames=log_ws_error_frames,
+                )
+            )
 
         try:
             await _message_loop(
@@ -330,6 +387,21 @@ def create_app(
             )
         finally:
             registry.remove(conversationId, ws)
+            if owner_refresh_task is not None:
+                owner_refresh_task.cancel()
+                try:
+                    await owner_refresh_task
+                except asyncio.CancelledError:
+                    pass
+            if conversation_owner is not None and owner_acquired:
+                try:
+                    await conversation_owner.release(conversationId, owner_token)
+                except Exception as exc:
+                    log.warning(
+                        "Transport: 会话 owner 释放失败",
+                        conversation_id=conversationId,
+                        error=str(exc),
+                    )
 
     return app
 
@@ -425,6 +497,54 @@ async def _message_loop(
                     close_code=code,
                 )
                 await ws.close(code=code)
+            return
+
+
+async def _owner_refresh_loop(
+    ws: WebSocket,
+    conversation_id: str,
+    *,
+    conversation_owner: ConversationOwnerBackend,
+    owner_token: str,
+    refresh_interval_sec: float = OWNER_REFRESH_INTERVAL_SEC,
+    log_ws_error_frames: bool = False,
+) -> None:
+    """后台续租会话 owner，避免把 Redis 调用放进消息热路径。"""
+    refresh_interval = max(0.1, refresh_interval_sec)
+    while True:
+        await asyncio.sleep(refresh_interval)
+        try:
+            owned = await conversation_owner.claim_or_refresh(conversation_id, owner_token)
+        except Exception as exc:
+            log.error(
+                "Transport: 会话 owner 存储不可用",
+                conversation_id=conversation_id,
+                error=str(exc),
+            )
+            await _send_error_and_close(
+                ws,
+                conversation_id,
+                ErrorCode.E1008.value,
+                "Downstream unavailable",
+                WsCloseCode.TRY_AGAIN_LATER,
+                details="Conversation owner store unavailable",
+                log_ws_error_frames=log_ws_error_frames,
+            )
+            return
+        if not owned:
+            log.warning(
+                "Transport: 会话并发发送冲突",
+                conversation_id=conversation_id,
+            )
+            await _send_error_and_close(
+                ws,
+                conversation_id,
+                ErrorCode.E1009.value,
+                "Only one sender connection is allowed",
+                WsCloseCode.POLICY_VIOLATION,
+                details="another connection is already sending messages for this conversation",
+                log_ws_error_frames=log_ws_error_frames,
+            )
             return
 
 

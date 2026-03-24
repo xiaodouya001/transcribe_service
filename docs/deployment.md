@@ -70,7 +70,7 @@ docker build -f docker/Dockerfile -t transcribe-service:latest .
 
 ## 5. 扩缩容
 
-- 同一 **conversationId** 的会话宜在同一时刻由上游路由到单一实例持续处理。服务端不会主动拒绝同 `conversationId` 的重复建连；在水平扩展、部署或缩容场景下，应通过上游 **路由或重连** 将流量收敛到目标实例（常配合 `Close 1001` 使用）。
+- 同一 **conversationId** 的会话在任一时刻只允许一个连接发送消息。服务端通过 Redis owner key 强制该约束；若另一个连接试图并发发送同一会话消息，将返回 `E1009 + 1008` 并断开。上游仍应尽量将同一会话持续路由到单一实例，以减少不必要的连接冲突与切换。
 - **跨实例一致性** 依赖 **Redis Lua 状态机**（期望序号与 2PC），而非基于单次去重键的实现。
 - Kafka 以 `conversationId` 为分区键，保证单路通话在分区内有序。
 

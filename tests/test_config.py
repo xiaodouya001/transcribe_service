@@ -19,3 +19,4 @@ class TestSettings:
         assert s.http_port == 8080
         assert s.http_backlog == 4096
         assert s.kafka_startup_timeout_sec == 30.0
+        assert s.redis_conversation_owner_ttl_sec == 30

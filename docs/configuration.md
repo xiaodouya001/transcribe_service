@@ -24,6 +24,7 @@ cp .env.example .env
 | `REDIS_MAX_CONNECTIONS` | 100 | 连接池大小；高并发 WebSocket（如约 1000 路）场景可提升至 256～1024，见 [concurrency-capacity.md](concurrency-capacity.md) |
 | `REDIS_ACTIVE_TTL_SEC` | 3600 | 活跃会话 TTL（秒），每次写入自动续期 |
 | `REDIS_FINAL_TTL_SEC` | 60 | SESSION_COMPLETE 后残留 TTL（秒） |
+| `REDIS_CONVERSATION_OWNER_TTL_SEC` | 30 | 单个 `conversationId` 发送连接 owner key 的 TTL（秒）；服务端在连接建立时 claim 所有权，并在连接存活期间周期 refresh，用于跨 pod 保证“同会话同一时刻仅一个连接发送消息” |
 
 ### Kafka
 

@@ -16,6 +16,7 @@
 | ---------------------------- | -------------- | ------------- | -------------- |
 | `WS_MAX_CONNECTIONS`         | 360            | 480           | 600            |
 | `REDIS_MAX_CONNECTIONS`      | 900            | 1200          | 1600           |
+| `REDIS_CONVERSATION_OWNER_TTL_SEC` | 30       | 30            | 30             |
 | `HTTP_BACKLOG`               | 4096           | 4096          | 4096           |
 | `KAFKA_COMPRESSION_TYPE`     | lz4            | lz4           | lz4            |
 | `KAFKA_LINGER_MS`            | 1              | 1             | 1              |
@@ -62,6 +63,7 @@
 ```env
 WS_MAX_CONNECTIONS=360
 REDIS_MAX_CONNECTIONS=900
+REDIS_CONVERSATION_OWNER_TTL_SEC=30
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
@@ -76,6 +78,7 @@ LOG_LEVEL=WARNING
 ```env
 WS_MAX_CONNECTIONS=480
 REDIS_MAX_CONNECTIONS=1200
+REDIS_CONVERSATION_OWNER_TTL_SEC=30
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
@@ -90,6 +93,7 @@ LOG_LEVEL=WARNING
 ```env
 WS_MAX_CONNECTIONS=600
 REDIS_MAX_CONNECTIONS=1600
+REDIS_CONVERSATION_OWNER_TTL_SEC=30
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
