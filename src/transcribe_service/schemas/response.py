@@ -66,14 +66,16 @@ def _utc_now_iso() -> str:
 
 def build_ack(conversation_id: str, sequence_number: int) -> dict:
     """构建 TRANSCRIPT_ACK 响应字典（可直接 JSON 序列化）。"""
-    resp = TranscriptAckResponse(
-        metaData=AckMetaData(conversationId=conversation_id),
-        payload=AckPayload(
-            sequenceNumber=sequence_number,
-            createdAtTimeStamp=_utc_now_iso(),
-        ),
-    )
-    return resp.model_dump()
+    return {
+        "metaData": {
+            "conversationId": conversation_id,
+            "eventType": EVENT_TRANSCRIPT_ACK,
+        },
+        "payload": {
+            "sequenceNumber": sequence_number,
+            "createdAtTimeStamp": _utc_now_iso(),
+        },
+    }
 
 
 def build_error(
@@ -83,13 +85,15 @@ def build_error(
     details: str | None = None,
 ) -> dict:
     """构建 ERROR 响应字典（可直接 JSON 序列化）。"""
-    resp = ErrorResponse(
-        metaData=ErrorMetaData(conversationId=conversation_id),
-        error=ErrorDetail(
-            code=code,
-            message=message,
-            details=details,
-            createdAtTimeStamp=_utc_now_iso(),
-        ),
-    )
-    return resp.model_dump()
+    return {
+        "metaData": {
+            "conversationId": conversation_id,
+            "eventType": EVENT_ERROR,
+        },
+        "error": {
+            "code": code,
+            "message": message,
+            "details": details,
+            "createdAtTimeStamp": _utc_now_iso(),
+        },
+    }
