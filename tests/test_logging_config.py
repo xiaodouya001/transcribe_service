@@ -7,6 +7,7 @@ import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
+import structlog
 
 import config.logging_config as lc
 
@@ -18,13 +19,23 @@ def test_json_serializer():
 
 
 def test_get_version_success():
+    lc._get_version.cache_clear()
     with patch("importlib.metadata.version", return_value="9.9.9"):
         assert lc._get_version() == "9.9.9"
 
 
 def test_get_version_fallback():
+    lc._get_version.cache_clear()
     with patch("importlib.metadata.version", side_effect=Exception("no pkg")):
         assert lc._get_version() == "0.1.0"
+
+
+def test_get_version_is_cached():
+    lc._get_version.cache_clear()
+    with patch("importlib.metadata.version", return_value="9.9.9") as version:
+        assert lc._get_version() == "9.9.9"
+        assert lc._get_version() == "9.9.9"
+    version.assert_called_once_with("transcribe-service")
 
 
 def test_add_service_context():
@@ -143,3 +154,24 @@ def test_get_logger_none():
 def test_aiokafka_logger_silenced_on_configure():
     lc.configure_logging(format="json", level="DEBUG")
     assert logging.getLogger("aiokafka").level == logging.CRITICAL
+
+
+def test_configure_logging_filters_debug_before_expensive_processors(monkeypatch):
+    seen: list[tuple[str, str | None]] = []
+
+    def touch(logger, method_name, event_dict):
+        seen.append((method_name, event_dict.get("event")))
+        return event_dict
+
+    monkeypatch.setattr(
+        lc,
+        "_STRUCTLOG_PRE_PROCESSORS",
+        [structlog.stdlib.filter_by_level, touch],
+    )
+    lc.configure_logging(level="INFO", format="json")
+
+    log = lc.get_logger("perf_guard")
+    log.debug("hidden")
+    log.info("visible")
+
+    assert seen == [("info", "visible")]

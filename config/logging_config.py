@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import sys
+from functools import lru_cache
 from typing import Any, Literal
 from urllib.parse import urlparse, urlunparse
 
@@ -23,6 +24,7 @@ def _json_serializer(obj: Any, **kwargs: Any) -> str:
 SERVICE_NAME = "transcribe-service"
 
 
+@lru_cache(maxsize=1)
 def _get_version() -> str:
     """Get package version for log context."""
     try:
@@ -94,6 +96,11 @@ _SHARED_PROCESSORS: list[structlog.typing.Processor] = [
     structlog.processors.UnicodeDecoder(),
 ]
 
+_STRUCTLOG_PRE_PROCESSORS: list[structlog.typing.Processor] = [
+    structlog.stdlib.filter_by_level,
+    *_SHARED_PROCESSORS,
+]
+
 
 def _configure_stdlib_logging(log_level: int, renderer: structlog.processors.JSONRenderer | structlog.dev.ConsoleRenderer) -> None:
     """Route stdlib logging (including uvicorn) through the same renderer as structlog."""
@@ -141,12 +148,12 @@ def configure_logging(
     _configure_stdlib_logging(log_level, renderer)
 
     if use_json:
-        processors = _SHARED_PROCESSORS + [
+        processors = _STRUCTLOG_PRE_PROCESSORS + [
             structlog.processors.dict_tracebacks,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ]
     else:
-        processors = _SHARED_PROCESSORS + [
+        processors = _STRUCTLOG_PRE_PROCESSORS + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ]
 

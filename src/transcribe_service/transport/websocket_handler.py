@@ -69,29 +69,36 @@ class ConnectionRegistry:
 
     def __init__(self) -> None:
         self._connections: dict[str, list[WebSocket]] = {}
+        self._active_count = 0
 
     def add(self, conversation_id: str, ws: WebSocket) -> None:
         self._connections.setdefault(conversation_id, []).append(ws)
+        self._active_count += 1
 
     def remove(self, conversation_id: str, ws: WebSocket | None = None) -> None:
         """移除登记。若传入 ``ws``，仅当登记对象仍是该实例时才删除，避免重复 conversationId 或
         旧连接 finally 误删新连接。
         """
         if ws is None:
-            self._connections.pop(conversation_id, None)
+            sockets = self._connections.pop(conversation_id, None)
+            if sockets:
+                self._active_count -= len(sockets)
             return
         sockets = self._connections.get(conversation_id)
         if not sockets:
             return
-        self._connections[conversation_id] = [
-            registered_ws for registered_ws in sockets if registered_ws is not ws
-        ]
-        if not self._connections[conversation_id]:
+        remaining = [registered_ws for registered_ws in sockets if registered_ws is not ws]
+        removed = len(sockets) - len(remaining)
+        if removed:
+            self._active_count -= removed
+        if remaining:
+            self._connections[conversation_id] = remaining
+        else:
             self._connections.pop(conversation_id, None)
 
     @property
     def active_count(self) -> int:
-        return sum(len(sockets) for sockets in self._connections.values())
+        return self._active_count
 
     async def close_all(
         self, code: int = WsCloseCode.GOING_AWAY, reason: str = WS_CLOSE_REASON_GOING_AWAY
@@ -105,6 +112,7 @@ class ConnectionRegistry:
                 except Exception:
                     pass
             self._connections.pop(cid, None)
+        self._active_count = 0
 
 
 class _WsGuardMiddleware:
