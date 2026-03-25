@@ -25,7 +25,7 @@
 - 握手 query 中的 `conversationId` 是连接级唯一标识。
 - `metaData` 只承载会话级字段；`agentId`、`customerId` 属于 `payload`，并按 `speaker` 条件必填。
 - 若消息体 `metaData.conversationId` 存在且为字符串，则必须与握手 query 一致；不一致时在 transport 层直接拒绝，返回 `E1009 + 1008`。
-- 同一 `conversationId` 在任一时刻只允许一个连接发送消息；新连接若与现有发送连接冲突，必须返回 `E1009 + 1008`，不得进入 orchestrator。
+- 同一 `conversationId` 在任一时刻只允许一个连接发送消息；新连接若与现有发送连接冲突，必须在握手阶段返回 HTTP `403` + `E1009`，不得进入 orchestrator。
 - 缺字段、类型错误、枚举错误、业务规则错误必须稳定映射到既定错误码，不允许“因为实现细节变化而改码”。
 
 ### 2.2 状态机与序列语义
@@ -120,7 +120,7 @@
 - downstream fail/timeout -> `E1008/E1011 + 1013`
 - `conversationId` mismatch -> `E1009 + 1008`
 - business-rule violation -> `E1009 + 1008`
-- concurrent sender conflict -> `E1009 + 1008`
+- concurrent sender conflict at handshake -> HTTP `403` + `E1009`
 
 这类测试不追求模块实现细节，而是直接保护协议契约。
 

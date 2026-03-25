@@ -30,7 +30,7 @@
 | E-13   | 传输层未捕获异常                                                           | 握手后      | **E1007** | —            | **1011** (Internal Error)   | 是       | 见下文 E-13    |
 | E-14   | query 与 `metaData.conversationId` 不一致（均为字符串）                       | 握手后      | **E1009** | —            | **1008** (Policy Violation) | 是       | 见下文 E-14    |
 | E-15   | 业务规则校验失败（如 `SESSION_ONGOING` 带 `callEndTimeStamp`、`isFinal=false`） | 握手后      | **E1009** | —            | **1008** (Policy Violation) | 是       | 见下文 E-15    |
-| E-16   | 第二个连接并发发送同一 `conversationId`                                       | 握手后      | **E1009** | —            | **1008** (Policy Violation) | 是       | 见下文 E-16    |
+| E-16   | 第二个连接并发发送同一 `conversationId`                                       | 握手前      | **E1009** | **403**      | —                           | 是（拒绝握手） | 见下文 E-16    |
 
 
 > 握手前阶段 WebSocket 连接尚未建立，无法发送 WebSocket 文本帧；只能返回 HTTP + JSON body。握手后错误才会发送 WebSocket ERROR 帧并配合 Close Code 断连。
@@ -315,7 +315,9 @@
 }
 ```
 
-### E-16 同会话并发发送冲突（Close 1008）
+### E-16 同会话并发发送冲突（HTTP 403）
+
+在握手阶段校验：若同一 `conversationId` 已被另一活跃发送连接持有，则直接拒绝握手，返回 **HTTP 403 + E1009**；不会建立 WebSocket 连接，不会进入 orchestrator，也不会发送 WebSocket close 帧。
 
 ```json
 {
@@ -333,5 +335,5 @@
 
 ## 五、保留错误码说明
 
-- `E1009` 用于三类场景：传输层 query / body `conversationId` 字符串不一致、schema 通过后的业务规则校验失败、同一 `conversationId` 出现第二个并发发送连接。
+- `E1009` 用于三类场景：传输层 query / body `conversationId` 字符串不一致、schema 通过后的业务规则校验失败、同一 `conversationId` 出现第二个并发发送连接。前两类是握手后 `ERROR + 1008`，最后一类是握手期 `HTTP 403`。
 - `E1010` 为鉴权失败保留错误码。本服务未包含鉴权流程，因此本矩阵不包含 `E1010` 的可执行场景。

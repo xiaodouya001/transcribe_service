@@ -57,6 +57,21 @@ async def _startup_phase_timed(phase: str, coro: Awaitable[Any]) -> None:
         )
 
 
+async def _graceful_stop(
+    server: uvicorn.Server,
+    server_task: asyncio.Task[None],
+    registry: Any,
+    producer: KafkaProducer,
+) -> None:
+    """按固定顺序执行优雅停机主流程。"""
+    await registry.close_all(
+        code=WsCloseCode.GOING_AWAY, reason=WS_CLOSE_REASON_GOING_AWAY
+    )
+    await producer.flush()
+    server.should_exit = True
+    await server_task
+
+
 async def _check_kafka(producer: KafkaProducer, timeout: float) -> None:
     """验证 Kafka 可达。"""
     try:
@@ -113,7 +128,7 @@ async def run() -> None:
     shutdown.register_signal()
     registry = ConnectionRegistry()
 
-    # --- 启动前检查（Redis 与 Kafka 并行，缩短冷启动；耗时见 Startup: 阶段结束）---
+    # --- 启动前检查（Redis 与 Kafka 并行，减少冷启动耗时）---
     t_checks = time.perf_counter()
     await asyncio.gather(
         _startup_phase_timed("redis", _check_redis(settings.redis_url)),
@@ -181,13 +196,24 @@ async def run() -> None:
             server_task.result()
 
         # --- 优雅停机 ---
-        log.info("Shutdown: 开始优雅停机")
-        await registry.close_all(
-            code=WsCloseCode.GOING_AWAY, reason=WS_CLOSE_REASON_GOING_AWAY
-        )
-        await producer.flush()
-        server.should_exit = True
-        await server_task
+        log.info("Shutdown: 开始优雅停机", timeout_sec=shutdown.stop_timeout)
+        try:
+            await asyncio.wait_for(
+                _graceful_stop(server, server_task, registry, producer),
+                timeout=shutdown.stop_timeout,
+            )
+        except asyncio.TimeoutError:
+            log.warning(
+                "Shutdown: 优雅停机超时，强制收尾",
+                timeout_sec=shutdown.stop_timeout,
+            )
+            server.should_exit = True
+            if not server_task.done():
+                server_task.cancel()
+                try:
+                    await server_task
+                except asyncio.CancelledError:
+                    pass
     except Exception as e:
         log.exception("运行异常", error=str(e))
         raise

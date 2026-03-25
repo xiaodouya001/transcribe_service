@@ -14,6 +14,7 @@
 | 3. 响应契约    | Server → Client 成功/错误响应结构      |
 | 4. 状态码与错误码 | HTTP 握手码、WebSocket 关闭码、应用错误码映射 |
 | 5. 完整示例    | 请求与响应对照示例                      |
+| 6. Kafka 落盘契约 | Server → Kafka 的消息 Key/Value 与写入规则 |
 
 
 ---
@@ -188,7 +189,7 @@
   - 服务端对相同组合会再次返回 ACK。
 6. **单连接发送**：
   - 同一 `conversationId` 在任一时刻只允许一个连接持续发送消息。
-  - 若服务端检测到另一个连接已在发送该会话消息，则返回 `E1009` 并关闭 `1008`。
+  - 若服务端在握手阶段检测到另一个连接已在发送该会话消息，则拒绝握手并返回 HTTP `403` + `E1009`。
 7. **结束事件 ACK**：`SESSION_COMPLETE` 成功时返回 `EOL_ACK`。
 8. **结束事件 transcript**：`payload.transcript` 为必填字符串，但服务端不校验固定字面值。
 
@@ -287,7 +288,7 @@
 | WebSocket 升级成功 | 101 | Switching Protocols           |
 | 无效请求/参数/Header | 400 | Bad Request                   |
 | 未授权            | 401 | 保留；鉴权启用时用于无效或过期凭证         |
-| 禁止访问           | 403 | 保留；鉴权启用时用于已鉴权但无访问权限     |
+| 禁止访问           | 403 | Forbidden；用于握手阶段已知不允许的策略冲突，如同会话初始并发发送连接 |
 | 限流             | 429 | Too Many Requests             |
 | 握手内部错误         | 500 | Internal Server Error         |
 | 服务不可用          | 503 | Temporary unavailable         |
@@ -322,7 +323,7 @@
 | E1006 | ERROR | 400 | 1008 | 是 | 是 | 序列号未递增或乱序；重复包按幂等返回 ACK |
 | E1007 | ERROR | 500 | 1011 | 是 | 是 | 服务端内部处理异常（非用户输入问题） |
 | E1008 | ERROR | 503/429 | 1013 | 是 | 是 | 下游（如 Kafka、Redis）不可用或服务进行限流，暂时无法处理 |
-| E1009 | ERROR | 403/400 | 1008 | 是 | 是 | 不允许的业务操作或策略冲突；包括握手 query 与 `metaData.conversationId` 不一致、同会话并发发送冲突等 |
+| E1009 | ERROR | 403（初始并发发送冲突） / —（握手后策略违规） | 1008（仅握手后） | 是 | 是 | 不允许的业务操作或策略冲突；同会话初始并发发送冲突在握手阶段返回 403，query 与 `metaData.conversationId` 不一致等握手后违规返回 1008 |
 | E1010 | ERROR | 401 | 1008 | 是 | 是 | 保留错误码；鉴权启用时用于缺少、无效或无权限的凭证 |
 | E1011 | ERROR | 504 | 1013 | 是 | 是 | 上游或下游服务（如 STT Provider、Kafka）响应超时 |
 
@@ -446,5 +447,96 @@
   }
 }
 ```
+
+---
+
+## 6. Kafka 落盘契约
+
+本节描述服务端在成功路径中写入 Kafka 的消息契约，即 **Server → Kafka** 的内部数据格式。
+
+### 6.1 写入规则
+
+| 项目 | 契约 |
+| --- | --- |
+| Topic | 由 `KAFKA_TOPIC` 配置决定，默认 `cc.transcript.realtime.v1` |
+| Message Key | `conversationId` 的 UTF-8 字节 |
+| Message Value | UTF-8 JSON 字节 |
+| Value 业务结构 | 与通过校验的上行请求保持同一业务结构，即 `metaData + payload` |
+| 服务端是否附加字段 | 否；不追加 ACK、ERROR、`serverProcessingMs` 或 Kafka wrapper |
+| 分区路由 | 由 Kafka 根据 Key（`conversationId`）进行分区 |
+| 写入时机 | `prepare` 通过后、`commit` 前 |
+
+### 6.2 Kafka Message Value 示例
+
+**SESSION_ONGOING**
+
+Kafka Message Key:
+
+```text
+39449992-32f3-4581-a8a1-99d4109f37d4
+```
+
+Kafka Message Value:
+
+```json
+{
+  "metaData": {
+    "conversationId": "39449992-32f3-4581-a8a1-99d4109f37d4",
+    "callStartTimeStamp": "2025-03-21T10:30:02.327Z",
+    "callEndTimeStamp": null,
+    "eventType": "SESSION_ONGOING"
+  },
+  "payload": {
+    "agentId": "3210001",
+    "customerId": null,
+    "sequenceNumber": 0,
+    "speaker": "Agent",
+    "transcript": "thank you",
+    "engineProvider": "FanoLabs",
+    "dialect": "yue-x-auto",
+    "isFinal": true,
+    "createdAtTimeStamp": "2025-03-21T10:32:20.000Z"
+  }
+}
+```
+
+**SESSION_COMPLETE**
+
+Kafka Message Key:
+
+```text
+39449992-32f3-4581-a8a1-99d4109f37d4
+```
+
+Kafka Message Value:
+
+```json
+{
+  "metaData": {
+    "conversationId": "39449992-32f3-4581-a8a1-99d4109f37d4",
+    "callStartTimeStamp": "2025-03-21T10:30:02.327Z",
+    "callEndTimeStamp": "2025-03-21T10:45:00.000Z",
+    "eventType": "SESSION_COMPLETE"
+  },
+  "payload": {
+    "agentId": null,
+    "customerId": null,
+    "sequenceNumber": 42,
+    "speaker": "System",
+    "transcript": "EOL",
+    "engineProvider": "FanoLabs",
+    "dialect": "yue-x-auto",
+    "isFinal": true,
+    "createdAtTimeStamp": "2025-03-21T10:44:58.000Z"
+  }
+}
+```
+
+### 6.3 不写入 Kafka 的场景
+
+- Schema 校验失败、业务规则校验失败、握手校验失败时，不写入 Kafka。
+- 重复包（IDEMPOTENT）直接返回对应 ACK，不重复写入 Kafka。
+- 乱序包（OUT_OF_ORDER）返回 `E1006`，不写入 Kafka。
+- 只有通过 `prepare` 且实际执行 Kafka send 的消息，才会进入 Kafka。
 
 ---

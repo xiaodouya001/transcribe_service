@@ -163,8 +163,8 @@ class TestTransportContractMatrix:
 
         orchestrator.handle_message.assert_not_awaited()
 
-    def test_active_writer_conflict_returns_e1009_and_close_1008(self):
-        """E-16：同一 conversationId 的第二个并发发送连接返回 E1009，并以 1008 断开。"""
+    def test_active_writer_conflict_returns_e1009_and_http_403(self):
+        """E-16：同一 conversationId 的第二个并发发送连接在握手期返回 HTTP 403 / E1009。"""
         orchestrator = AsyncMock()
         orchestrator.handle_message = AsyncMock()
         owner = RedisConversationOwnershipGuard(
@@ -183,15 +183,15 @@ class TestTransportContractMatrix:
 
         try:
             with client.websocket_connect("/ws/v1/realtime-transcriptions?conversationId=conv-1"):
-                with client.websocket_connect(
-                    "/ws/v1/realtime-transcriptions?conversationId=conv-1"
-                ) as ws:
-                    resp = orjson.loads(ws.receive_text())
-                    assert resp["error"]["code"] == "E1009"
-                    assert resp["error"]["message"] == "Only one sender connection is allowed"
-                    with pytest.raises(WebSocketDisconnect) as ei:
-                        ws.receive_text()
-                    assert ei.value.code == 1008
+                with pytest.raises(Exception) as ei:
+                    with client.websocket_connect(
+                        "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+                    ):
+                        pass
+                assert hasattr(ei.value, "status_code") and ei.value.status_code == 403
+                body = getattr(ei.value, "text", "")
+                assert "E1009" in body
+                assert "Only one sender connection is allowed" in body
         finally:
             import asyncio
 

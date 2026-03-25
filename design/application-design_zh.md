@@ -88,21 +88,26 @@ sequenceDiagram
     Main->>Main: 初始化 Producer / RedisSequenceStateMachine / RedisConversationOwnershipGuard / Registry
     Main->>Main: 注册 SIGTERM/SIGINT 信号
 
-    Main->>RedisCore: ping()
-    alt Redis 不可用
-        RedisCore-->>Main: 连接失败
-        Main->>Main: 退出（日志：启动失败）
-    else Redis 正常
-        RedisCore-->>Main: PONG
+    Main->>Main: 并行执行 Redis / Kafka 启动检查
+    par Redis 启动检查
+        Main->>RedisCore: ping()
+        alt Redis 不可用
+            RedisCore-->>Main: 连接失败
+            Main->>Main: 退出（日志：启动失败）
+        else Redis 正常
+            RedisCore-->>Main: PONG
+        end
+    and Kafka 启动检查
+        Main->>Kafka: ensure_ready()
+        alt Kafka 不可用
+            Kafka-->>Main: 连接失败
+            Main->>Main: 退出（日志：启动失败）
+        else Kafka 正常
+            Kafka-->>Main: 就绪
+        end
     end
 
-    Main->>Kafka: ensure_ready()
-    alt Kafka 不可用
-        Kafka-->>Main: 连接失败
-        Main->>Main: 退出（日志：启动失败）
-    else Kafka 正常
-        Kafka-->>Main: 就绪
-    end
+    Main->>Main: 记录并行启动检查耗时
 
     Main->>Main: 启动 Uvicorn（FastAPI 服务，0.0.0.0:8080）
 ```
@@ -120,14 +125,14 @@ sequenceDiagram
     participant RedisState as Redis (Sequence State Machine)
     participant Kafka as MSK (消息总线)
 
-    Vendor->>Trans: 建立 WebSocket 连接 (conversationId)
-    Trans->>RedisOwnership: claim_or_refresh(conversationId, ownershipToken)
+    Vendor->>Trans: 发起 WebSocket 握手 (conversationId)
+    Trans->>RedisOwnership: 握手阶段 claim_or_refresh(conversationId, ownershipToken)
     alt ownership guard 已被其他连接占用
         RedisOwnership-->>Trans: BUSY
-        Trans-->>Vendor: 发送 ERROR(E1009)
-        Trans->>Vendor: 关闭连接 (Close Code 1008)
+        Trans-->>Vendor: 拒绝握手 (HTTP 403 + E1009)
     else ownership guard 获取成功
         RedisOwnership-->>Trans: OWNED
+        Trans->>Vendor: 接受 WebSocket 升级
         Trans->>Trans: 启动后台 refresh loop
     end
 
@@ -233,18 +238,18 @@ sequenceDiagram
         else 正常处理流程
             Trans->>Trans: 内部动作: Schema 校验
 
-            alt 建连阶段 ownership guard 获取失败 / 续租存储不可用
-                Trans->>RedisOwnership: claim_or_refresh / refresh
+            alt ownership guard 后台 refresh 存储不可用
+                Trans->>RedisOwnership: refresh
                 RedisOwnership-->>Trans: 异常
                 Trans-->>Vendor: 发送 ERROR 帧 (E1008)
                 Trans->>Vendor: 关闭连接 (Close Code 1013)
-            else ownership guard 已被其他连接占用
-                Trans->>RedisOwnership: claim_or_refresh / refresh
+            else ownership guard 后台 refresh 检测到冲突
+                Trans->>RedisOwnership: refresh
                 RedisOwnership-->>Trans: BUSY
                 Trans-->>Vendor: 发送 ERROR 帧 (E1009, Only one sender connection is allowed)
                 Trans->>Vendor: 关闭连接 (Close Code 1008)
             else ownership guard 正常
-                Note over Trans,RedisOwnership: ownership guard claim/refresh 已通过，继续进入消息校验与编排
+                Note over Trans,RedisOwnership: 握手阶段 claim 已通过，连接存活期间 refresh 正常，继续进入消息校验与编排
             end
 
             alt Schema / 业务规则校验失败 (E1002/E1003/E1004/E1005/E1009)
@@ -454,9 +459,13 @@ sequenceDiagram
 | --- | --- | --- |
 | Topic | `cc.transcript.realtime.v1` | 默认主题名称 |
 | Partition Key | `conversationId` | 同一会话固定落到同一分区 |
+| Message Key | `conversationId` | UTF-8 字节 |
+| Message Value | 与上行请求一致的 `metaData + payload` JSON | 不附加 ACK、ERROR 或服务端增强字段 |
 | Partition 数量 | 50 或 100 | 由部署环境预建 Topic 时决定 |
 | `acks` | `all` | 用于保证 Kafka 持久化确认后再进入 Commit |
 | 压缩 | `zstd` | 默认压缩方式 |
+
+Kafka 落盘消息的完整契约见 [transcribe-service-API-contract.md](transcribe-service-API-contract.md#6-kafka-落盘契约)。
 
 ### 4.2 Redis 约束
 

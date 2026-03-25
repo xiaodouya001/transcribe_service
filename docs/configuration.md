@@ -70,7 +70,7 @@ cp .env.example .env
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `STOP_TIMEOUT` | 120 | 优雅停机超时（秒） |
+| `STOP_TIMEOUT` | 120 | 收到停机信号后的 graceful shutdown 总预算（秒）；覆盖 `close_all`、`flush` 与等待服务循环退出 |
 | `LOG_LEVEL` | INFO | 日志级别 |
 | `LOG_FORMAT` | auto | 日志格式：`json`、`console`、`auto` |
 | `LOG_WS_ERROR_FRAMES` | false | 是否打印服务端发出的完整 ERROR 响应 JSON；排障时可开启，压测场景通常保持关闭 |

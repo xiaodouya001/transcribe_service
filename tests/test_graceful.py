@@ -44,6 +44,11 @@ def test_sync_signal_handler():
     assert gs._shutdown_event.is_set()
 
 
+def test_stop_timeout_property():
+    gs = GracefulShutdown(stop_timeout=15)
+    assert gs.stop_timeout == 15
+
+
 def test_register_signal_windows_fallback_when_add_handler_fails(monkeypatch):
     gs = GracefulShutdown()
     loop = asyncio.new_event_loop()

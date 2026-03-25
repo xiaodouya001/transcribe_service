@@ -38,7 +38,7 @@ Kafka 发送超时/失败 → 返回 ERROR 帧（E1008/E1011）→ 断连（Clos
 
 ## Q6：优雅停机如何工作？
 
-收到 SIGTERM 后：标记 Drain（拒绝新连接）→ 向存量连接发送 Close 1001 → flush Kafka 缓冲区 → 释放 Redis 连接 → 退出。
+收到 SIGTERM 后：标记 Drain（拒绝新连接）→ 向存量连接发送 Close 1001 → flush Kafka 缓冲区 → 等待服务循环退出 → 释放 Redis 连接并退出。整个 graceful shutdown 受 `STOP_TIMEOUT` 控制；超时后服务会停止等待，继续做强制收尾。
 
 ---
 
@@ -48,7 +48,7 @@ Kafka 发送超时/失败 → 返回 ERROR 帧（E1008/E1011）→ 断连（Clos
 
 - **握手标识**：WebSocket 握手必须携带 query 参数 `conversationId`；若消息体中显式提供 `metaData.conversationId`，其值必须与 query 中的 `conversationId` 完全一致。
 - **单会话单发送链路**：同一 `conversationId` 在任一时刻应只保留一条活跃发送链路；不要为同一会话建立多条并发发送连接，也不要由多个 worker/线程并发发送同一会话消息。
-- **服务端会强制单连接发送**：若同一 `conversationId` 已有连接在发送消息，新的冲突连接会收到 `E1009 + 1008` 并被关闭。
+- **服务端会强制单连接发送**：若同一 `conversationId` 已有连接在发送消息，新的冲突连接会在握手阶段收到 HTTP `403` + `E1009`，不会建立 WebSocket 连接。
 - **严格顺序**：同一 `conversationId` 下，`sequenceNumber` 必须从 `0` 开始并按 `0, 1, 2, 3...` 连续推进；不允许跳号、不允许乱序、不允许先发 `N+1` 再补发 `N`。
 - **失败后重发同一 seq**：若收到 `ERROR`（尤其 `E1008` / `E1011`）、WebSocket 被 `1008` / `1013` 关闭，或客户端等待 ACK 超时，重连后必须重发上一个未被 ACK 的同一 `sequenceNumber`，不得跳到下一条。
 - **重复重试要保持幂等键不变**：同一次业务重试必须保持 `(conversationId, sequenceNumber)` 不变；服务端会按幂等语义返回 ACK，不会重复写 Kafka。

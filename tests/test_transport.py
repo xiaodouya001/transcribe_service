@@ -342,15 +342,15 @@ class TestWebSocket:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ) as ws1:
-                with client.websocket_connect(
-                    "/ws/v1/realtime-transcriptions?conversationId=conv-1"
-                ) as ws2:
-                    resp = orjson.loads(ws2.receive_text())
-                    assert resp["error"]["code"] == "E1009"
-                    assert resp["error"]["message"] == "Only one sender connection is allowed"
-                    with pytest.raises(WebSocketDisconnect) as ei:
-                        ws2.receive_text()
-                    assert ei.value.code == 1008
+                with pytest.raises(Exception) as ei:
+                    with client.websocket_connect(
+                        "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+                    ):
+                        pass
+                assert hasattr(ei.value, "status_code") and ei.value.status_code == 403
+                body = getattr(ei.value, "text", "")
+                assert "E1009" in body
+                assert "Only one sender connection is allowed" in body
 
                 ws1.send_text(
                     orjson.dumps(_ongoing_message()).decode()
@@ -406,16 +406,77 @@ class TestWebSocket:
         )
         client = TestClient(app)
 
-        with client.websocket_connect(
-            "/ws/v1/realtime-transcriptions?conversationId=conv-1"
-        ) as ws:
-            resp = orjson.loads(ws.receive_text())
-            assert resp["error"]["code"] == "E1008"
-            assert resp["error"]["message"] == "Downstream unavailable"
-            assert resp["error"]["details"] == "Conversation ownership guard store unavailable"
-            with pytest.raises(WebSocketDisconnect) as ei:
-                ws.receive_text()
-            assert ei.value.code == 1013
+        with pytest.raises(Exception) as ei:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ):
+                pass
+        assert hasattr(ei.value, "status_code") and ei.value.status_code == 503
+        body = getattr(ei.value, "text", "")
+        assert "E1008" in body
+        assert "Downstream unavailable" in body
+        assert "Conversation ownership guard store unavailable" in body
+        mock_orchestrator.handle_message.assert_not_awaited()
+
+    def test_ws_owner_store_unavailable_on_fallback_claim_returns_e1008(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        from transcribe_service.transport import websocket_handler as wh
+
+        owner = ScriptedOwnerBackend([RuntimeError("owner store down")])
+
+        async def passthrough(self, scope, receive, send):
+            await self._app(scope, receive, send)
+
+        with patch.object(wh._WsGuardMiddleware, "__call__", new=passthrough):
+            app = create_app(
+                mock_orchestrator,
+                shutdown,
+                registry,
+                ownership_guard=owner,
+            )
+            client = TestClient(app)
+
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ) as ws:
+                resp = orjson.loads(ws.receive_text())
+                assert resp["error"]["code"] == "E1008"
+                assert resp["error"]["message"] == "Downstream unavailable"
+                assert resp["error"]["details"] == "Conversation ownership guard store unavailable"
+                with pytest.raises(WebSocketDisconnect) as ei:
+                    ws.receive_text()
+                assert ei.value.code == 1013
+        mock_orchestrator.handle_message.assert_not_awaited()
+
+    def test_ws_owner_conflict_on_fallback_claim_returns_e1009(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        from transcribe_service.transport import websocket_handler as wh
+
+        owner = ScriptedOwnerBackend([False])
+
+        async def passthrough(self, scope, receive, send):
+            await self._app(scope, receive, send)
+
+        with patch.object(wh._WsGuardMiddleware, "__call__", new=passthrough):
+            app = create_app(
+                mock_orchestrator,
+                shutdown,
+                registry,
+                ownership_guard=owner,
+            )
+            client = TestClient(app)
+
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ) as ws:
+                resp = orjson.loads(ws.receive_text())
+                assert resp["error"]["code"] == "E1009"
+                assert resp["error"]["message"] == "Only one sender connection is allowed"
+                with pytest.raises(WebSocketDisconnect) as ei:
+                    ws.receive_text()
+                assert ei.value.code == 1008
         mock_orchestrator.handle_message.assert_not_awaited()
 
     def test_ws_owner_store_unavailable_during_background_refresh_returns_e1008(

@@ -36,6 +36,8 @@ if TYPE_CHECKING:  # pragma: no cover
 
 log = structlog.get_logger(__name__)
 OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC = 5.0
+SCOPE_OWNERSHIP_TOKEN = "transcribe_service.ownership_token"
+SCOPE_OWNERSHIP_ACQUIRED = "transcribe_service.ownership_acquired"
 
 
 def _format_client_addr(scope: Scope) -> str:
@@ -123,7 +125,7 @@ class ConnectionRegistry:
 class _WsGuardMiddleware:
     """ASGI 中间件：WebSocket 握手前做准入检查。
 
-    检查顺序：conversationId → draining → 连接数上限。
+    检查顺序：conversationId → draining → 连接数上限 → ownership guard。
     拒绝时使用 ASGI WebSocket Denial Response 协议返回 JSON ERROR 帧 + HTTP 状态码。
     """
 
@@ -133,11 +135,13 @@ class _WsGuardMiddleware:
         shutdown: GracefulShutdown,
         registry: ConnectionRegistry,
         max_connections: int,
+        ownership_guard: ConversationOwnershipGuardBackend | None = None,
     ) -> None:
         self._app = app
         self._shutdown = shutdown
         self._registry = registry
         self._max_connections = max_connections
+        self._ownership_guard = ownership_guard
 
     @staticmethod
     def _extract_conversation_id(scope: Scope) -> str:
@@ -224,6 +228,56 @@ class _WsGuardMiddleware:
             )
             return
 
+        if self._ownership_guard is not None:
+            ownership_token = uuid.uuid4().hex
+            try:
+                owned = await self._ownership_guard.claim_or_refresh(cid, ownership_token)
+            except Exception as exc:
+                error_response = build_error(
+                    cid,
+                    ErrorCode.E1008.value,
+                    "Downstream unavailable",
+                    "Conversation ownership guard store unavailable",
+                )
+                _log_handshake_reject(
+                    scope,
+                    reason="Transport: 会话发送所有权守卫获取失败，拒绝连接",
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    error_response=error_response,
+                    conversation_id=cid,
+                    error=str(exc),
+                )
+                await _deny_websocket(
+                    receive, send,
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    error_response=error_response,
+                )
+                return
+
+            if not owned:
+                error_response = build_error(
+                    cid,
+                    ErrorCode.E1009.value,
+                    "Only one sender connection is allowed",
+                    "another connection is already sending messages for this conversation",
+                )
+                _log_handshake_reject(
+                    scope,
+                    reason="Transport: 会话已有连接在发送，握手期拒绝新连接",
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    error_response=error_response,
+                    conversation_id=cid,
+                )
+                await _deny_websocket(
+                    receive, send,
+                    status=status.HTTP_403_FORBIDDEN,
+                    error_response=error_response,
+                )
+                return
+
+            scope[SCOPE_OWNERSHIP_TOKEN] = ownership_token
+            scope[SCOPE_OWNERSHIP_ACQUIRED] = True
+
         await self._app(scope, receive, send)
 
 
@@ -257,6 +311,7 @@ def create_app(
         shutdown=shutdown,
         registry=registry,
         max_connections=max_connections,
+        ownership_guard=ownership_guard,
     )
 
     # ----- Health / Ready / Metrics -----
@@ -298,8 +353,9 @@ def create_app(
         conversationId: str = Query("", max_length=64),
     ):
         """主 WebSocket 端点：FanoLabs 作为客户端连接此服务端。"""
-        ownership_token = uuid.uuid4().hex
-        ownership_acquired = False
+        scope_token = ws.scope.get(SCOPE_OWNERSHIP_TOKEN)
+        ownership_token = scope_token if isinstance(scope_token, str) else uuid.uuid4().hex
+        ownership_acquired = bool(ws.scope.get(SCOPE_OWNERSHIP_ACQUIRED))
         ownership_refresh_task: asyncio.Task[None] | None = None
         log.info(
             "Transport: WebSocket 即将 accept",
@@ -314,8 +370,17 @@ def create_app(
                 exc_type=type(exc).__name__,
                 error=str(exc),
             )
+            if ownership_guard is not None and ownership_acquired:
+                try:
+                    await ownership_guard.release(conversationId, ownership_token)
+                except Exception as release_exc:
+                    log.warning(
+                        "Transport: 会话发送所有权守卫释放失败",
+                        conversation_id=conversationId,
+                        error=str(release_exc),
+                    )
             return
-        if ownership_guard is not None:
+        if ownership_guard is not None and not ownership_acquired:
             try:
                 ownership_acquired = await ownership_guard.claim_or_refresh(
                     conversationId, ownership_token
