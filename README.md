@@ -29,28 +29,33 @@ transcribe_service/
 │   ├── main.py                      # 主控入口（DI + 生命周期）
 │   ├── schemas/                     # 契约层：Pydantic 请求/响应模型
 │   ├── transport/                   # 接入层：WebSocket 服务端
-│   ├── state_machine/               # 状态机层：Redis Lua 序列守卫
+│   ├── redis/                       # Redis 基础设施：序列状态机 + 会话发送所有权守卫
 │   ├── producer/                    # 投递层：Kafka 生产者
 │   ├── orchestrator/                # 调度层：两阶段提交编排
 │   └── shutdown/                    # 优雅停机
 ├── tests/
-├── design/                          # 设计文档
-├── docs/                            # 运维文档
+├── design/                          # 设计文档与 API 契约
+├── docs/                            # 配置、部署、开发、排障与护栏
+├── tools/mock_client/               # 场景测试、压测与 Kafka 回显工具
 └── docker-compose.yml               # Redis + Kafka + Kafka UI
 ```
 
 ## 文档入口
 
-完整文档索引见 [docs/README.md](docs/README.md)。该目录页是 `docs/` 下所有设计、配置、开发、部署和排障文档的唯一索引入口。
+完整文档索引见 [docs/README.md](docs/README.md)。该目录页汇总 `design/`、`docs/` 和关键工具文档的主要入口。
 
 常用入口：
 
 
-| 文档                                                                                     | 说明     |
-| -------------------------------------------------------------------------------------- | ------ |
-| [design/application-design_zh.md](design/application-design_zh.md)                     | 应用设计总览 |
+| 文档 | 说明 |
+|------|------|
+| [design/application-design_zh.md](design/application-design_zh.md) | 应用设计总览 |
 | [design/transcribe-service-API-contract.md](design/transcribe-service-API-contract.md) | API 契约 |
-| [docs/README.md](docs/README.md)                                                       | 文档总索引  |
+| [docs/design-guardrails.md](docs/design-guardrails.md) | 长期维护护栏与变更约束 |
+| [docs/protocol-scenario-matrix.md](docs/protocol-scenario-matrix.md) | 协议场景矩阵 |
+| [docs/concurrency-capacity.md](docs/concurrency-capacity.md) | 并发与容量说明 |
+| [tools/mock_client/README.md](tools/mock_client/README.md) | Mock Client、场景测试与压测说明 |
+| [docs/README.md](docs/README.md) | 文档总索引 |
 
 ---
 

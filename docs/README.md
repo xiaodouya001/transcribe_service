@@ -1,10 +1,10 @@
 # 文档索引
 
-Transcribe Service 项目文档导航。
+Transcribe Service 项目文档导航，汇总 `design/`、`docs/` 和关键工具文档入口。
 
 ---
 
-## 设计文档
+## 核心设计
 
 | 文档 | 说明 |
 |------|------|
@@ -13,17 +13,18 @@ Transcribe Service 项目文档导航。
 
 ---
 
-## 配置与部署
+## 配置、容量与部署
 
 | 文档 | 说明 |
 |------|------|
 | [configuration.md](configuration.md) | 环境变量配置说明 |
+| [concurrency-capacity.md](concurrency-capacity.md) | 并发、容量与调参说明 |
 | [deployment.md](deployment.md) | 构建与部署指南 |
 | [pyproject-config.md](pyproject-config.md) | pyproject.toml 配置说明 |
 
 ---
 
-## 开发与运维
+## 开发、测试与运维
 
 | 文档 | 说明 |
 |------|------|
@@ -34,3 +35,11 @@ Transcribe Service 项目文档导航。
 | [kafka-ui-usage.md](kafka-ui-usage.md) | Kafka UI 使用说明 |
 | [design-guardrails.md](design-guardrails.md) | 设计护栏、测试策略与变更约束 |
 | [protocol-scenario-matrix.md](protocol-scenario-matrix.md) | 协议场景矩阵：错误码、关闭码、正常/异常流统一视图 |
+
+---
+
+## 工具文档
+
+| 文档 | 说明 |
+|------|------|
+| [tools/mock_client/README.md](../tools/mock_client/README.md) | Mock Client、场景测试、压测与 Kafka 消息回显 |
