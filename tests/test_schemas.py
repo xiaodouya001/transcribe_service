@@ -3,7 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
-from transcribe_service.schemas.request import EventType, InboundMessage, Speaker
+from transcribe_service.schemas.events import EventType, ResponseEventType, Speaker
+from transcribe_service.schemas.request import InboundMessage
 from transcribe_service.schemas.response import (
     build_eol_ack,
     build_error,
@@ -168,14 +169,14 @@ class TestBuildSuccessAck:
     def test_transcript_ack_structure(self, conversation_id: str):
         ack = build_transcript_ack(conversation_id, 5)
         assert ack["metaData"]["conversationId"] == conversation_id
-        assert ack["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+        assert ack["metaData"]["eventType"] == ResponseEventType.TRANSCRIPT_ACK.value
         assert ack["payload"]["sequenceNumber"] == 5
         assert "createdAtTimeStamp" in ack["payload"]
 
     def test_eol_ack_structure(self, conversation_id: str):
         ack = build_eol_ack(conversation_id, 42)
         assert ack["metaData"]["conversationId"] == conversation_id
-        assert ack["metaData"]["eventType"] == "EOL_ACK"
+        assert ack["metaData"]["eventType"] == ResponseEventType.EOL_ACK.value
         assert ack["payload"]["sequenceNumber"] == 42
         assert "createdAtTimeStamp" in ack["payload"]
 
@@ -183,7 +184,7 @@ class TestBuildSuccessAck:
 class TestBuildError:
     def test_error_structure(self, conversation_id: str):
         err = build_error(conversation_id, "E1006", "Out of order", "seq=5 unexpected")
-        assert err["metaData"]["eventType"] == "ERROR"
+        assert err["metaData"]["eventType"] == ResponseEventType.ERROR.value
         assert err["error"]["code"] == "E1006"
         assert err["error"]["details"] == "seq=5 unexpected"
 
