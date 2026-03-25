@@ -104,7 +104,7 @@ sequenceDiagram
         Kafka-->>Main: 就绪
     end
 
-    Main->>Main: 启动 Uvicorn（FastAPI Webhook 0.0.0.0:8080）
+    Main->>Main: 启动 Uvicorn（FastAPI 服务，0.0.0.0:8080）
 ```
 
 
@@ -142,7 +142,7 @@ sequenceDiagram
         RedisState-->>Trans: 返回 OUT_OF_ORDER
         Trans-->>Vendor: 抛出异常 (要求重发)
     else 若 seq == 期望值 (正常流转)
-        RedisState-->>Trans: 返回 PRE_CHECK_OK (期望值暂不自增)
+        RedisState-->>Trans: 返回 PRE_CHECK_OK（状态不推进）
         
         Trans->>Kafka: 阶段二：异步投递文本数据
         Kafka-->>Trans: 返回投递成功 Ack
@@ -160,7 +160,7 @@ sequenceDiagram
 
 #### 2.2.3 SESSION_COMPLETE 事件处理与连接释放时序图
 
-> `SESSION_COMPLETE` 的协议判定键是 `eventType=SESSION_COMPLETE` 与 `payload.speaker=System`；`payload.transcript` 可沿用上游约定值（如 `"EOL"`），服务端当前不校验固定字面值。
+> `SESSION_COMPLETE` 的协议判定键是 `eventType=SESSION_COMPLETE` 与 `payload.speaker=System`；示例中 `payload.transcript` 可写为 `"EOL"`，服务端不校验固定字面值。
 
 ```mermaid
 sequenceDiagram
@@ -171,7 +171,7 @@ sequenceDiagram
     participant RedisState as Redis (Sequence State Machine)
     participant Kafka as MSK (消息总线)
 
-    Note over Trans,RedisOwnership: 当前连接已在建连阶段 claim ownership guard，并在连接存活期间持续 refresh
+    Note over Trans,RedisOwnership: 建连阶段完成 ownership guard claim，连接存活期间持续 refresh
 
     Vendor->>Trans: 推送 SESSION_COMPLETE (seq=M, 系统 EOL 控制帧)
     Trans->>Trans: 内部动作: Schema校验与结束事件识别
@@ -226,63 +226,57 @@ sequenceDiagram
 
     Vendor->>Trans: 推送消息 (SESSION_ONGOING / SESSION_COMPLETE)
 
-    alt 处理过程中任意阶段发生未捕获异常 (E1007)
-        Trans->>Trans: 内部发生未预期异常 (非用户输入问题)
-        Trans-->>Vendor: 发送 ERROR 帧 (E1007)
-        Trans->>Vendor: 关闭连接 (Close Code 1011)
-    else 正常处理流程
-        Trans->>Trans: 内部动作: Token/鉴权校验
-        alt 鉴权失败 (E1010)
-            Trans-->>Vendor: 发送 ERROR 帧 (E1010, 缺少/无效凭证)
-            Trans->>Vendor: 关闭连接 (Close Code 1008)
-        else 鉴权通过，Schema 校验
+        alt 处理过程中任意阶段发生未捕获异常 (E1007)
+            Trans->>Trans: 内部发生未预期异常 (非用户输入问题)
+            Trans-->>Vendor: 发送 ERROR 帧 (E1007)
+            Trans->>Vendor: 关闭连接 (Close Code 1011)
+        else 正常处理流程
             Trans->>Trans: 内部动作: Schema 校验
-        end
 
-        alt 建连阶段 ownership guard 获取失败 / 续租存储不可用
-            Trans->>RedisOwnership: claim_or_refresh / refresh
-            RedisOwnership-->>Trans: 异常
-            Trans-->>Vendor: 发送 ERROR 帧 (E1008)
-            Trans->>Vendor: 关闭连接 (Close Code 1013)
-        else ownership guard 已被其他连接占用
-            Trans->>RedisOwnership: claim_or_refresh / refresh
-            RedisOwnership-->>Trans: BUSY
-            Trans-->>Vendor: 发送 ERROR 帧 (E1009, Only one sender connection is allowed)
-            Trans->>Vendor: 关闭连接 (Close Code 1008)
-        else ownership guard 正常
-            Note over Trans,RedisOwnership: ownership guard claim/refresh 已通过，继续进入消息校验与编排
-        end
+            alt 建连阶段 ownership guard 获取失败 / 续租存储不可用
+                Trans->>RedisOwnership: claim_or_refresh / refresh
+                RedisOwnership-->>Trans: 异常
+                Trans-->>Vendor: 发送 ERROR 帧 (E1008)
+                Trans->>Vendor: 关闭连接 (Close Code 1013)
+            else ownership guard 已被其他连接占用
+                Trans->>RedisOwnership: claim_or_refresh / refresh
+                RedisOwnership-->>Trans: BUSY
+                Trans-->>Vendor: 发送 ERROR 帧 (E1009, Only one sender connection is allowed)
+                Trans->>Vendor: 关闭连接 (Close Code 1008)
+            else ownership guard 正常
+                Note over Trans,RedisOwnership: ownership guard claim/refresh 已通过，继续进入消息校验与编排
+            end
 
-        alt Schema / 业务规则校验失败 (E1002/E1003/E1004/E1005/E1009)
-            Trans-->>Vendor: 发送 ERROR 帧 (code, message, details)
-            Trans->>Vendor: 关闭连接 (Close Code 1008 策略违规)
-        else Schema 通过，进入 Redis 预检
-            Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
-        end
+            alt Schema / 业务规则校验失败 (E1002/E1003/E1004/E1005/E1009)
+                Trans-->>Vendor: 发送 ERROR 帧 (code, message, details)
+                Trans->>Vendor: 关闭连接 (Close Code 1008 策略违规)
+            else Schema 通过，进入 Redis 预检
+                Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
+            end
 
-        alt 重复包 (IDEMPOTENT)
-            RedisState-->>Trans: 返回 IDEMPOTENT
-            Trans-->>Vendor: 直接返回对应成功 ACK
-        else 序列号乱序 (E1006)
-            RedisState-->>Trans: 返回 OUT_OF_ORDER
-            Trans-->>Vendor: 发送 ERROR 帧 (E1006)
-            Trans->>Vendor: 关闭连接 (Close Code 1008)
-        else 预检通过，投递 Kafka
-            RedisState-->>Trans: 返回 PRE_CHECK_OK
-            Trans->>Kafka: 阶段二：异步投递
-        end
+            alt 重复包 (IDEMPOTENT)
+                RedisState-->>Trans: 返回 IDEMPOTENT
+                Trans-->>Vendor: 直接返回对应成功 ACK
+            else 序列号乱序 (E1006)
+                RedisState-->>Trans: 返回 OUT_OF_ORDER
+                Trans-->>Vendor: 发送 ERROR 帧 (E1006)
+                Trans->>Vendor: 关闭连接 (Close Code 1008)
+            else 预检通过，投递 Kafka
+                RedisState-->>Trans: 返回 PRE_CHECK_OK
+                Trans->>Kafka: 阶段二：异步投递
+            end
 
-        alt 下游不可用或超时 (E1008/E1011)
-            Kafka-->>Trans: 超时或连接失败
-            Trans-->>Vendor: 发送 ERROR 帧 (E1008 或 E1011)
-            Trans->>Vendor: 关闭连接 (Close Code 1013)
-        else Kafka 投递成功
-            Kafka-->>Trans: 返回 Ack
-            Trans->>RedisState: 阶段三：Commit (INCR)
-            RedisState-->>Trans: 状态更新成功
-            Trans-->>Vendor: 返回对应成功 ACK
+            alt 下游不可用或超时 (E1008/E1011)
+                Kafka-->>Trans: 超时或连接失败
+                Trans-->>Vendor: 发送 ERROR 帧 (E1008 或 E1011)
+                Trans->>Vendor: 关闭连接 (Close Code 1013)
+            else Kafka 投递成功
+                Kafka-->>Trans: 返回 Ack
+                Trans->>RedisState: 阶段三：Commit (INCR)
+                RedisState-->>Trans: 状态更新成功
+                Trans-->>Vendor: 返回对应成功 ACK
+            end
         end
-    end
 ```
 
 
@@ -326,18 +320,18 @@ sequenceDiagram
 
 ### 3.1 角色与模块
 
-应用内部采用**领域驱动设计（DDD）思想的依赖倒置架构**。核心业务编排器处于架构中心，所有的网络 I/O、协议解析与存储交互均被抽象为接口契约（Interface Contracts），实现模块间的绝对解耦。
+应用内部采用依赖倒置架构。核心编排器位于中心位置，网络 I/O、协议解析与存储交互通过接口契约解耦。
 
 
-| 核心模块 (Module)                                | 核心职责与定位 (Role & Positioning)                | 允许的核心动作 (Core Actions)                                                                                                     | 架构禁区 (Red Zone / Constraints)                                     |
-| -------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `main.py` *(主控入口)*                           | 应用的起搏器与总指挥。管理应用生命周期与依赖注入。                   | - 初始化外部连接池 (Redis/Kafka) - 实例化底层组件并注入到业务层 - 监听 `SIGTERM` 信号执行优雅停机                                                          | **绝对禁止**编写任何具体的业务判断逻辑或 JSON 解析代码。                                 |
-| `schemas/` *(契约层)*                           | 系统的护城河。基于 Pydantic 的强类型数据网关。                | - 过滤清洗 Vendor 发来的冗余脏字段 - 确保必填项 (`conversationId`, `seq`) 存在且类型正确 - 组装标准化的下行响应 Payload                                      | **绝对禁止**包含任何网络 I/O 或数据库调用。只做纯粹的 CPU 内存级数据校验。                      |
-| `transport/` *(接入层)*                         | 物理大门守卫。专职处理底层通信协议的脏活累活。                     | - 管理 WebSocket 握手与基础准入 - 维持协议层保活与连接关闭 - 执行协议一致性校验（如 query / body `conversationId`） - 将底层异常转化为标准的协议 Close Code              | **绝对禁止**承担业务编排、状态推进或下游投递职责；仅处理协议层校验、错误映射与必要的响应增强字段。               |
-| `redis/sequence_state_machine.py` *(序列状态机层)* | 分布式交警。维护通话级上下文，拦截乱序与重放攻击。                   | - 执行基于 Lua 的原子预检与状态推进 - 维护活跃阶段 1 小时 TTL，并在 `SESSION_COMPLETE` 后缩短为 30-60 秒宽限期 - 抛出统一且标准的业务状态转移异常                           | **绝对禁止**包含向 Kafka 发送消息或感知下游业务逻辑的代码。只管状态流转。                        |
-| `redis/ownership_guard.py` *(发送所有权守卫层)*      | 会话级发送写入闸门。保证同一 `conversationId` 同时仅一个连接可发送。 | - 建连 claim ownership - 连接存活期 refresh TTL - 断连 release ownership                                                            | **绝对禁止**承担序列推进、Kafka 投递或业务字段校验；只负责发送所有权冲突控制（E1009）。               |
-| `producer/` *(投递层)*                          | 可靠的快递员。将安全的数据投递到目标消息总线。                     | - 处理 Kafka 异步写入与 Partition Hash 路由 - 实施 2s 超时快速失败机制 - 维护断路器 (Circuit Breaker) 熔断逻辑                                         | **绝对禁止**修改或篡改原始 Payload 数据。只做纯粹的搬运与状态反馈。                          |
-| `orchestrator/` *(调度层)*                      | 业务大脑。指挥各独立模块协同完成“两阶段提交”。                    | - 调用 `redis_sequence_state_machine` 预检并发锁 - 调用 `producer` 异步落盘 - 调用 `redis_sequence_state_machine` 提交最终状态 - 组装并返回最终 ACK 结果 | **架构高压线**：绝对禁止直接 `import` 任何 `impl/` 下的具体实现类，只能依赖 `protocols.py` 抽象接口。 |
+| 核心模块 (Module) | 核心职责与定位 | 允许的核心动作 | 架构禁区 |
+| --- | --- | --- | --- |
+| `main.py` | 应用生命周期与依赖注入入口 | 初始化 Redis/Kafka 组件；组装应用；执行优雅停机 | 不编写业务判断逻辑或 JSON 解析代码 |
+| `schemas/` | 协议契约与数据校验层 | 校验字段、类型、时间戳与业务规则；构造标准响应 | 不做网络 I/O 或数据库调用 |
+| `transport/` | WebSocket 接入层 | 握手准入、连接保活、协议一致性校验、错误映射 | 不做业务编排、状态推进或下游投递 |
+| `redis/sequence_state_machine.py` | 序列状态机 | Lua 原子预检与状态推进；维护 active/final TTL | 不感知 Kafka 或下游业务逻辑 |
+| `redis/ownership_guard.py` | 会话发送所有权守卫 | claim、refresh、release 会话发送所有权 | 不承担序列推进、字段校验或消息投递 |
+| `producer/` | Kafka 投递层 | 异步写入、分区路由、发送超时处理 | 不修改原始消息载荷 |
+| `orchestrator/` | 两阶段提交编排层 | 调用状态机预检、调用 producer 投递、提交状态并返回 ACK | 仅依赖 `protocols.py` 抽象接口，不直接依赖具体实现 |
 
 
 ### 3.2 技术栈与并发模型
@@ -406,12 +400,12 @@ sequenceDiagram
   - **客户端实现相对复杂**：在本场景可直接丢弃迟到包，但在某些应用场景下，可能需额外设计重试与补偿机制。
 
 
-| **维度**     | **悲观锁 (SET NX)** | **乐观锁 (Lua + Seq)** | **Transcribe Service 推荐** |
+| **维度**     | **悲观锁 (SET NX)** | **乐观锁 (Lua + Seq)** | **本设计选择** |
 | ---------- | ---------------- | ------------------- | ------------------------- |
-| **并发冲突频率** | 高冲突，必须成功         | 允许部分失效，追求快          | **乐观锁**                   |
-| **系统响应要求** | 毫秒级不敏感           | **极度敏感（实时通话）**      | **乐观锁**                   |
-| **异常处理**   | 担心死锁/清理锁         | 担心重复/乱序             | **乐观锁**                   |
-| **核心关注点**  | 数据的“绝对完整”        | 消息的“时序与去重”          | **乐观锁**                   |
+| **并发冲突频率** | 高冲突，必须成功         | 允许部分失效，追求快          | **乐观锁**                 |
+| **系统响应要求** | 毫秒级不敏感           | **极度敏感（实时通话）**      | **乐观锁**                 |
+| **异常处理**   | 担心死锁/清理锁         | 担心重复/乱序             | **乐观锁**                 |
+| **核心关注点**  | 数据的“绝对完整”        | 消息的“时序与去重”          | **乐观锁**                 |
 
 
 ### 3.5 两阶段提交（2PC）
@@ -454,36 +448,26 @@ sequenceDiagram
 
 ## 4. 基础设施与容量
 
-### 4.1 Kafka 配置
+### 4.1 Kafka 约束
 
+| 项目 | 配置 | 说明 |
+| --- | --- | --- |
+| Topic | `cc.transcript.realtime.v1` | 默认主题名称 |
+| Partition Key | `conversationId` | 同一会话固定落到同一分区 |
+| Partition 数量 | 50 或 100 | 由部署环境预建 Topic 时决定 |
+| `acks` | `all` | 用于保证 Kafka 持久化确认后再进入 Commit |
+| 压缩 | `zstd` | 默认压缩方式 |
 
-| 项目                | 配置                                                     |
-| ----------------- | ------------------------------------------------------ |
-| **Topic**         | `cc.transcript.realtime.v1`                            |
-| **Partition Key** | `conversationId`                                       |
-| **Partition 数量**  | 定死 50 或 100（Hash 基数不可变）                                |
-| **可靠性**           | `acks=all`、`enable_idempotence=True`、`max_in_flight=1` |
-| **压缩**            | `zstd`                                                 |
-| **保留期**           | 7 天                                                    |
-| **MSK**           | `min.insync.replicas=2`                                |
+### 4.2 Redis 约束
 
-
-**消息结构（JSON/Protobuf）：**
-
-```json
-TBD
-```
-
-### 4.2 Redis 配置
-
-
-| 项目        | 配置                                                                  | 说明                                                                                                |
-| --------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **Key**   | `transcript:session:{conversationId}`                               | 用于标识每个会话在 Redis 中的唯一进度 Key。                                                                       |
-| **Value** | 整数（期望下一个序号），或 Hash（包含 `expected_seq`、`start_time`、`last_active` 字段） | 保存该通话下一条应接收的 transcript 序号及元信息。                                                                   |
-| **更新策略**  | Lua 脚本（乐观锁）                                                         | 仅允许传入的序列号严格递增，确保乱序或重复的数据自动被丢弃。                                                                    |
-| **TTL**   | 活跃阶段：顺序每次写入自动续期 1 小时；结束阶段：收到 `SESSION_COMPLETE` 后缩短为 30-60 秒        | - 会话进行中，TTL 每次写入自动延长至 1 小时，防止异常断线占用内存。 - 收到 `SESSION_COMPLETE` 后，TTL 降为 30-60 秒，阻挡迟到包，之后自动删除释放空间。 |
-| **内存**    | 约 100B/会话，1,000 会话 < 1MB                                            | 不立即删除 Key，留短暂宽限以兜住网络延迟下的迟到 transcript，防止数据重复或乱序写入。                                                |
+| 项目 | 配置 | 说明 |
+| --- | --- | --- |
+| Sequence State Key | `transcript:session:{conversationId}` | 维护期望的下一个 `sequenceNumber` |
+| Ownership Guard Key | `transcript:owner:{conversationId}` | 维护同会话单连接发送约束 |
+| Value | 整数字符串或 ownership token | 分别用于状态推进与发送所有权判定 |
+| 更新策略 | Lua 预检 + commit / `SET NX` 续租 | 保证序列推进与单连接发送 |
+| TTL | active TTL 默认 3600 秒；final TTL 默认 60 秒；ownership guard TTL 默认 30 秒 | 通过环境变量配置 |
+| 内存 | 量级较小 | 状态只保存会话级最小必要信息 |
 
 
 ---

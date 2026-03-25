@@ -78,7 +78,7 @@
 }
 ```
 
-> 当前示例展示的是 `SESSION_ONGOING` 的重复包；若重复的是 `SESSION_COMPLETE`，则成功响应类型应为 `EOL_ACK`。
+> 本示例使用 `SESSION_ONGOING` 的重复包；若重复的是 `SESSION_COMPLETE`，成功响应类型为 `EOL_ACK`。
 
 ### N-03 SESSION_COMPLETE 正常处理
 
@@ -93,7 +93,7 @@
 }
 ```
 
-> 该场景对应的请求帧是系统级 EOL 控制消息：`eventType=SESSION_COMPLETE`，`payload.speaker=System`。示例中 `payload.transcript` 可写为 `"EOL"`，但服务端当前不校验固定字面值。
+> 该场景对应的请求帧是系统级 EOL 控制消息：`eventType=SESSION_COMPLETE`，`payload.speaker=System`。示例中 `payload.transcript` 写为 `"EOL"`；服务端不校验固定字面值。
 
 ### N-04 优雅停机 close_all
 
@@ -331,12 +331,7 @@
 
 ---
 
-## 五、实现说明
+## 五、保留错误码说明
 
-
-| **错误码**             | **Contract 定义** | **代码现状**                                               |
-| ------------------- | --------------- | ------------------------------------------------------ |
-| **E1010**           | 鉴权失败 (401/1008) | **未实现** — 无 Auth 中间件                                   |
-
-
-**E1009** 当前用于三类场景：**传输层 query / body `conversationId` 字符串不一致**、**schema 通过后触发的业务规则校验失败**，以及 **同一 `conversationId` 出现第二个并发发送连接**。**E1010** 仍为预留鉴权错误码，后续若引入 Auth，应同步补充契约、矩阵文档与测试。
+- `E1009` 用于三类场景：传输层 query / body `conversationId` 字符串不一致、schema 通过后的业务规则校验失败、同一 `conversationId` 出现第二个并发发送连接。
+- `E1010` 为鉴权失败保留错误码。本服务未包含鉴权流程，因此本矩阵不包含 `E1010` 的可执行场景。
