@@ -63,10 +63,11 @@
 **Server → Client：**
 
 
-| eventType        | 说明      |
-| ---------------- | ------- |
-| `TRANSCRIPT_ACK` | 逐消息确认   |
-| `ERROR`          | 校验或处理错误 |
+| eventType        | 说明                   |
+| ---------------- | -------------------- |
+| `TRANSCRIPT_ACK` | Transcriptions 消息ACK |
+| `EOL_ACK`        | EOL 消息ACK            |
+| `ERROR`          | 校验或处理错误              |
 
 
 ---
@@ -77,21 +78,46 @@
 
 ### 2.1 消息结构 (JSON Schema)
 
+++**Agent Speaker**++
+
 ```json
 {
   "metaData": {
     "conversationId": "39449992-32f3-4581-a8a1-99d4109f37d4",
-    "agentId": "3210001",
-    "staffId": "45163407",
-    "customerId": "12345678",
     "callStartTimeStamp": "2025-03-21T10:30:02.327Z",
     "callEndTimeStamp": null,
     "eventType": "SESSION_ONGOING"
   },
   "payload": {
+    "agentId": "3210001",
+    "customerId": null,
     "sequenceNumber": 0,
     "speaker": "Agent",
     "transcript": "thank you",
+    "engineProvider": "FanoLabs",
+    "dialect": "yue-x-auto",
+    "isFinal": true,
+    "createdAtTimeStamp": "2025-03-21T10:32:20.000Z"
+  }
+}
+```
+
+++**Customer Speaker**++
+
+```json
+{
+  "metaData": {
+    "conversationId": "39449992-32f3-4581-a8a1-99d4109f37d4",
+    "callStartTimeStamp": "2025-03-21T10:30:02.327Z",
+    "callEndTimeStamp": null,
+    "eventType": "SESSION_ONGOING"
+  },
+  "payload": {
+    "agentId": null,
+    "customerId": "12345678",
+    "sequenceNumber": 0,
+    "speaker": "Customer",
+    "transcript": "Hello",
     "engineProvider": "FanoLabs",
     "dialect": "yue-x-auto",
     "isFinal": true,
@@ -108,9 +134,6 @@
 | 字段                   | 必填  | 类型     | 最大长度 | 取值/格式                 | 说明                                      |
 | -------------------- | --- | ------ | ---- | --------------------- | --------------------------------------- |
 | `conversationId`     | 是   | string | 64   | 每通电话唯一 ID             | 会话标识 (Genesys call id from fano assist) |
-| `agentId`            | 是   | string | 32   | Agent's Staff ID      | 坐席在 Genesys 中的标识                        |
-| `staffId`            | 是   | string | 32   | Genesys 下发的 staff ID  | 员工标识                                    |
-| `customerId`         | 是   | string | 64   | 客户号码                  | 客户标识                                    |
 | `callStartTimeStamp` | 是   | string | 32   | ISO-8601 UTC          | 通话开始时间                                  |
 | `callEndTimeStamp`   | 条件  | string | 32   | ISO-8601 UTC，仅通话结束时提供 | 通话结束时间                                  |
 | `eventType`          | 是   | string | 32   | `SESSION_ONGOING`     | `SESSION_COMPLETE`                      |
@@ -119,15 +142,17 @@
 #### payload
 
 
-| 字段                   | 必填  | 类型      | 最大长度 | 取值/格式                       | 说明               |
-| -------------------- | --- | ------- | ---- | --------------------------- | ---------------- |
-| `sequenceNumber`     | 是   | integer | —    | ≥ 0，同一 conversationId 内单调递增 | 转写序列号            |
-| `speaker`            | 是   | string  | 16   | `Agent`                     | `Customer`       |
-| `transcript`         | 是   | string  | 8000 | 转写文本                        | 转写内容             |
-| `engineProvider`     | 是   | string  | 64   | 如 `FanoLabs`                | STT 引擎提供商        |
-| `dialect`            | 是   | string  | 32   | BCP-47，如 `yue-x-auto`       | 支持的语言/方言         |
-| `isFinal`            | 是   | boolean | —    | `true`                      | 是否为最终假设，必须为 true |
-| `createdAtTimeStamp` | 是   | string  | 32   | ISO-8601 UTC                | 客户端转写创建时间        |
+| 字段                   | 必填                                                    | 类型      | 最大长度 | 取值/格式                       | 说明               |
+| -------------------- | ----------------------------------------------------- | ------- | ---- | --------------------------- | ---------------- |
+| `agentId`            | 如果 speaker 是Agent则必填。 如果 speaker是Customer/System则可以不填 | string  | 32   | Agent's Staff ID            | 坐席在 Genesys 中的标识 |
+| `customerId`         | 如果 speaker 是Customer则必填。 如果 speaker是Agent/System则可以不填 | string  | 64   | 客户号码                        | 客户标识             |
+| `sequenceNumber`     | 是                                                     | integer | —    | ≥ 0，同一 conversationId 内单调递增 | 转写序列号            |
+| `speaker`            | 是                                                     | string  | 16   | `Agent`                     | `Customer`       |
+| `transcript`         | 是                                                     | string  | 8000 | 转写文本                        | 转写内容             |
+| `engineProvider`     | 是                                                     | string  | 64   | 如 `FanoLabs`                | STT 引擎提供商        |
+| `dialect`            | 否                                                     | string  | 32   | BCP-47，如 `yue-x-auto`       | 支持的语言/方言         |
+| `isFinal`            | 是                                                     | boolean | —    | `true`                      | 是否为最终假设，必须为 true |
+| `createdAtTimeStamp` | 是                                                     | string  | 32   | ISO-8601 UTC                | 客户端转写创建时间        |
 
 
 ### 2.3 业务规则 (Business Rules)
@@ -153,6 +178,8 @@
 
 **结构示例：**
 
+**Transcription ACK**
+
 ```json
 {
   "metaData": {
@@ -166,20 +193,33 @@
 }
 ```
 
+**EOL ACK**
+
+```json
+{
+  "metaData": {
+    "conversationId": "39449992-32f3-4581-a8a1-99d4109f37d4",
+    "eventType": "EOL_ACK"
+  },
+  "payload": {
+    "sequenceNumber": 43,
+    "createdAtTimeStamp": "2025-03-21T10:32:20.000Z"
+  }
+}
+```
+
 **字段说明：**
 
 
-| 字段                           | 必填  | 类型      | 最大长度 | 取值/格式            | 说明                    |
-| ---------------------------- | --- | ------- | ---- | ---------------- | --------------------- |
-| `metaData.conversationId`    | 是   | string  | 64   | 会话 ID            | 回显请求中的 conversationId |
-| `metaData.eventType`         | 是   | string  | 32   | `TRANSCRIPT_ACK` | 事件类型                  |
-| `payload.sequenceNumber`     | 是   | integer | —    | ≥ 0              | 回显请求中的 sequenceNumber |
-| `payload.createdAtTimeStamp` | 是   | string  | 32   | ISO-8601 UTC     | 服务端 ACK 时间戳           |
+| 字段                           | 必填  | 类型      | 最大长度 | 取值/格式                      | 说明                    |
+| ---------------------------- | --- | ------- | ---- | -------------------------- | --------------------- |
+| `metaData.conversationId`    | 是   | string  | 64   | 会话 ID                      | 回显请求中的 conversationId |
+| `metaData.eventType`         | 是   | string  | 32   | `TRANSCRIPT_ACK | EOL_ACK` | `ACK event Type`      |
+| `payload.sequenceNumber`     | 是   | integer | —    | ≥ 0                        | 回显请求中的 sequenceNumber |
+| `payload.createdAtTimeStamp` | 是   | string  | 32   | ISO-8601 UTC               | 服务端 ACK 时间戳           |
 
 
-> **说明**：部分示例中 `payload` 写作 `message`，契约以 `payload` 为准，具体以 Confluence 最新定义为准。
-
-##3 3.2 错误响应 (ERROR)
+### 3.2  错误响应 (ERROR)
 
 **结构示例：**
 
@@ -236,7 +276,7 @@
 | -------- | ---------- | -------------------------------- |
 | 正常关闭     | 1000       | Normal closure                   |
 | 服务端关闭/离开 | 1001       | Going away                       |
-| 不支持的数据类型 | 1003       | 预留；当前实现未显式使用该关闭码            |
+| 不支持的数据类型 | 1003       | 预留；当前实现未显式使用该关闭码                 |
 | 负载格式无效   | 1007       | JSON 解析/类型/格式错误                  |
 | 策略违规     | 1008       | 业务规则、鉴权或策略违规                     |
 | 服务端内部错误  | 1011       | Server-side processing exception |
@@ -248,19 +288,19 @@
 ### 4.3 应用错误码映射表
 
 
-| 错误码   | eventType | HTTP (握手) | WS Close | transcribe service disconnect websocket | STT Provider reconnect/resent | 典型场景                                     |
-| ----- | --------- | --------- | -------- | --------------------------------------- | ----------------------------- | ---------------------------------------- |
-| E1001 | ERROR     | 400       | 1007     | 是                                       | 是                             | JSON 解析失败或客户端发送的数据格式无效，服务器无法解析请求体        |
-| E1002 | ERROR     | 400       | 1008     | 是                                       | 是                             | 枚举值不在允许范围，字段校验未通过（如 eventType 非法等）       |
-| E1003 | ERROR     | 400       | 1008     | 是                                       | 是                             | 缺少协议规定的必填字段，如缺少 conversationId、agentId 等 |
-| E1004 | ERROR     | 400       | 1008     | 是                                       | 是                             | 某字段类型与定义不符，例如应为整数却为字符串                   |
-| E1005 | ERROR     | 400       | 1008     | 是                                       | 是                             | 时间字段格式无效或不是 ISO-8601 UTC 格式              |
-| E1006 | ERROR     | 400       | 1008     | 是                                       | 是                             | 序列号未递增或乱序，违反会话数据流程要求；重复包按幂等返回 ACK        |
-| E1007 | ERROR     | 500       | 1011     | 是                                       | 是                             | 服务端内部处理异常（非用户输入问题）                       |
-| E1008 | ERROR     | 503/429   | 1013     | 是                                       | 是                             | 下游（如 Kafka、Redis）不可用或服务进行限流，暂时无法处理       |
+| 错误码   | eventType | HTTP (握手) | WS Close | transcribe service disconnect websocket | STT Provider reconnect/resent | 典型场景                                                               |
+| ----- | --------- | --------- | -------- | --------------------------------------- | ----------------------------- | ------------------------------------------------------------------ |
+| E1001 | ERROR     | 400       | 1007     | 是                                       | 是                             | JSON 解析失败或客户端发送的数据格式无效，服务器无法解析请求体                                  |
+| E1002 | ERROR     | 400       | 1008     | 是                                       | 是                             | 枚举值不在允许范围，字段校验未通过（如 eventType 非法等）                                 |
+| E1003 | ERROR     | 400       | 1008     | 是                                       | 是                             | 缺少协议规定的必填字段，如缺少 conversationId、agentId 等                           |
+| E1004 | ERROR     | 400       | 1008     | 是                                       | 是                             | 某字段类型与定义不符，例如应为整数却为字符串                                             |
+| E1005 | ERROR     | 400       | 1008     | 是                                       | 是                             | 时间字段格式无效或不是 ISO-8601 UTC 格式                                        |
+| E1006 | ERROR     | 400       | 1008     | 是                                       | 是                             | 序列号未递增或乱序，违反会话数据流程要求；重复包按幂等返回 ACK                                  |
+| E1007 | ERROR     | 500       | 1011     | 是                                       | 是                             | 服务端内部处理异常（非用户输入问题）                                                 |
+| E1008 | ERROR     | 503/429   | 1013     | 是                                       | 是                             | 下游（如 Kafka、Redis）不可用或服务进行限流，暂时无法处理                                 |
 | E1009 | ERROR     | 403/400   | 1008     | 是                                       | 是                             | 不允许的业务操作、策略冲突；含握手 query 与 `metaData.conversationId` 不一致、同会话并发发送冲突等 |
-| E1010 | ERROR     | 401       | 1008     | 是                                       | 是                             | 鉴权/授权失败，缺少/无效的凭证或无访问权限                   |
-| E1011 | ERROR     | 504       | 1013     | 是                                       | 是                             | 上游或下游服务（如 STT provider、Kafka）响应超时        |
+| E1010 | ERROR     | 401       | 1008     | 是                                       | 是                             | 鉴权/授权失败，缺少/无效的凭证或无访问权限                                             |
+| E1011 | ERROR     | 504       | 1013     | 是                                       | 是                             | 上游或下游服务（如 STT provider、Kafka）响应超时                                  |
 
 
 在关闭连接前，可先发送如下错误帧：
@@ -292,14 +332,13 @@
 {
   "metaData": {
     "conversationId": "39449992-32f3-4581-a8a1-99d4109f37d4",
-    "agentId": "3210001",
-    "staffId": "45163407",
-    "customerId": "12345678",
     "callStartTimeStamp": "2025-03-21T10:30:02.327Z",
     "callEndTimeStamp": null,
     "eventType": "SESSION_ONGOING"
   },
   "payload": {
+    "agentId": null,
+    "customerId": "12345678",
     "sequenceNumber": 0,
     "speaker": "Customer",
     "transcript": "Hello",
@@ -334,17 +373,16 @@
 {
   "metaData": {
     "conversationId": "39449992-32f3-4581-a8a1-99d4109f37d4",
-    "agentId": "3210001",
-    "staffId": "45163407",
-    "customerId": "12345678",
     "callStartTimeStamp": "2025-03-21T10:30:02.327Z",
     "callEndTimeStamp": "2026-02-05T08:49:01.048Z",
     "eventType": "SESSION_COMPLETE"
   },
   "payload": {
+    "agentId": null,
+    "customerId": null,
     "sequenceNumber": 42,
-    "speaker": "Agent",
-    "transcript": "Good bye",
+    "speaker": "System",
+    "transcript": "EOL",
     "engineProvider": "FanoLabs",
     "dialect": "yue-x-auto",
     "isFinal": true,
@@ -359,7 +397,7 @@
 {
   "metaData": {
     "conversationId": "39449992-32f3-4581-a8a1-99d4109f37d4",
-    "eventType": "TRANSCRIPT_ACK"
+    "eventType": "EOL_ACK"
   },
   "payload": {
     "sequenceNumber": 42,
@@ -368,21 +406,22 @@
 }
 ```
 
-### 5.3 错误响应 (E1010 示例)
+### 5.3 错误响应 (E1003示例)
 
 ```json
 {
-  "metaData": {
-    "conversationId": "39449992-32f3-4581-a8a1-99d4109f37d4",
-    "eventType": "ERROR"
+  "metaData": { 
+    "conversationId": "39449992-32f3-4581-a8a1-99d4109f37d4", 
+    "eventType": "ERROR" 
   },
   "error": {
-    "code": "E1010",
-    "message": "Session state conflict",
-    "details": "callEndTimeStamp must be provided when eventType=SESSION_COMPLETE",
-    "createdAtTimeStamp": "2025-03-21T10:32:20.000Z"
+    "code": "E1003",
+    "message": "Validation failed",
+    "details": "Field required: metaData.conversationId",
+    "createdAtTimeStamp": "2026-03-21T03:00:00.000Z"
   }
 }
 ```
 
 ---
+

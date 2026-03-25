@@ -8,6 +8,7 @@ WS_PATH = "/ws/v1/realtime-transcriptions"
 
 # ---- 服务端响应事件类型 (Server → Client) ----
 EVENT_TRANSCRIPT_ACK = "TRANSCRIPT_ACK"
+EVENT_EOL_ACK = "EOL_ACK"
 EVENT_ERROR = "ERROR"
 
 # ---- 字段长度上限（对齐 API Contract §3） ----

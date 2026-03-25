@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 
@@ -22,15 +22,15 @@ class Speaker(str, Enum):
 
     AGENT = "Agent"
     CUSTOMER = "Customer"
+    SYSTEM = "System"
 
 
 class MetaData(BaseModel):
     """请求元数据。"""
 
+    model_config = ConfigDict(extra="forbid")
+
     conversationId: str = Field(..., max_length=64)
-    agentId: str = Field(..., max_length=32)
-    staffId: str = Field(..., max_length=32)
-    customerId: str = Field(..., max_length=64)
     callStartTimeStamp: datetime
     callEndTimeStamp: Optional[datetime] = None
     eventType: EventType
@@ -51,6 +51,10 @@ class MetaData(BaseModel):
 class Payload(BaseModel):
     """请求负载。"""
 
+    model_config = ConfigDict(extra="forbid")
+
+    agentId: Optional[str] = Field(None, max_length=32)
+    customerId: Optional[str] = Field(None, max_length=64)
     sequenceNumber: int = Field(..., ge=0)
     speaker: Speaker
     transcript: str = Field(..., max_length=8000)
@@ -58,6 +62,15 @@ class Payload(BaseModel):
     dialect: Optional[str] = Field(None, max_length=32)
     isFinal: bool
     createdAtTimeStamp: datetime
+
+    @field_validator("agentId", "customerId")
+    @classmethod
+    def _ensure_non_blank_identifier(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if not value.strip():
+            raise ValueError("identifier must not be empty")
+        return value
 
     @field_validator("createdAtTimeStamp")
     @classmethod
@@ -73,17 +86,24 @@ class Payload(BaseModel):
 class InboundMessage(BaseModel):
     """完整上行消息 = metaData + payload，含跨字段业务规则校验。"""
 
+    model_config = ConfigDict(extra="forbid")
+
     metaData: MetaData
     payload: Payload
 
     @model_validator(mode="after")
     def _check_business_rules(self) -> "InboundMessage":
         evt = self.metaData.eventType
+        speaker = self.payload.speaker
 
         if evt == EventType.SESSION_ONGOING:
             if self.metaData.callEndTimeStamp is not None:
                 raise ValueError(
                     "callEndTimeStamp must be null when eventType=SESSION_ONGOING"
+                )
+            if speaker not in {Speaker.AGENT, Speaker.CUSTOMER}:
+                raise ValueError(
+                    "speaker must be Agent or Customer when eventType=SESSION_ONGOING"
                 )
 
         if evt == EventType.SESSION_COMPLETE:
@@ -91,8 +111,26 @@ class InboundMessage(BaseModel):
                 raise ValueError(
                     "callEndTimeStamp must be provided when eventType=SESSION_COMPLETE"
                 )
+            if speaker != Speaker.SYSTEM:
+                raise ValueError("speaker must be System when eventType=SESSION_COMPLETE")
 
         if not self.payload.isFinal:
             raise ValueError("isFinal must be true")
+
+        if speaker == Speaker.AGENT:
+            if self.payload.agentId is None:
+                raise ValueError("agentId must be provided when speaker=Agent")
+            if self.payload.customerId is not None:
+                raise ValueError("customerId must be null or omitted when speaker=Agent")
+        elif speaker == Speaker.CUSTOMER:
+            if self.payload.customerId is None:
+                raise ValueError("customerId must be provided when speaker=Customer")
+            if self.payload.agentId is not None:
+                raise ValueError("agentId must be null or omitted when speaker=Customer")
+        elif speaker == Speaker.SYSTEM:
+            if self.payload.agentId is not None:
+                raise ValueError("agentId must be null or omitted when speaker=System")
+            if self.payload.customerId is not None:
+                raise ValueError("customerId must be null or omitted when speaker=System")
 
         return self

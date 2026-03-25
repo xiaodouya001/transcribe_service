@@ -26,7 +26,7 @@ Kafka 发送超时/失败 → 返回 ERROR 帧（E1008/E1011）→ 断连（Clos
 
 ## Q4：重复消息如何处理？
 
-同一 `(conversationId, sequenceNumber)` 的重复消息命中 IDEMPOTENT，服务端直接返回 TRANSCRIPT_ACK，不再写入 Kafka，不推进 Redis 状态。
+同一 `(conversationId, sequenceNumber)` 的重复消息命中 IDEMPOTENT，服务端直接返回对应成功 ACK，不再写入 Kafka，不推进 Redis 状态。`SESSION_ONGOING` 返回 `TRANSCRIPT_ACK`，`SESSION_COMPLETE` 返回 `EOL_ACK`。
 
 ---
 
@@ -50,12 +50,11 @@ Kafka 发送超时/失败 → 返回 ERROR 帧（E1008/E1011）→ 断连（Clos
 - **单会话单发送链路**：同一 `conversationId` 在任一时刻应只保留一条活跃发送链路；不要为同一会话建立多条并发发送连接，也不要由多个 worker/线程并发发送同一会话消息。
 - **服务端会强制单连接发送**：若同一 `conversationId` 已有连接在发送消息，新的冲突连接会收到 `E1009 + 1008` 并被关闭。
 - **严格顺序**：同一 `conversationId` 下，`sequenceNumber` 必须从 `0` 开始并按 `0, 1, 2, 3...` 连续推进；不允许跳号、不允许乱序、不允许先发 `N+1` 再补发 `N`。
-- **ACK 推进发送窗口**：客户端应以 `TRANSCRIPT_ACK(seq=N)` 作为发送窗口推进条件；收到 `N` 的 ACK 后再发送 `N+1`。当前设计不提供服务端乱序重排能力。
 - **失败后重发同一 seq**：若收到 `ERROR`（尤其 `E1008` / `E1011`）、WebSocket 被 `1008` / `1013` 关闭，或客户端等待 ACK 超时，重连后必须重发上一个未被 ACK 的同一 `sequenceNumber`，不得跳到下一条。
 - **重复重试要保持幂等键不变**：同一次业务重试必须保持 `(conversationId, sequenceNumber)` 不变；服务端会按幂等语义返回 ACK，不会重复写 Kafka。
-- **事件语义**：中间过程使用 `SESSION_ONGOING`，此时 `callEndTimeStamp` 必须为 `null`；结束时发送 `SESSION_COMPLETE`，并提供 `callEndTimeStamp`，作为最终 EOL 事件。
+- **事件语义**：中间过程使用 `SESSION_ONGOING`，此时 `callEndTimeStamp` 必须为 `null`；结束时发送 `SESSION_COMPLETE`，并提供 `callEndTimeStamp`，作为最终 EOL 控制事件。该结束帧使用 `payload.speaker=System`，成功后收到 `EOL_ACK`；`payload.transcript` 仍是普通字符串字段，当前不校验固定字面值。
 - **仅发送 final transcript**：`payload.isFinal` 必须为 `true`；当前服务不接收 partial / interim transcript。
-- **请求体必须满足契约字段要求**：必填字段、时间戳格式、`speaker` 取值、`dialect` 格式等都必须满足 API 契约；详细字段定义以 `design/transcribe-service-API-contract.md` 为准。
+- **请求体必须满足契约字段要求**：必填字段、时间戳格式、`speaker` 取值、`agentId/customerId` 的条件必填规则，以及 `dialect` 的可选语义都必须满足 API 契约；详细字段定义以 `design/transcribe-service-API-contract.md` 为准。
 
 协议错误码、关闭码与典型正常/异常流，请统一参考：
 

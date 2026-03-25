@@ -1,8 +1,8 @@
-"""Orchestrator 抽象接口 — 禁止 import 任何 impl/ 下的具体实现。"""
+"""Orchestrator protocols — 禁止 import 任何 impl/ 下的具体实现。"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol
 
 

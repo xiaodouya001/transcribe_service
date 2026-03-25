@@ -20,6 +20,7 @@ from starlette.websockets import WebSocketState
 
 from transcribe_service.constants import (
     APP_TITLE,
+    EVENT_EOL_ACK,
     EVENT_TRANSCRIPT_ACK,
     MAX_ERROR_DETAILS_LEN,
     WS_CLOSE_REASON_GOING_AWAY,
@@ -29,12 +30,12 @@ from transcribe_service.schemas.errors import ErrorCode, WsCloseCode
 from transcribe_service.schemas.response import build_error
 
 if TYPE_CHECKING:  # pragma: no cover
-    from transcribe_service.conversation_owner.base import ConversationOwnerBackend
-    from transcribe_service.orchestrator.base import OrchestratorBackend
+    from transcribe_service.orchestrator.protocols import OrchestratorBackend
+    from transcribe_service.redis.protocols import ConversationOwnershipGuardBackend
     from transcribe_service.shutdown.graceful import GracefulShutdown
 
 log = structlog.get_logger(__name__)
-OWNER_REFRESH_INTERVAL_SEC = 5.0
+OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC = 5.0
 
 
 def _format_client_addr(scope: Scope) -> str:
@@ -231,11 +232,11 @@ def create_app(
     shutdown: GracefulShutdown,
     registry: ConnectionRegistry,
     *,
-    conversation_owner: ConversationOwnerBackend | None = None,
+    ownership_guard: ConversationOwnershipGuardBackend | None = None,
     redis_url: str = "",
     producer: object | None = None,
     max_connections: int = 0,
-    owner_refresh_interval_sec: float = OWNER_REFRESH_INTERVAL_SEC,
+    ownership_guard_refresh_interval_sec: float = OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
     log_ws_error_frames: bool = False,
 ) -> FastAPI:
     """构建 FastAPI 应用，包含 WebSocket 端点和健康检查。"""
@@ -249,7 +250,7 @@ def create_app(
     app.state.orchestrator = orchestrator
     app.state.shutdown = shutdown
     app.state.registry = registry
-    app.state.conversation_owner = conversation_owner
+    app.state.ownership_guard = ownership_guard
 
     app.add_middleware(
         _WsGuardMiddleware,
@@ -297,9 +298,9 @@ def create_app(
         conversationId: str = Query("", max_length=64),
     ):
         """主 WebSocket 端点：FanoLabs 作为客户端连接此服务端。"""
-        owner_token = uuid.uuid4().hex
-        owner_acquired = False
-        owner_refresh_task: asyncio.Task[None] | None = None
+        ownership_token = uuid.uuid4().hex
+        ownership_acquired = False
+        ownership_refresh_task: asyncio.Task[None] | None = None
         log.info(
             "Transport: WebSocket 即将 accept",
             conversation_id=conversationId,
@@ -314,14 +315,14 @@ def create_app(
                 error=str(exc),
             )
             return
-        if conversation_owner is not None:
+        if ownership_guard is not None:
             try:
-                owner_acquired = await conversation_owner.claim_or_refresh(
-                    conversationId, owner_token
+                ownership_acquired = await ownership_guard.claim_or_refresh(
+                    conversationId, ownership_token
                 )
             except Exception as exc:
                 log.error(
-                    "Transport: 会话 owner 获取失败",
+                    "Transport: 会话发送所有权守卫获取失败",
                     conversation_id=conversationId,
                     error=str(exc),
                 )
@@ -331,11 +332,11 @@ def create_app(
                     ErrorCode.E1008.value,
                     "Downstream unavailable",
                     WsCloseCode.TRY_AGAIN_LATER,
-                    details="Conversation owner store unavailable",
+                    details="Conversation ownership guard store unavailable",
                     log_ws_error_frames=log_ws_error_frames,
                 )
                 return
-            if not owner_acquired:
+            if not ownership_acquired:
                 log.warning(
                     "Transport: 会话已有连接在发送，拒绝新连接",
                     conversation_id=conversationId,
@@ -355,14 +356,14 @@ def create_app(
             "Transport: 连接已建立",
             conversation_id=conversationId,
         )
-        if conversation_owner is not None and owner_acquired:
-            owner_refresh_task = asyncio.create_task(
-                _owner_refresh_loop(
+        if ownership_guard is not None and ownership_acquired:
+            ownership_refresh_task = asyncio.create_task(
+                _ownership_refresh_loop(
                     ws,
                     conversationId,
-                    conversation_owner=conversation_owner,
-                    owner_token=owner_token,
-                    refresh_interval_sec=owner_refresh_interval_sec,
+                    ownership_guard=ownership_guard,
+                    ownership_token=ownership_token,
+                    refresh_interval_sec=ownership_guard_refresh_interval_sec,
                     log_ws_error_frames=log_ws_error_frames,
                 )
             )
@@ -395,18 +396,18 @@ def create_app(
             )
         finally:
             registry.remove(conversationId, ws)
-            if owner_refresh_task is not None:
-                owner_refresh_task.cancel()
+            if ownership_refresh_task is not None:
+                ownership_refresh_task.cancel()
                 try:
-                    await owner_refresh_task
+                    await ownership_refresh_task
                 except asyncio.CancelledError:
                     pass
-            if conversation_owner is not None and owner_acquired:
+            if ownership_guard is not None and ownership_acquired:
                 try:
-                    await conversation_owner.release(conversationId, owner_token)
+                    await ownership_guard.release(conversationId, ownership_token)
                 except Exception as exc:
                     log.warning(
-                        "Transport: 会话 owner 释放失败",
+                        "Transport: 会话发送所有权守卫释放失败",
                         conversation_id=conversationId,
                         error=str(exc),
                     )
@@ -476,7 +477,8 @@ async def _message_loop(
         resp = result.response
         if (
             isinstance(resp, dict)
-            and (resp.get("metaData") or {}).get("eventType") == EVENT_TRANSCRIPT_ACK
+            and (resp.get("metaData") or {}).get("eventType")
+            in {EVENT_TRANSCRIPT_ACK, EVENT_EOL_ACK}
             and isinstance(resp.get("payload"), dict)
         ):
             resp["payload"]["serverProcessingMs"] = server_processing_ms
@@ -508,24 +510,24 @@ async def _message_loop(
             return
 
 
-async def _owner_refresh_loop(
+async def _ownership_refresh_loop(
     ws: WebSocket,
     conversation_id: str,
     *,
-    conversation_owner: ConversationOwnerBackend,
-    owner_token: str,
-    refresh_interval_sec: float = OWNER_REFRESH_INTERVAL_SEC,
+    ownership_guard: ConversationOwnershipGuardBackend,
+    ownership_token: str,
+    refresh_interval_sec: float = OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
     log_ws_error_frames: bool = False,
 ) -> None:
-    """后台续租会话 owner，避免把 Redis 调用放进消息热路径。"""
+    """后台续租会话发送所有权，避免把 Redis 调用放进消息热路径。"""
     refresh_interval = max(0.1, refresh_interval_sec)
     while True:
         await asyncio.sleep(refresh_interval)
         try:
-            owned = await conversation_owner.claim_or_refresh(conversation_id, owner_token)
+            owned = await ownership_guard.claim_or_refresh(conversation_id, ownership_token)
         except Exception as exc:
             log.error(
-                "Transport: 会话 owner 存储不可用",
+                "Transport: 会话发送所有权守卫存储不可用",
                 conversation_id=conversation_id,
                 error=str(exc),
             )
@@ -535,7 +537,7 @@ async def _owner_refresh_loop(
                 ErrorCode.E1008.value,
                 "Downstream unavailable",
                 WsCloseCode.TRY_AGAIN_LATER,
-                details="Conversation owner store unavailable",
+                details="Conversation ownership guard store unavailable",
                 log_ws_error_frames=log_ws_error_frames,
             )
             return

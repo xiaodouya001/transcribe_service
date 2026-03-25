@@ -16,7 +16,9 @@
 | ---------------------------- | -------------- | ------------- | -------------- |
 | `WS_MAX_CONNECTIONS`         | 360            | 480           | 600            |
 | `REDIS_MAX_CONNECTIONS`      | 900            | 1200          | 1600           |
-| `REDIS_CONVERSATION_OWNER_TTL_SEC` | 30       | 30            | 30             |
+| `REDIS_OWNERSHIP_GUARD_TTL_SEC` | 30       | 30            | 30             |
+| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | transcript:session | transcript:session | transcript:session |
+| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | transcript:owner | transcript:owner | transcript:owner |
 | `HTTP_BACKLOG`               | 4096           | 4096          | 4096           |
 | `KAFKA_COMPRESSION_TYPE`     | lz4            | lz4           | lz4            |
 | `KAFKA_LINGER_MS`            | 1              | 1             | 1              |
@@ -26,6 +28,7 @@
 | `LOG_LEVEL`                  | WARNING        | WARNING       | WARNING        |
 | `WS_PING_INTERVAL`           | 20.0           | 20.0          | 20.0           |
 | `WS_PING_TIMEOUT`            | 20.0           | 20.0          | 20.0           |
+| `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 5.0 | 5.0 | 5.0 |
 | `STOP_TIMEOUT`               | 120            | 120           | 120            |
 
 
@@ -63,7 +66,9 @@
 ```env
 WS_MAX_CONNECTIONS=360
 REDIS_MAX_CONNECTIONS=900
-REDIS_CONVERSATION_OWNER_TTL_SEC=30
+REDIS_OWNERSHIP_GUARD_TTL_SEC=30
+REDIS_SEQUENCE_STATE_KEY_PREFIX=transcript:session
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=transcript:owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
@@ -71,6 +76,7 @@ KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
 KAFKA_TOPIC_NUM_PARTITIONS=100
 LOG_LEVEL=WARNING
+WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 ```
 
 ### 400 并发/实例
@@ -78,7 +84,9 @@ LOG_LEVEL=WARNING
 ```env
 WS_MAX_CONNECTIONS=480
 REDIS_MAX_CONNECTIONS=1200
-REDIS_CONVERSATION_OWNER_TTL_SEC=30
+REDIS_OWNERSHIP_GUARD_TTL_SEC=30
+REDIS_SEQUENCE_STATE_KEY_PREFIX=transcript:session
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=transcript:owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
@@ -86,6 +94,7 @@ KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
 KAFKA_TOPIC_NUM_PARTITIONS=100
 LOG_LEVEL=WARNING
+WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 ```
 
 ### 500 并发/实例
@@ -93,7 +102,9 @@ LOG_LEVEL=WARNING
 ```env
 WS_MAX_CONNECTIONS=600
 REDIS_MAX_CONNECTIONS=1600
-REDIS_CONVERSATION_OWNER_TTL_SEC=30
+REDIS_OWNERSHIP_GUARD_TTL_SEC=30
+REDIS_SEQUENCE_STATE_KEY_PREFIX=transcript:session
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=transcript:owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
@@ -101,5 +112,6 @@ KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
 KAFKA_TOPIC_NUM_PARTITIONS=100
 LOG_LEVEL=WARNING
+WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 ```
 

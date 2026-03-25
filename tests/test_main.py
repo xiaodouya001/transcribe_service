@@ -81,7 +81,7 @@ async def test_check_kafka_other_error():
 
 @pytest.mark.asyncio
 async def test_run_graceful_shutdown_path(monkeypatch):
-    """Exercise run(): server serve loop, shutdown, registry, producer, state_machine."""
+    """Exercise run(): server serve loop, shutdown, registry, producer, sequence state machine."""
     settings = MagicMock()
     settings.redis_url = "redis://127.0.0.1:6379/0"
     settings.log_level = "INFO"
@@ -104,18 +104,21 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     settings.ws_ping_timeout = 21.0
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
-    settings.redis_conversation_owner_ttl_sec = 30
+    settings.redis_ownership_guard_ttl_sec = 30
+    settings.redis_sequence_state_key_prefix = "transcript:session"
+    settings.redis_ownership_guard_key_prefix = "transcript:owner"
+    settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
 
     sm = MagicMock()
     sm.close = AsyncMock()
-    monkeypatch.setattr(main_mod, "RedisStateMachine", lambda **kw: sm)
+    monkeypatch.setattr(main_mod, "RedisSequenceStateMachine", lambda **kw: sm)
 
     owner = MagicMock()
     owner.close = AsyncMock()
-    monkeypatch.setattr(main_mod, "RedisConversationOwner", lambda **kw: owner)
+    monkeypatch.setattr(main_mod, "RedisConversationOwnershipGuard", lambda **kw: owner)
 
     prod = MagicMock()
     prod.flush = AsyncMock()
@@ -222,7 +225,10 @@ async def test_run_graceful_shutdown_order(monkeypatch):
     settings.ws_ping_timeout = 21.0
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
-    settings.redis_conversation_owner_ttl_sec = 30
+    settings.redis_ownership_guard_ttl_sec = 30
+    settings.redis_sequence_state_key_prefix = "transcript:session"
+    settings.redis_ownership_guard_key_prefix = "transcript:owner"
+    settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
@@ -232,18 +238,18 @@ async def test_run_graceful_shutdown_order(monkeypatch):
     sm = MagicMock()
 
     async def sm_close():
-        calls.append("state_machine.close")
+        calls.append("sequence_state_machine.close")
 
     sm.close = AsyncMock(side_effect=sm_close)
-    monkeypatch.setattr(main_mod, "RedisStateMachine", lambda **kw: sm)
+    monkeypatch.setattr(main_mod, "RedisSequenceStateMachine", lambda **kw: sm)
 
     owner = MagicMock()
 
     async def owner_close():
-        calls.append("conversation_owner.close")
+        calls.append("ownership_guard.close")
 
     owner.close = AsyncMock(side_effect=owner_close)
-    monkeypatch.setattr(main_mod, "RedisConversationOwner", lambda **kw: owner)
+    monkeypatch.setattr(main_mod, "RedisConversationOwnershipGuard", lambda **kw: owner)
 
     prod = MagicMock()
 
@@ -301,8 +307,8 @@ async def test_run_graceful_shutdown_order(monkeypatch):
         "registry.close_all",
         "producer.flush",
         "producer.close",
-        "state_machine.close",
-        "conversation_owner.close",
+        "sequence_state_machine.close",
+        "ownership_guard.close",
     ]
 
 
@@ -371,14 +377,19 @@ async def test_run_propagates_exception(monkeypatch):
     settings.http_host = "127.0.0.1"
     settings.http_port = 18081
     settings.kafka_startup_timeout_sec = 5.0
-    settings.redis_conversation_owner_ttl_sec = 30
+    settings.redis_ownership_guard_ttl_sec = 30
+    settings.redis_sequence_state_key_prefix = "transcript:session"
+    settings.redis_ownership_guard_key_prefix = "transcript:owner"
+    settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
-    monkeypatch.setattr(main_mod, "RedisStateMachine", lambda **kw: MagicMock(close=AsyncMock()))
+    monkeypatch.setattr(
+        main_mod, "RedisSequenceStateMachine", lambda **kw: MagicMock(close=AsyncMock())
+    )
     monkeypatch.setattr(
         main_mod,
-        "RedisConversationOwner",
+        "RedisConversationOwnershipGuard",
         lambda **kw: MagicMock(close=AsyncMock()),
     )
     monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: MagicMock(flush=AsyncMock(), close=AsyncMock()))
@@ -429,14 +440,17 @@ async def test_run_port_conflict_system_exit(monkeypatch):
     settings.http_host = "127.0.0.1"
     settings.http_port = 18082
     settings.kafka_startup_timeout_sec = 5.0
-    settings.redis_conversation_owner_ttl_sec = 30
+    settings.redis_ownership_guard_ttl_sec = 30
+    settings.redis_sequence_state_key_prefix = "transcript:session"
+    settings.redis_ownership_guard_key_prefix = "transcript:owner"
+    settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
     sm = MagicMock(close=AsyncMock())
-    monkeypatch.setattr(main_mod, "RedisStateMachine", lambda **kw: sm)
+    monkeypatch.setattr(main_mod, "RedisSequenceStateMachine", lambda **kw: sm)
     owner = MagicMock(close=AsyncMock())
-    monkeypatch.setattr(main_mod, "RedisConversationOwner", lambda **kw: owner)
+    monkeypatch.setattr(main_mod, "RedisConversationOwnershipGuard", lambda **kw: owner)
     prod = MagicMock(flush=AsyncMock(), close=AsyncMock())
     monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: prod)
     monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: MagicMock())

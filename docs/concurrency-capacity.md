@@ -23,7 +23,7 @@
 |----|------|
 | 握手路径 | 握手前由 middleware 执行准入检查；缺少 `conversationId`、服务 `draining`、超过 `WS_MAX_CONNECTIONS` 都会在 `ws.accept()` 前拒连。 |
 | Uvicorn | 已暴露 **`HTTP_BACKLOG`**（默认 **4096**），降低 SYN/accept 队列吃满时客户端读到一半 EOF 的概率；仍受 OS 限制。 |
-| `ConnectionRegistry` | 当前按 **`conversationId -> list[WebSocket]`** 追踪真实连接数；`remove(conversationId, ws)` 仅移除目标实例，避免旧连接 `finally` 误删其它登记。“同会话同一时刻仅一个连接发送消息”由独立 Redis owner key 保证，而非由本地 registry 保证。 |
+| `ConnectionRegistry` | 当前按 **`conversationId -> list[WebSocket]`** 追踪真实连接数；`remove(conversationId, ws)` 仅移除目标实例，避免旧连接 `finally` 误删其它登记。“同会话同一时刻仅一个连接发送消息”由独立 Redis 会话发送所有权键（conversation ownership key）保证，而非由本地 registry 保证。 |
 | `WS_PING_INTERVAL` / `WS_PING_TIMEOUT` | 经 `main.py` 传入 Uvicorn；在 **`ws="websockets"`** 下驱动 **RFC Ping/Pong 保活**。在 **`wsproto`** backend 下，这两项不会驱动主动发 Ping。 |
 
 **结论**：当出现 `EOFError: connection closed while reading HTTP status line` 时，通常不是 Python 应用在握手阶段主动关闭连接，而是连接已在 **TCP/HTTP 层** 被对端、中间件或本机内核终止（例如过载、队列溢出或网络栈问题）。服务端侧可通过增大 backlog、确保连接登记正确，以及降低 Redis / Kafka 压力来改善表现。
@@ -38,9 +38,12 @@
 
 ---
 
-## 4. Redis（`RedisStateMachine`）
+## 4. Redis（Sequence State Machine + Ownership Guard）
 
-- 实现：`redis.asyncio.Redis.from_url(..., max_connections=settings.redis_max_connections)`（见 `state_machine/redis_state.py`）。
+- Sequence State Machine：负责 `prepare/commit/cleanup`，走 Lua 原子预检与状态推进。
+- Ownership Guard：负责 `claim/refresh/release`，保证同会话同一时刻仅一个发送连接。
+- 两者都基于 `redis.asyncio.Redis.from_url(..., max_connections=settings.redis_max_connections)`。
+- Redis 目录实现已统一为 `redis/sequence_state_machine.py` + `redis/ownership_guard.py`。
 - **默认 `REDIS_MAX_CONNECTIONS=100`**（`config/settings.py`）：同一时刻只有约 **100 条 TCP 到 Redis**；更多协程在池上 **排队**。
 - 每条上行消息至少 **1 次 `EVAL`（prepare）**；正常路径还有 **commit** 等。1000 连接同时发消息时，**池子过小会直接拉长尾延迟**，进而拖垮整条处理链。
 
@@ -67,7 +70,7 @@
 
 ## 6. 与 Mock Client 现象的对应关系
 
-- Mock 压测里 **「错误」** 常见原因：服务端 **迟迟不返回 `TRANSCRIPT_ACK`**（`recv` **10s 超时**）或返回 **非 ACK**。
+- Mock 压测里 **「错误」** 常见原因：服务端 **迟迟不返回预期 ACK**（普通消息通常是 `TRANSCRIPT_ACK`，结束帧是 `EOL_ACK`，`recv` **10s 超时**）或返回 **非预期 ACK/ERROR**。
 - 根因往往在 **Redis 池排队、Kafka 超时、或单机 CPU**，而不是「Kafka/Redis 在代码里写死只支持 N 连接」。
 
 ---

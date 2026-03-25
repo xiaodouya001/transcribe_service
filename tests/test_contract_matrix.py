@@ -19,11 +19,11 @@ import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from transcribe_service.conversation_owner.redis_owner import RedisConversationOwner
 from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
-from transcribe_service.schemas.response import build_ack
+from transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
+from transcribe_service.redis.protocols import PrepareResult
+from transcribe_service.schemas.response import build_transcript_ack
 from transcribe_service.shutdown.graceful import GracefulShutdown
-from transcribe_service.state_machine.base import PrepareResult
 from transcribe_service.transport.websocket_handler import ConnectionRegistry, create_app
 
 
@@ -111,7 +111,7 @@ class TestTransportContractMatrix:
         """E-04：JSON 解析失败时返回 E1001，并以 1007 断开。"""
         orchestrator = AsyncMock()
         orchestrator.handle_message = AsyncMock(
-            return_value=build_ack("conv-1", 0)  # pragma: no cover - should never be used
+            return_value=build_transcript_ack("conv-1", 0)  # pragma: no cover - should never be used
         )
         client = TestClient(_build_app(orchestrator))
 
@@ -167,16 +167,17 @@ class TestTransportContractMatrix:
         """E-16：同一 conversationId 的第二个并发发送连接返回 E1009，并以 1008 断开。"""
         orchestrator = AsyncMock()
         orchestrator.handle_message = AsyncMock()
-        owner = RedisConversationOwner(
+        owner = RedisConversationOwnershipGuard(
             client=fakeredis.aioredis.FakeRedis(decode_responses=True),
-            owner_ttl_sec=30,
+            guard_ttl_sec=30,
+            key_prefix="transcript:owner",
         )
         client = TestClient(
             create_app(
                 orchestrator,
                 GracefulShutdown(),
                 ConnectionRegistry(),
-                conversation_owner=owner,
+                ownership_guard=owner,
             )
         )
 
@@ -235,6 +236,12 @@ class TestOrchestratorContractMatrix:
                 1008,
                 id="E-15",
             ),
+            pytest.param(
+                lambda msg: msg["metaData"].__setitem__("staffId", "S1"),
+                "E1003",
+                1008,
+                id="E-17",
+            ),
         ],
     )
     async def test_schema_error_matrix(
@@ -272,6 +279,39 @@ class TestOrchestratorContractMatrix:
         assert result.disconnect is False
         mock_producer.send.assert_not_awaited()
         mock_sm.commit.assert_not_awaited()
+
+    async def test_duplicate_complete_returns_eol_ack_and_close_1000(
+        self, valid_complete_msg, mock_sm, mock_producer
+    ):
+        """N-02：重复 COMPLETE 命中幂等时返回 EOL_ACK，并正常 close 1000。"""
+        mock_sm.prepare.return_value = PrepareResult.IDEMPOTENT
+        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+
+        result = await orchestrator.handle_message(copy.deepcopy(valid_complete_msg))
+
+        assert result.response["metaData"]["eventType"] == "EOL_ACK"
+        assert result.response["payload"]["sequenceNumber"] == 42
+        assert result.disconnect is True
+        assert result.close_code == 1000
+        mock_producer.send.assert_not_awaited()
+        mock_sm.commit.assert_not_awaited()
+        mock_sm.cleanup.assert_not_awaited()
+
+    async def test_complete_returns_eol_ack_and_close_1000(
+        self, valid_complete_msg, mock_sm, mock_producer
+    ):
+        """N-03：SESSION_COMPLETE 正常处理返回 EOL_ACK，并以 1000 断开。"""
+        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+
+        result = await orchestrator.handle_message(copy.deepcopy(valid_complete_msg))
+
+        assert result.response["metaData"]["eventType"] == "EOL_ACK"
+        assert result.response["payload"]["sequenceNumber"] == 42
+        assert result.disconnect is True
+        assert result.close_code == 1000
+        mock_producer.send.assert_awaited_once()
+        mock_sm.commit.assert_awaited_once()
+        mock_sm.cleanup.assert_awaited_once()
 
     async def test_out_of_order_returns_e1006_and_close_1008(
         self, valid_ongoing_msg, mock_sm, mock_producer

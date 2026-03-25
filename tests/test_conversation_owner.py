@@ -1,4 +1,4 @@
-"""coverage: conversation_owner.redis_owner"""
+"""coverage: redis.ownership_guard"""
 
 from __future__ import annotations
 
@@ -8,13 +8,15 @@ import fakeredis.aioredis
 import pytest
 from redis.exceptions import NoScriptError
 
-from transcribe_service.conversation_owner.redis_owner import RedisConversationOwner
+from transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
 
 
 @pytest.mark.asyncio
 async def test_claim_refresh_and_release_roundtrip():
     client = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    owner = RedisConversationOwner(client=client, owner_ttl_sec=30)
+    owner = RedisConversationOwnershipGuard(
+        client=client, guard_ttl_sec=30, key_prefix="transcript:owner"
+    )
 
     assert await owner.claim_or_refresh("conv-1", "owner-a") is True
     assert await owner.claim_or_refresh("conv-1", "owner-a") is True
@@ -30,7 +32,9 @@ async def test_claim_refresh_and_release_roundtrip():
 @pytest.mark.asyncio
 async def test_claim_reacquires_after_ttl_expiry():
     client = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    owner = RedisConversationOwner(client=client, owner_ttl_sec=1)
+    owner = RedisConversationOwnershipGuard(
+        client=client, guard_ttl_sec=1, key_prefix="transcript:owner"
+    )
 
     assert await owner.claim_or_refresh("conv-1", "owner-a") is True
     await client.delete("transcript:owner:conv-1")
@@ -46,9 +50,14 @@ async def test_get_client_lazy_and_close_calls_aclose():
     fake_redis.evalsha = AsyncMock(return_value="OWNED")
     fake_redis.aclose = AsyncMock()
 
-    with patch("transcribe_service.conversation_owner.redis_owner.Redis") as redis_cls:
+    with patch("transcribe_service.redis.ownership_guard.Redis") as redis_cls:
         redis_cls.from_url.return_value = fake_redis
-        owner = RedisConversationOwner(redis_url="redis://127.0.0.1:6379/0", max_connections=5)
+        owner = RedisConversationOwnershipGuard(
+            redis_url="redis://127.0.0.1:6379/0",
+            max_connections=5,
+            guard_ttl_sec=30,
+            key_prefix="transcript:owner",
+        )
 
         assert await owner.claim_or_refresh("conv-1", "owner-a") is True
         redis_cls.from_url.assert_called_once()
@@ -64,7 +73,9 @@ async def test_close_skips_aclose_for_injected_client():
     injected.evalsha = AsyncMock(return_value="OWNED")
     injected.aclose = AsyncMock()
 
-    owner = RedisConversationOwner(client=injected)
+    owner = RedisConversationOwnershipGuard(
+        client=injected, guard_ttl_sec=30, key_prefix="transcript:owner"
+    )
     await owner.close()
 
     injected.aclose.assert_not_awaited()
@@ -77,9 +88,13 @@ async def test_claim_reload_script_after_noscript():
     fake_redis.evalsha = AsyncMock(side_effect=[NoScriptError("NOSCRIPT"), "OWNED"])
     fake_redis.aclose = AsyncMock()
 
-    with patch("transcribe_service.conversation_owner.redis_owner.Redis") as redis_cls:
+    with patch("transcribe_service.redis.ownership_guard.Redis") as redis_cls:
         redis_cls.from_url.return_value = fake_redis
-        owner = RedisConversationOwner(redis_url="redis://127.0.0.1:6379/0")
+        owner = RedisConversationOwnershipGuard(
+            redis_url="redis://127.0.0.1:6379/0",
+            guard_ttl_sec=30,
+            key_prefix="transcript:owner",
+        )
 
         assert await owner.claim_or_refresh("conv-1", "owner-a") is True
         assert fake_redis.script_load.await_count == 3
@@ -95,9 +110,13 @@ async def test_release_reload_script_after_noscript():
     fake_redis.evalsha = AsyncMock(side_effect=["OWNED", NoScriptError("NOSCRIPT"), 1])
     fake_redis.aclose = AsyncMock()
 
-    with patch("transcribe_service.conversation_owner.redis_owner.Redis") as redis_cls:
+    with patch("transcribe_service.redis.ownership_guard.Redis") as redis_cls:
         redis_cls.from_url.return_value = fake_redis
-        owner = RedisConversationOwner(redis_url="redis://127.0.0.1:6379/0")
+        owner = RedisConversationOwnershipGuard(
+            redis_url="redis://127.0.0.1:6379/0",
+            guard_ttl_sec=30,
+            key_prefix="transcript:owner",
+        )
 
         assert await owner.claim_or_refresh("conv-1", "owner-a") is True
         await owner.release("conv-1", "owner-a")

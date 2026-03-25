@@ -8,6 +8,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from transcribe_service.constants import (
+    EVENT_EOL_ACK,
     EVENT_ERROR,
     EVENT_TRANSCRIPT_ACK,
     MAX_ERROR_DETAILS_LEN,
@@ -21,7 +22,7 @@ from transcribe_service.constants import (
 
 class AckMetaData(BaseModel):
     conversationId: str
-    eventType: str = EVENT_TRANSCRIPT_ACK
+    eventType: str
 
 
 class AckPayload(BaseModel):
@@ -31,6 +32,11 @@ class AckPayload(BaseModel):
 
 
 class TranscriptAckResponse(BaseModel):
+    metaData: AckMetaData
+    payload: AckPayload
+
+
+class EolAckResponse(BaseModel):
     metaData: AckMetaData
     payload: AckPayload
 
@@ -64,18 +70,27 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
-def build_ack(conversation_id: str, sequence_number: int) -> dict:
-    """构建 TRANSCRIPT_ACK 响应字典（可直接 JSON 序列化）。"""
+def _build_success_response(conversation_id: str, sequence_number: int, event_type: str) -> dict:
     return {
         "metaData": {
             "conversationId": conversation_id,
-            "eventType": EVENT_TRANSCRIPT_ACK,
+            "eventType": event_type,
         },
         "payload": {
             "sequenceNumber": sequence_number,
             "createdAtTimeStamp": _utc_now_iso(),
         },
     }
+
+
+def build_transcript_ack(conversation_id: str, sequence_number: int) -> dict:
+    """构建 TRANSCRIPT_ACK 响应字典（可直接 JSON 序列化）。"""
+    return _build_success_response(conversation_id, sequence_number, EVENT_TRANSCRIPT_ACK)
+
+
+def build_eol_ack(conversation_id: str, sequence_number: int) -> dict:
+    """构建 EOL_ACK 响应字典（可直接 JSON 序列化）。"""
+    return _build_success_response(conversation_id, sequence_number, EVENT_EOL_ACK)
 
 
 def build_error(

@@ -14,29 +14,33 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 from unittest.mock import patch
 
-from transcribe_service.conversation_owner.redis_owner import RedisConversationOwner
+from transcribe_service.orchestrator.protocols import OrchestratorResult
 from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
-from transcribe_service.orchestrator.base import OrchestratorResult
-from transcribe_service.schemas.response import build_ack, build_error
+from transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
+from transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
+from transcribe_service.schemas.response import (
+    build_eol_ack,
+    build_error,
+    build_transcript_ack,
+)
 from transcribe_service.shutdown.graceful import GracefulShutdown
-from transcribe_service.state_machine.redis_state import RedisStateMachine
 from transcribe_service.transport.websocket_handler import (
     ConnectionRegistry,
     _format_client_addr,
-    _owner_refresh_loop,
+    _ownership_refresh_loop,
     create_app,
 )
 
 
 class ScriptedOwnerBackend:
-    """Tiny test double for conversation owner claim/release outcomes."""
+    """Tiny test double for conversation ownership-guard claim/release outcomes."""
 
     def __init__(self, claim_sequence: list[object], release_exc: Exception | None = None):
         self._claim_sequence = list(claim_sequence)
         self._release_exc = release_exc
         self.release_calls: list[tuple[str, str]] = []
 
-    async def claim_or_refresh(self, conversation_id: str, owner_token: str) -> bool:
+    async def claim_or_refresh(self, conversation_id: str, ownership_token: str) -> bool:
         if self._claim_sequence:
             outcome = self._claim_sequence.pop(0)
             if isinstance(outcome, Exception):
@@ -44,8 +48,8 @@ class ScriptedOwnerBackend:
             return bool(outcome)
         return True
 
-    async def release(self, conversation_id: str, owner_token: str) -> None:
-        self.release_calls.append((conversation_id, owner_token))
+    async def release(self, conversation_id: str, ownership_token: str) -> None:
+        self.release_calls.append((conversation_id, ownership_token))
         if self._release_exc is not None:
             raise self._release_exc
 
@@ -53,12 +57,65 @@ class ScriptedOwnerBackend:
         return None
 
 
+def _ongoing_message(
+    conversation_id: str = "conv-1",
+    *,
+    seq: int = 0,
+    speaker: str = "Agent",
+) -> dict:
+    payload = {
+        "sequenceNumber": seq,
+        "speaker": speaker,
+        "transcript": "Hello",
+        "engineProvider": "FanoLabs",
+        "isFinal": True,
+        "createdAtTimeStamp": "2025-01-01T00:00:01Z",
+    }
+    if speaker == "Customer":
+        payload["agentId"] = None
+        payload["customerId"] = "C1"
+    else:
+        payload["agentId"] = "A1"
+        payload["customerId"] = None
+
+    return {
+        "metaData": {
+            "conversationId": conversation_id,
+            "callStartTimeStamp": "2025-01-01T00:00:00Z",
+            "callEndTimeStamp": None,
+            "eventType": "SESSION_ONGOING",
+        },
+        "payload": payload,
+    }
+
+
+def _complete_message(conversation_id: str = "conv-1", *, seq: int = 42) -> dict:
+    return {
+        "metaData": {
+            "conversationId": conversation_id,
+            "callStartTimeStamp": "2025-01-01T00:00:00Z",
+            "callEndTimeStamp": "2025-01-01T00:05:00Z",
+            "eventType": "SESSION_COMPLETE",
+        },
+        "payload": {
+            "agentId": None,
+            "customerId": None,
+            "sequenceNumber": seq,
+            "speaker": "System",
+            "transcript": "session ended",
+            "engineProvider": "FanoLabs",
+            "isFinal": True,
+            "createdAtTimeStamp": "2025-01-01T00:05:00Z",
+        },
+    }
+
+
 @pytest.fixture
 def mock_orchestrator():
     orch = AsyncMock()
     orch.handle_message = AsyncMock(
         return_value=OrchestratorResult(
-            response=build_ack("conv-1", 0),
+            response=build_transcript_ack("conv-1", 0),
             disconnect=False,
         )
     )
@@ -181,25 +238,7 @@ class TestWebSocket:
 
     def test_ws_normal_ongoing(self, app, mock_orchestrator):
         client = TestClient(app)
-        msg = {
-            "metaData": {
-                "conversationId": "conv-1",
-                "agentId": "A1",
-                "staffId": "S1",
-                "customerId": "C1",
-                "callStartTimeStamp": "2025-01-01T00:00:00Z",
-                "callEndTimeStamp": None,
-                "eventType": "SESSION_ONGOING",
-            },
-            "payload": {
-                "sequenceNumber": 0,
-                "speaker": "Agent",
-                "transcript": "Hello",
-                "engineProvider": "FanoLabs",
-                "isFinal": True,
-                "createdAtTimeStamp": "2025-01-01T00:00:01Z",
-            },
-        }
+        msg = _ongoing_message()
         with client.websocket_connect(
             "/ws/v1/realtime-transcriptions?conversationId=conv-1"
         ) as ws:
@@ -208,11 +247,39 @@ class TestWebSocket:
             assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
         mock_orchestrator.handle_message.assert_awaited_once()
 
+    def test_ws_complete_ack_includes_server_processing_ms_and_closes(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        mock_orchestrator.handle_message.return_value = OrchestratorResult(
+            response=build_eol_ack("conv-1", 42),
+            disconnect=True,
+            close_code=1000,
+        )
+        app = create_app(mock_orchestrator, shutdown, registry)
+        client = TestClient(app)
+
+        with client.websocket_connect(
+            "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+        ) as ws:
+            ws.send_text(orjson.dumps(_complete_message()).decode())
+            resp = orjson.loads(ws.receive_text())
+            assert resp["metaData"]["eventType"] == "EOL_ACK"
+            assert resp["payload"]["sequenceNumber"] == 42
+            assert isinstance(resp["payload"]["serverProcessingMs"], (int, float))
+            with pytest.raises(WebSocketDisconnect) as ei:
+                ws.receive_text()
+            assert ei.value.code == 1000
+
     def test_ws_disconnect_preserves_active_ttl_and_allows_resume(
         self, shutdown, registry, valid_ongoing_msg
     ):
         fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-        state_machine = RedisStateMachine(client=fake_redis, active_ttl_sec=120, final_ttl_sec=5)
+        state_machine = RedisSequenceStateMachine(
+            client=fake_redis,
+            active_ttl_sec=120,
+            final_ttl_sec=5,
+            key_prefix="transcript:session",
+        )
         producer = AsyncMock()
         producer.send = AsyncMock()
         app = create_app(TwoPhaseOrchestrator(state_machine, producer), shutdown, registry)
@@ -258,12 +325,16 @@ class TestWebSocket:
         self, mock_orchestrator, shutdown, registry
     ):
         fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-        owner = RedisConversationOwner(client=fake_redis, owner_ttl_sec=30)
+        owner = RedisConversationOwnershipGuard(
+            client=fake_redis,
+            guard_ttl_sec=30,
+            key_prefix="transcript:owner",
+        )
         app = create_app(
             mock_orchestrator,
             shutdown,
             registry,
-            conversation_owner=owner,
+            ownership_guard=owner,
         )
         client = TestClient(app)
 
@@ -282,27 +353,7 @@ class TestWebSocket:
                     assert ei.value.code == 1008
 
                 ws1.send_text(
-                    orjson.dumps(
-                        {
-                            "metaData": {
-                                "conversationId": "conv-1",
-                                "agentId": "A1",
-                                "staffId": "S1",
-                                "customerId": "C1",
-                                "callStartTimeStamp": "2025-01-01T00:00:00Z",
-                                "callEndTimeStamp": None,
-                                "eventType": "SESSION_ONGOING",
-                            },
-                            "payload": {
-                                "sequenceNumber": 0,
-                                "speaker": "Agent",
-                                "transcript": "Hello",
-                                "engineProvider": "FanoLabs",
-                                "isFinal": True,
-                                "createdAtTimeStamp": "2025-01-01T00:00:01Z",
-                            },
-                        }
-                    ).decode()
+                    orjson.dumps(_ongoing_message()).decode()
                 )
                 resp = orjson.loads(ws1.receive_text())
                 assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
@@ -313,12 +364,16 @@ class TestWebSocket:
         self, mock_orchestrator, shutdown, registry
     ):
         fake_redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-        owner = RedisConversationOwner(client=fake_redis, owner_ttl_sec=30)
+        owner = RedisConversationOwnershipGuard(
+            client=fake_redis,
+            guard_ttl_sec=30,
+            key_prefix="transcript:owner",
+        )
         app = create_app(
             mock_orchestrator,
             shutdown,
             registry,
-            conversation_owner=owner,
+            ownership_guard=owner,
         )
         client = TestClient(app)
 
@@ -347,7 +402,7 @@ class TestWebSocket:
             mock_orchestrator,
             shutdown,
             registry,
-            conversation_owner=owner,
+            ownership_guard=owner,
         )
         client = TestClient(app)
 
@@ -357,7 +412,7 @@ class TestWebSocket:
             resp = orjson.loads(ws.receive_text())
             assert resp["error"]["code"] == "E1008"
             assert resp["error"]["message"] == "Downstream unavailable"
-            assert resp["error"]["details"] == "Conversation owner store unavailable"
+            assert resp["error"]["details"] == "Conversation ownership guard store unavailable"
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_text()
             assert ei.value.code == 1013
@@ -371,8 +426,8 @@ class TestWebSocket:
             mock_orchestrator,
             shutdown,
             registry,
-            conversation_owner=owner,
-            owner_refresh_interval_sec=0.01,
+            ownership_guard=owner,
+            ownership_guard_refresh_interval_sec=0.01,
         )
         client = TestClient(app)
 
@@ -395,8 +450,8 @@ class TestWebSocket:
             mock_orchestrator,
             shutdown,
             registry,
-            conversation_owner=owner,
-            owner_refresh_interval_sec=0.01,
+            ownership_guard=owner,
+            ownership_guard_refresh_interval_sec=0.01,
         )
         client = TestClient(app)
 
@@ -419,7 +474,7 @@ class TestWebSocket:
             mock_orchestrator,
             shutdown,
             registry,
-            conversation_owner=owner,
+            ownership_guard=owner,
         )
         client = TestClient(app)
 
@@ -430,7 +485,7 @@ class TestWebSocket:
                 pass
         assert len(owner.release_calls) == 1
         warn_mock.assert_any_call(
-            "Transport: 会话 owner 释放失败",
+            "Transport: 会话发送所有权守卫释放失败",
             conversation_id="conv-1",
             error="release failed",
         )
@@ -465,14 +520,13 @@ class TestWebSocket:
         client = TestClient(app)
         msg = {
             "metaData": {
-                "agentId": "A1",
-                "staffId": "S1",
-                "customerId": "C1",
                 "callStartTimeStamp": "2025-01-01T00:00:00Z",
                 "callEndTimeStamp": None,
                 "eventType": "SESSION_ONGOING",
             },
             "payload": {
+                "agentId": "A1",
+                "customerId": None,
                 "sequenceNumber": 0,
                 "speaker": "Agent",
                 "transcript": "Hello",
@@ -508,14 +562,13 @@ class TestWebSocket:
         msg = {
             "metaData": {
                 "conversationId": 123,
-                "agentId": "A1",
-                "staffId": "S1",
-                "customerId": "C1",
                 "callStartTimeStamp": "2025-01-01T00:00:00Z",
                 "callEndTimeStamp": None,
                 "eventType": "SESSION_ONGOING",
             },
             "payload": {
+                "agentId": "A1",
+                "customerId": None,
                 "sequenceNumber": 0,
                 "speaker": "Agent",
                 "transcript": "Hello",
@@ -627,25 +680,7 @@ class TestWebSocket:
     ):
         mock_orchestrator.handle_message.side_effect = RuntimeError("boom")
         client = TestClient(app)
-        msg = {
-            "metaData": {
-                "conversationId": "conv-1",
-                "agentId": "A1",
-                "staffId": "S1",
-                "customerId": "C1",
-                "callStartTimeStamp": "2025-01-01T00:00:00Z",
-                "callEndTimeStamp": None,
-                "eventType": "SESSION_ONGOING",
-            },
-            "payload": {
-                "sequenceNumber": 0,
-                "speaker": "Agent",
-                "transcript": "Hello",
-                "engineProvider": "FanoLabs",
-                "isFinal": True,
-                "createdAtTimeStamp": "2025-01-01T00:00:01Z",
-            },
-        }
+        msg = _ongoing_message()
         with client.websocket_connect(
             "/ws/v1/realtime-transcriptions?conversationId=conv-1"
         ) as ws:
@@ -666,25 +701,7 @@ class TestWebSocket:
             log_ws_error_frames=True,
         )
         client = TestClient(app)
-        msg = {
-            "metaData": {
-                "conversationId": "conv-1",
-                "agentId": "A1",
-                "staffId": "S1",
-                "customerId": "C1",
-                "callStartTimeStamp": "2025-01-01T00:00:00Z",
-                "callEndTimeStamp": None,
-                "eventType": "SESSION_ONGOING",
-            },
-            "payload": {
-                "sequenceNumber": 0,
-                "speaker": "Agent",
-                "transcript": "Hello",
-                "engineProvider": "FanoLabs",
-                "isFinal": True,
-                "createdAtTimeStamp": "2025-01-01T00:00:01Z",
-            },
-        }
+        msg = _ongoing_message()
         with patch("transcribe_service.transport.websocket_handler.log.info") as info_mock:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
@@ -743,7 +760,7 @@ async def test_send_error_and_close_logs_error_frame_when_enabled():
 
 
 @pytest.mark.asyncio
-async def test_owner_refresh_loop_error_closes_ws():
+async def test_ownership_refresh_loop_error_closes_ws():
     from transcribe_service.transport import websocket_handler as wh
 
     ws = MagicMock()
@@ -752,11 +769,11 @@ async def test_owner_refresh_loop_error_closes_ws():
     ws.close = AsyncMock()
     owner = ScriptedOwnerBackend([RuntimeError("owner store down")])
 
-    await _owner_refresh_loop(
+    await _ownership_refresh_loop(
         ws,
         "conv-x",
-        conversation_owner=owner,
-        owner_token="owner-a",
+        ownership_guard=owner,
+        ownership_token="owner-a",
         refresh_interval_sec=0.01,
     )
 
@@ -765,7 +782,7 @@ async def test_owner_refresh_loop_error_closes_ws():
 
 
 @pytest.mark.asyncio
-async def test_owner_refresh_loop_conflict_closes_ws():
+async def test_ownership_refresh_loop_conflict_closes_ws():
     from transcribe_service.transport import websocket_handler as wh
 
     ws = MagicMock()
@@ -774,11 +791,11 @@ async def test_owner_refresh_loop_conflict_closes_ws():
     ws.close = AsyncMock()
     owner = ScriptedOwnerBackend([False])
 
-    await _owner_refresh_loop(
+    await _ownership_refresh_loop(
         ws,
         "conv-x",
-        conversation_owner=owner,
-        owner_token="owner-a",
+        ownership_guard=owner,
+        ownership_token="owner-a",
         refresh_interval_sec=0.01,
     )
 

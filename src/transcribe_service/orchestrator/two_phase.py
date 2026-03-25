@@ -11,12 +11,12 @@ import structlog
 from pydantic import ValidationError
 
 from transcribe_service.constants import MAX_ERROR_DETAILS_LEN, MAX_ERROR_MESSAGE_LEN
-from transcribe_service.orchestrator.base import OrchestratorResult
+from transcribe_service.orchestrator.protocols import OrchestratorResult
+from transcribe_service.producer.protocols import ProducerBackend
+from transcribe_service.redis.protocols import PrepareResult, SequenceStateMachineBackend
 from transcribe_service.schemas.errors import ErrorCode, WsCloseCode
 from transcribe_service.schemas.request import EventType, InboundMessage
-from transcribe_service.schemas.response import build_ack, build_error
-from transcribe_service.state_machine.base import PrepareResult, StateMachineBackend
-from transcribe_service.producer.base import ProducerBackend
+from transcribe_service.schemas.response import build_eol_ack, build_error, build_transcript_ack
 
 log = structlog.get_logger(__name__)
 
@@ -30,11 +30,21 @@ class TwoPhaseOrchestrator:
 
     def __init__(
         self,
-        state_machine: StateMachineBackend,
+        state_machine: SequenceStateMachineBackend,
         producer: ProducerBackend,
     ) -> None:
         self._sm = state_machine
         self._producer = producer
+
+    @staticmethod
+    def _build_success_ack(conversation_id: str, sequence_number: int, event_type: EventType) -> dict:
+        if event_type == EventType.SESSION_COMPLETE:
+            return build_eol_ack(conversation_id, sequence_number)
+        return build_transcript_ack(conversation_id, sequence_number)
+
+    @staticmethod
+    def _disconnect_after_success(event_type: EventType) -> bool:
+        return event_type == EventType.SESSION_COMPLETE
 
     async def handle_message(self, raw_json: dict) -> OrchestratorResult:
         """处理一条上行消息。"""
@@ -100,13 +110,20 @@ class TwoPhaseOrchestrator:
 
         # 场景 B: IDEMPOTENT → 直接 ACK，不写 Kafka，不推进 Redis
         if result == PrepareResult.IDEMPOTENT:
+            should_disconnect = self._disconnect_after_success(event_type)
             log.info(
                 "Orchestrator: 幂等命中，直接 ACK",
                 conversation_id=cid,
                 seq=seq,
             )
+            if should_disconnect:
+                return OrchestratorResult(
+                    response=self._build_success_ack(cid, seq, event_type),
+                    disconnect=True,
+                    close_code=WsCloseCode.NORMAL,
+                )
             return OrchestratorResult(
-                response=build_ack(cid, seq),
+                response=self._build_success_ack(cid, seq, event_type),
                 disconnect=False,
             )
 
@@ -195,7 +212,7 @@ class TwoPhaseOrchestrator:
                 seq=seq,
             )
             return OrchestratorResult(
-                response=build_ack(cid, seq),
+                response=self._build_success_ack(cid, seq, event_type),
                 disconnect=True,
                 close_code=WsCloseCode.NORMAL,
             )
@@ -204,7 +221,7 @@ class TwoPhaseOrchestrator:
         # 场景 A: 正常 SESSION_ONGOING → ACK，不断连
         # ------------------------------------------------------------------
         return OrchestratorResult(
-            response=build_ack(cid, seq),
+            response=self._build_success_ack(cid, seq, event_type),
             disconnect=False,
         )
 

@@ -15,11 +15,11 @@ import uvicorn
 
 from config.logging_config import configure_logging, get_logger
 from config.settings import get_settings
-from transcribe_service.conversation_owner.redis_owner import RedisConversationOwner
 from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from transcribe_service.producer.kafka_producer import KafkaProducer
+from transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
+from transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
 from transcribe_service.shutdown.graceful import GracefulShutdown
-from transcribe_service.state_machine.redis_state import RedisStateMachine
 from transcribe_service.schemas.errors import WsCloseCode
 from transcribe_service.constants import WS_CLOSE_REASON_GOING_AWAY, WS_PATH
 from transcribe_service.transport.websocket_handler import (
@@ -82,16 +82,18 @@ async def run() -> None:
     configure_logging(level=settings.log_level, format=settings.log_format)
 
     # --- 初始化组件 ---
-    state_machine = RedisStateMachine(
+    sequence_state_machine = RedisSequenceStateMachine(
         redis_url=settings.redis_url,
         max_connections=settings.redis_max_connections,
         active_ttl_sec=settings.redis_active_ttl_sec,
         final_ttl_sec=settings.redis_final_ttl_sec,
+        key_prefix=settings.redis_sequence_state_key_prefix,
     )
-    conversation_owner = RedisConversationOwner(
+    ownership_guard = RedisConversationOwnershipGuard(
         redis_url=settings.redis_url,
         max_connections=settings.redis_max_connections,
-        owner_ttl_sec=settings.redis_conversation_owner_ttl_sec,
+        guard_ttl_sec=settings.redis_ownership_guard_ttl_sec,
+        key_prefix=settings.redis_ownership_guard_key_prefix,
     )
     producer = KafkaProducer(
         bootstrap_servers=settings.kafka_bootstrap_servers,
@@ -104,7 +106,7 @@ async def run() -> None:
         replication_factor=settings.kafka_replication_factor,
     )
     orchestrator = TwoPhaseOrchestrator(
-        state_machine=state_machine,
+        state_machine=sequence_state_machine,
         producer=producer,
     )
     shutdown = GracefulShutdown(stop_timeout=settings.stop_timeout)
@@ -130,10 +132,11 @@ async def run() -> None:
         orchestrator=orchestrator,
         shutdown=shutdown,
         registry=registry,
-        conversation_owner=conversation_owner,
+        ownership_guard=ownership_guard,
         redis_url=settings.redis_url,
         producer=producer,
         max_connections=settings.ws_max_connections,
+        ownership_guard_refresh_interval_sec=settings.ws_ownership_guard_refresh_interval_sec,
         log_ws_error_frames=settings.log_ws_error_frames,
     )
 
@@ -191,8 +194,8 @@ async def run() -> None:
     finally:
         log.info("Shutdown: 释放资源")
         await producer.close()
-        await state_machine.close()
-        await conversation_owner.close()
+        await sequence_state_machine.close()
+        await ownership_guard.close()
         log.info("Transcribe Service: 已安全退出")
 
 

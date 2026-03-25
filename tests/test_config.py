@@ -19,4 +19,7 @@ class TestSettings:
         assert s.http_port == 8080
         assert s.http_backlog == 4096
         assert s.kafka_startup_timeout_sec == 30.0
-        assert s.redis_conversation_owner_ttl_sec == 30
+        assert s.redis_ownership_guard_ttl_sec == 30
+        assert s.redis_sequence_state_key_prefix == "transcript:session"
+        assert s.redis_ownership_guard_key_prefix == "transcript:owner"
+        assert s.ws_ownership_guard_refresh_interval_sec == 5.0

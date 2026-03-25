@@ -1,6 +1,6 @@
 # 部署指南
 
-本文档说明 Transcribe Service 的构建、部署与运行要求，覆盖 WebSocket 网关、Redis 状态机与 Kafka 投递架构。
+本文档说明 Transcribe Service 的构建、部署与运行要求，覆盖 WebSocket 网关、Redis 序列状态机 + Redis 发送所有权守卫，以及 Kafka 投递架构。
 
 ---
 
@@ -19,7 +19,9 @@ docker build -f docker/Dockerfile -t transcribe-service:latest .
 **AWS ECS Fargate**，需：
 
 - **VPC**：服务与 ElastiCache、MSK 同网段或可路由
-- **ElastiCache Redis**：提供 `REDIS_URL`（序列守卫 / 2PC 状态）
+- **ElastiCache Redis**：提供 `REDIS_URL`，承载两类职责：
+  - Sequence State Machine（序列守卫 / 2PC 状态）
+  - Conversation Ownership Guard（同会话单连接发送所有权）
 - **MSK**：提供 `KAFKA_BOOTSTRAP_SERVERS`
 - **负载均衡**：上游 STT Provider 通过 **WSS** 连接；通常使用 **ALB**（空闲超时需大于 WebSocket 心跳，见设计文档），目标组健康检查指向 HTTP 端点（见下文）
 
@@ -70,7 +72,7 @@ docker build -f docker/Dockerfile -t transcribe-service:latest .
 
 ## 5. 扩缩容
 
-- 同一 **conversationId** 的会话在任一时刻只允许一个连接发送消息。服务端通过 Redis owner key 强制该约束；若另一个连接试图并发发送同一会话消息，将返回 `E1009 + 1008` 并断开。上游仍应尽量将同一会话持续路由到单一实例，以减少不必要的连接冲突与切换。
+- 同一 **conversationId** 的会话在任一时刻只允许一个连接发送消息。服务端通过 Redis 会话发送所有权键（conversation ownership key）强制该约束；若另一个连接试图并发发送同一会话消息，将返回 `E1009 + 1008` 并断开。上游仍应尽量将同一会话持续路由到单一实例，以减少不必要的连接冲突与切换。
 - **跨实例一致性** 依赖 **Redis Lua 状态机**（期望序号与 2PC），而非基于单次去重键的实现。
 - Kafka 以 `conversationId` 为分区键，保证单路通话在分区内有序。
 

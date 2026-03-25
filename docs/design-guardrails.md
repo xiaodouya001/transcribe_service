@@ -23,6 +23,7 @@
 
 - 上行消息必须通过 schema 校验；时间字段必须是 ISO-8601 UTC。
 - 握手 query 中的 `conversationId` 是连接级唯一标识。
+- `metaData` 只承载会话级字段；`agentId`、`customerId` 属于 `payload`，并按 `speaker` 条件必填。
 - 若消息体 `metaData.conversationId` 存在且为字符串，则必须与握手 query 一致；不一致时在 transport 层直接拒绝，返回 `E1009 + 1008`。
 - 同一 `conversationId` 在任一时刻只允许一个连接发送消息；新连接若与现有发送连接冲突，必须返回 `E1009 + 1008`，不得进入 orchestrator。
 - 缺字段、类型错误、枚举错误、业务规则错误必须稳定映射到既定错误码，不允许“因为实现细节变化而改码”。
@@ -30,7 +31,8 @@
 ### 2.2 状态机与序列语义
 
 - 同一 `conversationId` 下，`sequenceNumber` 必须严格按状态机推进。
-- 重复包（IDEMPOTENT）必须直接返回 `TRANSCRIPT_ACK`，不得写 Kafka，不得推进 Redis。
+- 重复包（IDEMPOTENT）必须直接返回对应成功 ACK，不得写 Kafka，不得推进 Redis。
+- `SESSION_ONGOING` / 普通 transcript 成功时返回 `TRANSCRIPT_ACK`；`SESSION_COMPLETE` / EOL 控制帧成功时返回 `EOL_ACK`。
 - 跳号/乱序包（OUT_OF_ORDER）必须返回 `E1006 + 1008`。
 - `prepare` 不推进状态，只有 `commit` 才推进 expected sequence。
 
@@ -45,8 +47,9 @@
 - 活跃会话 key 使用 active TTL；当前默认值为 1 小时。
 - 只有收到 `SESSION_COMPLETE` 后，才将 key TTL 缩短为 final TTL。
 - 客户端异常断开当前不会主动触发 cleanup；因此 key 会继续按 active TTL 保留。
-- `SESSION_COMPLETE` 的处理语义是：Kafka 成功、Redis commit 成功、再 cleanup，并返回最终 ACK。
-- 若 `cleanup()` 失败，但 Kafka 与 commit 已完成，则按**告警降级**处理：仍返回最终 ACK，并保持正常 `1000` 断连；cleanup 视为后置优化而非主交易失败。
+- `SESSION_COMPLETE` 是系统级 EOL 控制事件，不再表示“最后一句 transcript”。
+- `SESSION_COMPLETE` 的处理语义是：Kafka 成功、Redis commit 成功、再 cleanup，并返回 `EOL_ACK`。
+- 若 `cleanup()` 失败，但 Kafka 与 commit 已完成，则按**告警降级**处理：仍返回 `EOL_ACK`，并保持正常 `1000` 断连；cleanup 视为后置优化而非主交易失败。
 
 ### 2.5 优雅停机
 
@@ -65,8 +68,8 @@
 
 - 第一次请求：`prepare OK -> Kafka fail -> 返回 E1008/E1011 -> 不 commit`
 - 第二次同一 `conversationId + seq` 重发：仍可通过 `prepare`
-- 第二次成功后：返回 ACK，执行 Kafka send 与 commit
-- 成功后再次重放旧 seq：命中幂等 ACK，不再重复写 Kafka
+- 第二次成功后：返回对应 ACK，执行 Kafka send 与 commit
+- 成功后再次重放旧 seq：命中对应幂等 ACK，不再重复写 Kafka
 
 这条测试直接保护“两阶段提交 + 无损重试”这条核心设计主线。
 
@@ -84,7 +87,7 @@
 
 已落地测试明确锁死以下顺序：
 
-- `close_all -> flush -> close producer/state_machine/conversation_owner`
+- `close_all -> flush -> close producer/redis_sequence_state_machine/redis_ownership_guard`
 
 这条测试保护的是停机顺序本身，而不是单纯“方法被调用过”。
 
@@ -93,6 +96,7 @@
 已落地测试明确锁死以下语义：
 
 - Kafka 成功、Redis commit 成功后，即使 `cleanup()` 失败，也仍返回最终 ACK
+- `SESSION_COMPLETE` 的最终成功响应类型为 `EOL_ACK`
 - 仍按正常结束走 `1000`
 - `cleanup` 失败仅作为告警，不翻转已成功的主交易结果
 
@@ -110,7 +114,7 @@
 - missing field -> `E1003 + 1008`
 - wrong type -> `E1004 + 1008`
 - invalid UTC timestamp -> `E1005 + 1008`
-- duplicate seq -> ACK + 不断连
+- duplicate seq -> 对应 ACK + 不断连
 - out-of-order -> `E1006 + 1008`
 - internal exception -> `E1007 + 1011`
 - downstream fail/timeout -> `E1008/E1011 + 1013`
