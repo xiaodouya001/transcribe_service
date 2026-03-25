@@ -776,6 +776,101 @@ class TestWebSocket:
                 response=error_resp,
             )
 
+    def test_ws_logs_slow_message_breakdown_when_threshold_exceeded(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        async def slow_handle(_raw_json):
+            return OrchestratorResult(
+                response=build_transcript_ack("conv-1", 0),
+                disconnect=False,
+                timings_ms={
+                    "validate_ms": 0.11,
+                    "prepare_ms": 0.22,
+                    "kafka_send_ms": 0.33,
+                    "commit_ms": 0.44,
+                    "ack_build_ms": 0.55,
+                    "orchestrator_ms": 12.34,
+                },
+            )
+
+        mock_orchestrator.handle_message.side_effect = slow_handle
+        app = create_app(
+            mock_orchestrator,
+            shutdown,
+            registry,
+            log_slow_message_threshold_ms=1.0,
+        )
+        client = TestClient(app)
+
+        with patch(
+            "transcribe_service.transport.websocket_handler._elapsed_ms",
+            side_effect=[0.12, 12.34, 0.45, 12.79],
+        ), patch("transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ) as ws:
+                ws.send_text(orjson.dumps(_ongoing_message()).decode())
+                resp = orjson.loads(ws.receive_text())
+                assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+
+        slow_calls = [
+            kwargs
+            for args, kwargs in warn_mock.call_args_list
+            if args == ("Transport: 慢消息分段耗时",)
+        ]
+        assert len(slow_calls) == 1
+        slow_log = slow_calls[0]
+        assert slow_log["conversation_id"] == "conv-1"
+        assert slow_log["total_ms"] == 12.79
+        assert slow_log["flow"] == {
+            "request_event_type": "SESSION_ONGOING",
+            "response_event_type": "TRANSCRIPT_ACK",
+            "sequence_number": 0,
+            "speaker": "Agent",
+        }
+        assert slow_log["outcome"] == {"disconnect": False}
+        assert slow_log["timings_ms"] == {
+            "decode_ms": 0.12,
+            "server_processing_ms": 12.34,
+            "send_ms": 0.45,
+            "validate_ms": 0.11,
+            "prepare_ms": 0.22,
+            "kafka_send_ms": 0.33,
+            "commit_ms": 0.44,
+            "ack_build_ms": 0.55,
+            "orchestrator_ms": 12.34,
+        }
+
+    def test_ws_does_not_log_slow_message_when_threshold_disabled(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        async def slow_handle(_raw_json):
+            return OrchestratorResult(
+                response=build_transcript_ack("conv-1", 0),
+                disconnect=False,
+                timings_ms={"orchestrator_ms": 12.34},
+            )
+
+        mock_orchestrator.handle_message.side_effect = slow_handle
+        app = create_app(mock_orchestrator, shutdown, registry)
+        client = TestClient(app)
+
+        with patch(
+            "transcribe_service.transport.websocket_handler._elapsed_ms",
+            side_effect=[0.12, 12.34, 0.45],
+        ), patch("transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ) as ws:
+                ws.send_text(orjson.dumps(_ongoing_message()).decode())
+                resp = orjson.loads(ws.receive_text())
+                assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+
+        assert not any(
+            args == ("Transport: 慢消息分段耗时",)
+            for args, _kwargs in warn_mock.call_args_list
+        )
+
 
 @pytest.mark.asyncio
 async def test_send_error_and_close_swallows_inner_failure():
@@ -788,6 +883,56 @@ async def test_send_error_and_close_swallows_inner_failure():
     await wh._send_error_and_close(
         ws, "conv-x", "E1001", "bad", wh.WsCloseCode.INVALID_PAYLOAD
     )
+
+
+def test_maybe_log_slow_message_skips_when_below_threshold():
+    from transcribe_service.transport import websocket_handler as wh
+
+    wh._slow_message_log_window_started_at = 0.0
+    wh._slow_message_log_emitted_in_window = 0
+    wh._slow_message_log_suppressed = 0
+
+    with patch.object(wh, "_elapsed_ms", return_value=9.99), patch.object(
+        wh.log, "warning"
+    ) as warn_mock:
+        wh._maybe_log_slow_message(
+            threshold_ms=10.0,
+            started_at=0.0,
+            conversation_id="conv-x",
+            raw_json=_ongoing_message("conv-x"),
+            response=build_transcript_ack("conv-x", 0),
+            disconnect=False,
+        )
+
+    warn_mock.assert_not_called()
+
+
+def test_maybe_log_slow_message_rate_limits_and_reports_suppressed():
+    from transcribe_service.transport import websocket_handler as wh
+
+    wh._slow_message_log_window_started_at = 0.0
+    wh._slow_message_log_emitted_in_window = 0
+    wh._slow_message_log_suppressed = 0
+
+    with patch.object(wh, "_elapsed_ms", return_value=120.0), patch(
+        "transcribe_service.transport.websocket_handler.time.perf_counter",
+        side_effect=[1.0, 1.2, 2.5],
+    ), patch.object(wh.log, "warning") as warn_mock:
+        for _ in range(3):
+            wh._maybe_log_slow_message(
+                threshold_ms=10.0,
+                started_at=0.0,
+                conversation_id="conv-x",
+                raw_json=_ongoing_message("conv-x"),
+                response=build_transcript_ack("conv-x", 0),
+                disconnect=False,
+            )
+
+    assert warn_mock.call_count == 2
+    first_kwargs = warn_mock.call_args_list[0].kwargs
+    second_kwargs = warn_mock.call_args_list[1].kwargs
+    assert first_kwargs["suppressed_since_last_emit"] == 0
+    assert second_kwargs["suppressed_since_last_emit"] == 1
 
 
 @pytest.mark.asyncio

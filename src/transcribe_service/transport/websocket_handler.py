@@ -38,6 +38,15 @@ log = structlog.get_logger(__name__)
 OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC = 5.0
 SCOPE_OWNERSHIP_TOKEN = "transcribe_service.ownership_token"
 SCOPE_OWNERSHIP_ACQUIRED = "transcribe_service.ownership_acquired"
+SLOW_MESSAGE_LOG_WINDOW_SEC = 1.0
+SLOW_MESSAGE_LOG_MAX_PER_WINDOW = 1
+_slow_message_log_window_started_at = 0.0
+_slow_message_log_emitted_in_window = 0
+_slow_message_log_suppressed = 0
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return round((time.perf_counter() - started_at) * 1000, 2)
 
 
 def _format_client_addr(scope: Scope) -> str:
@@ -69,6 +78,99 @@ def _log_handshake_reject(
         error_response=error_response,
         **extra,
     )
+
+
+def _maybe_log_slow_message(
+    *,
+    threshold_ms: float,
+    started_at: float,
+    conversation_id: str,
+    raw_json: object | None,
+    response: dict | None,
+    disconnect: bool,
+    close_code: int | None = None,
+    decode_ms: float | None = None,
+    send_ms: float | None = None,
+    server_processing_ms: float | None = None,
+    timings_ms: dict[str, float] | None = None,
+) -> None:
+    global _slow_message_log_window_started_at
+    global _slow_message_log_emitted_in_window
+    global _slow_message_log_suppressed
+
+    if threshold_ms <= 0:
+        return
+
+    total_ms = _elapsed_ms(started_at)
+    if total_ms < threshold_ms:
+        return
+
+    now = time.perf_counter()
+    if (
+        _slow_message_log_window_started_at == 0.0
+        or now - _slow_message_log_window_started_at >= SLOW_MESSAGE_LOG_WINDOW_SEC
+    ):
+        suppressed_since_last_emit = _slow_message_log_suppressed
+        _slow_message_log_window_started_at = now
+        _slow_message_log_emitted_in_window = 0
+        _slow_message_log_suppressed = 0
+    else:
+        suppressed_since_last_emit = 0
+
+    if _slow_message_log_emitted_in_window >= SLOW_MESSAGE_LOG_MAX_PER_WINDOW:
+        _slow_message_log_suppressed += 1
+        return
+
+    request_meta = raw_json.get("metaData") if isinstance(raw_json, dict) else None
+    request_payload = raw_json.get("payload") if isinstance(raw_json, dict) else None
+    response_meta = response.get("metaData") if isinstance(response, dict) else None
+    response_error = response.get("error") if isinstance(response, dict) else None
+
+    flow = {
+        "request_event_type": request_meta.get("eventType")
+        if isinstance(request_meta, dict)
+        else None,
+        "response_event_type": response_meta.get("eventType")
+        if isinstance(response_meta, dict)
+        else None,
+        "sequence_number": request_payload.get("sequenceNumber")
+        if isinstance(request_payload, dict)
+        else None,
+        "speaker": request_payload.get("speaker")
+        if isinstance(request_payload, dict)
+        else None,
+    }
+    outcome = {
+        "disconnect": disconnect,
+        "close_code": close_code,
+        "error_code": response_error.get("code")
+        if isinstance(response_error, dict)
+        else None,
+    }
+    stage_timings: dict[str, float] = {}
+    if decode_ms is not None:
+        stage_timings["decode_ms"] = decode_ms
+    if server_processing_ms is not None:
+        stage_timings["server_processing_ms"] = server_processing_ms
+    if send_ms is not None:
+        stage_timings["send_ms"] = send_ms
+    if timings_ms:
+        stage_timings.update(timings_ms)
+
+    flow = {key: value for key, value in flow.items() if value is not None}
+    outcome = {key: value for key, value in outcome.items() if value is not None}
+
+    log.warning(
+        "Transport: 慢消息分段耗时",
+        conversation_id=conversation_id,
+        threshold_ms=threshold_ms,
+        total_ms=total_ms,
+        suppressed_since_last_emit=suppressed_since_last_emit,
+        flow=flow,
+        outcome=outcome,
+        timings_ms=stage_timings,
+    )
+    _slow_message_log_emitted_in_window += 1
 
 
 class ConnectionRegistry:
@@ -147,6 +249,7 @@ class _WsGuardMiddleware:
     def _extract_conversation_id(scope: Scope) -> str:
         """从 query string 提取 conversationId，未找到返回空字符串。"""
         from urllib.parse import parse_qs
+
         qs = scope.get("query_string", b"").decode("latin-1")
         params = parse_qs(qs)
         vals = params.get("conversationId")
@@ -178,7 +281,8 @@ class _WsGuardMiddleware:
                 error_response=error_response,
             )
             await _deny_websocket(
-                receive, send,
+                receive,
+                send,
                 status=status.HTTP_400_BAD_REQUEST,
                 error_response=error_response,
             )
@@ -199,7 +303,8 @@ class _WsGuardMiddleware:
                 conversation_id=cid,
             )
             await _deny_websocket(
-                receive, send,
+                receive,
+                send,
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 error_response=error_response,
             )
@@ -222,7 +327,8 @@ class _WsGuardMiddleware:
                 max=self._max_connections,
             )
             await _deny_websocket(
-                receive, send,
+                receive,
+                send,
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
                 error_response=error_response,
             )
@@ -248,7 +354,8 @@ class _WsGuardMiddleware:
                     error=str(exc),
                 )
                 await _deny_websocket(
-                    receive, send,
+                    receive,
+                    send,
                     status=status.HTTP_503_SERVICE_UNAVAILABLE,
                     error_response=error_response,
                 )
@@ -269,7 +376,8 @@ class _WsGuardMiddleware:
                     conversation_id=cid,
                 )
                 await _deny_websocket(
-                    receive, send,
+                    receive,
+                    send,
                     status=status.HTTP_403_FORBIDDEN,
                     error_response=error_response,
                 )
@@ -292,6 +400,7 @@ def create_app(
     max_connections: int = 0,
     ownership_guard_refresh_interval_sec: float = OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
     log_ws_error_frames: bool = False,
+    log_slow_message_threshold_ms: float = 0.0,
 ) -> FastAPI:
     """构建 FastAPI 应用，包含 WebSocket 端点和健康检查。"""
     app = FastAPI(
@@ -305,6 +414,7 @@ def create_app(
     app.state.shutdown = shutdown
     app.state.registry = registry
     app.state.ownership_guard = ownership_guard
+    app.state.log_slow_message_threshold_ms = log_slow_message_threshold_ms
 
     app.add_middleware(
         _WsGuardMiddleware,
@@ -326,6 +436,7 @@ def create_app(
         if redis_url:
             try:
                 from redis.asyncio import Redis
+
                 client = Redis.from_url(redis_url, decode_responses=True)
                 await client.ping()
                 await client.aclose()
@@ -338,6 +449,7 @@ def create_app(
                 errors.append(f"kafka:{e}")
         if errors:
             from fastapi.responses import JSONResponse
+
             return JSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})
         return {"status": "ready"}
 
@@ -439,6 +551,7 @@ def create_app(
                 orchestrator,
                 conversationId,
                 log_ws_error_frames=log_ws_error_frames,
+                log_slow_message_threshold_ms=log_slow_message_threshold_ms,
             )
         except WebSocketDisconnect:
             log.info(
@@ -486,20 +599,30 @@ async def _message_loop(
     conversation_id: str,
     *,
     log_ws_error_frames: bool = False,
+    log_slow_message_threshold_ms: float = 0.0,
 ) -> None:
     """消息循环：接收 JSON → orchestrator 处理 → 发送响应。"""
     while True:
         raw_text = await ws.receive_text()
         t0 = time.perf_counter()
+        decode_ms: float | None = None
 
         # JSON 解析
+        decode_started_at = time.perf_counter()
         try:
             raw_json = orjson.loads(raw_text)
         except (orjson.JSONDecodeError, ValueError) as e:
+            decode_ms = _elapsed_ms(decode_started_at)
             log.warning(
                 "Transport: JSON 解析失败",
                 conversation_id=conversation_id,
                 error=str(e),
+            )
+            error_response = build_error(
+                conversation_id,
+                ErrorCode.E1001.value,
+                "Invalid JSON",
+                str(e)[:MAX_ERROR_DETAILS_LEN],
             )
             await _send_error_and_close(
                 ws,
@@ -507,10 +630,21 @@ async def _message_loop(
                 ErrorCode.E1001.value,
                 "Invalid JSON",
                 WsCloseCode.INVALID_PAYLOAD,
-                details=str(e)[:MAX_ERROR_DETAILS_LEN],
+                details=error_response["error"]["details"],
                 log_ws_error_frames=log_ws_error_frames,
             )
+            _maybe_log_slow_message(
+                threshold_ms=log_slow_message_threshold_ms,
+                started_at=t0,
+                conversation_id=conversation_id,
+                raw_json=None,
+                response=error_response,
+                disconnect=True,
+                close_code=WsCloseCode.INVALID_PAYLOAD,
+                decode_ms=decode_ms,
+            )
             return
+        decode_ms = _elapsed_ms(decode_started_at)
 
         # 握手 query 为会话唯一标识；若 body 显式提供字符串 conversationId，则必须与之一致
         if isinstance(raw_json, dict):
@@ -518,6 +652,15 @@ async def _message_loop(
             if isinstance(meta, dict):
                 body_cid = meta.get("conversationId")
                 if isinstance(body_cid, str) and body_cid != conversation_id:
+                    error_response = build_error(
+                        conversation_id,
+                        ErrorCode.E1009.value,
+                        "conversationId mismatch",
+                        (
+                            "metaData.conversationId must match query parameter "
+                            f"'conversationId' ({conversation_id!r})"
+                        ),
+                    )
                     log.warning(
                         "Transport: metaData.conversationId 与握手 query 不一致",
                         conversation_id=conversation_id,
@@ -529,16 +672,23 @@ async def _message_loop(
                         ErrorCode.E1009.value,
                         "conversationId mismatch",
                         WsCloseCode.POLICY_VIOLATION,
-                        details=(
-                            "metaData.conversationId must match query parameter "
-                            f"'conversationId' ({conversation_id!r})"
-                        ),
+                        details=error_response["error"]["details"],
                         log_ws_error_frames=log_ws_error_frames,
+                    )
+                    _maybe_log_slow_message(
+                        threshold_ms=log_slow_message_threshold_ms,
+                        started_at=t0,
+                        conversation_id=conversation_id,
+                        raw_json=raw_json,
+                        response=error_response,
+                        disconnect=True,
+                        close_code=WsCloseCode.POLICY_VIOLATION,
+                        decode_ms=decode_ms,
                     )
                     return
 
         result = await orchestrator.handle_message(raw_json)
-        server_processing_ms = round((time.perf_counter() - t0) * 1000, 2)
+        server_processing_ms = _elapsed_ms(t0)
         resp = result.response
         if (
             isinstance(resp, dict)
@@ -549,6 +699,7 @@ async def _message_loop(
             resp["payload"]["serverProcessingMs"] = server_processing_ms
 
         # 发送响应帧
+        send_ms: float | None = None
         if ws.client_state == WebSocketState.CONNECTED:
             if (
                 log_ws_error_frames
@@ -560,7 +711,23 @@ async def _message_loop(
                     conversation_id=conversation_id,
                     response=resp,
                 )
+            send_started_at = time.perf_counter()
             await ws.send_text(orjson.dumps(resp).decode("utf-8"))
+            send_ms = _elapsed_ms(send_started_at)
+
+        _maybe_log_slow_message(
+            threshold_ms=log_slow_message_threshold_ms,
+            started_at=t0,
+            conversation_id=conversation_id,
+            raw_json=raw_json,
+            response=resp if isinstance(resp, dict) else None,
+            disconnect=result.disconnect,
+            close_code=int(result.close_code) if result.disconnect else None,
+            decode_ms=decode_ms,
+            send_ms=send_ms,
+            server_processing_ms=server_processing_ms,
+            timings_ms=result.timings_ms,
+        )
 
         # 是否断连
         if result.disconnect:
@@ -665,15 +832,19 @@ async def _deny_websocket(
     """在 WebSocket 握手前以 HTTP 状态码 + JSON ERROR 帧拒绝连接。"""
     body = orjson.dumps(error_response)
     await receive()
-    await send({
-        "type": "websocket.http.response.start",
-        "status": status,
-        "headers": [
-            (b"content-type", b"application/json"),
-            (b"retry-after", b"5"),
-        ],
-    })
-    await send({
-        "type": "websocket.http.response.body",
-        "body": body,
-    })
+    await send(
+        {
+            "type": "websocket.http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"retry-after", b"5"),
+            ],
+        }
+    )
+    await send(
+        {
+            "type": "websocket.http.response.body",
+            "body": body,
+        }
+    )

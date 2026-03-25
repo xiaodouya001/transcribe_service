@@ -51,6 +51,25 @@ def _ensure_conversation_id(
     return event_dict
 
 
+def _group_identity(
+    logger: logging.Logger, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    """Group fixed identity fields for cleaner console/JSON logs."""
+    service = event_dict.pop("service", None)
+    version = event_dict.pop("version", None)
+    conversation_id = event_dict.pop("conversation_id", None)
+
+    identity = {
+        "service": service,
+        "version": version,
+        "conversation_id": conversation_id,
+    }
+    identity = {key: value for key, value in identity.items() if value is not None}
+    if not identity:
+        return event_dict
+    return {"identity": identity, **event_dict}
+
+
 def _mask_redis_url(url: str) -> str:
     """Mask password in redis URL for safe logging."""
     if not url or "redis" not in url.lower():
@@ -88,6 +107,7 @@ _SHARED_PROCESSORS: list[structlog.typing.Processor] = [
     _mask_sensitive_processor,
     structlog.contextvars.merge_contextvars,
     _ensure_conversation_id,
+    _group_identity,
     structlog.stdlib.add_logger_name,
     structlog.processors.add_log_level,
     structlog.processors.TimeStamper(fmt="iso", utc=True),
@@ -101,12 +121,21 @@ _STRUCTLOG_PRE_PROCESSORS: list[structlog.typing.Processor] = [
     *_SHARED_PROCESSORS,
 ]
 
+_CONSOLE_PRE_PROCESSORS: list[structlog.typing.Processor] = [
+    structlog.stdlib.filter_by_level,
+    *_SHARED_PROCESSORS,
+]
 
-def _configure_stdlib_logging(log_level: int, renderer: structlog.processors.JSONRenderer | structlog.dev.ConsoleRenderer) -> None:
+
+def _configure_stdlib_logging(
+    log_level: int,
+    renderer: structlog.processors.JSONRenderer | structlog.dev.ConsoleRenderer,
+    foreign_pre_chain: list[structlog.typing.Processor],
+) -> None:
     """Route stdlib logging (including uvicorn) through the same renderer as structlog."""
     processor_formatter = structlog.stdlib.ProcessorFormatter(
         processor=renderer,
-        foreign_pre_chain=_SHARED_PROCESSORS,
+        foreign_pre_chain=foreign_pre_chain,
     )
 
     handler = logging.StreamHandler(stream=sys.stderr)
@@ -142,20 +171,19 @@ def configure_logging(
 
     if use_json:
         renderer = structlog.processors.JSONRenderer(serializer=_json_serializer)
-    else:
-        renderer = structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty(), pad_event_to=25)
-
-    _configure_stdlib_logging(log_level, renderer)
-
-    if use_json:
         processors = _STRUCTLOG_PRE_PROCESSORS + [
             structlog.processors.dict_tracebacks,
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ]
+        foreign_pre_chain = _SHARED_PROCESSORS
     else:
-        processors = _STRUCTLOG_PRE_PROCESSORS + [
+        renderer = structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty(), pad_event_to=25)
+        processors = _CONSOLE_PRE_PROCESSORS + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ]
+        foreign_pre_chain = _CONSOLE_PRE_PROCESSORS[1:]
+
+    _configure_stdlib_logging(log_level, renderer, foreign_pre_chain)
 
     structlog.configure(
         processors=processors,

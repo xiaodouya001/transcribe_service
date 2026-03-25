@@ -23,3 +23,4 @@ class TestSettings:
         assert s.redis_sequence_state_key_prefix == "transcript:session"
         assert s.redis_ownership_guard_key_prefix == "transcript:owner"
         assert s.ws_ownership_guard_refresh_interval_sec == 5.0
+        assert s.log_slow_message_threshold_ms == 0.0

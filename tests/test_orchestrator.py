@@ -47,6 +47,8 @@ class TestScenarioA:
         assert result.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
         assert result.response["payload"]["sequenceNumber"] == 0
         assert result.disconnect is False
+        assert result.timings_ms is not None
+        assert {"validate_ms", "prepare_ms", "kafka_send_ms", "commit_ms", "ack_build_ms", "orchestrator_ms"} <= set(result.timings_ms)
         mock_sm.prepare.assert_awaited_once()
         mock_producer.send.assert_awaited_once()
         mock_sm.commit.assert_awaited_once()
@@ -103,6 +105,8 @@ class TestScenarioD:
         assert result.response["metaData"]["eventType"] == "ERROR"
         assert result.disconnect is True
         assert result.close_code == 1008
+        assert result.timings_ms is not None
+        assert {"validate_ms", "orchestrator_ms"} <= set(result.timings_ms)
 
     async def test_invalid_event_type(self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg):
         valid_ongoing_msg["metaData"]["eventType"] = "UNKNOWN"
@@ -329,6 +333,8 @@ class TestScenarioG:
         assert result.response["payload"]["sequenceNumber"] == 42
         assert result.disconnect is True
         assert result.close_code == 1000
+        assert result.timings_ms is not None
+        assert "cleanup_ms" in result.timings_ms
         mock_producer.send.assert_awaited_once()
         mock_sm.commit.assert_awaited_once()
         mock_sm.cleanup.assert_awaited_once()

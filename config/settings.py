@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     log_format: Literal["json", "console", "auto"] = "auto"
     # 是否打印服务端发出的 ERROR 响应完整 JSON（默认关闭，避免压测日志过大）
     log_ws_error_frames: bool = False
+    # 慢消息分段耗时告警阈值（毫秒）；0 表示关闭
+    log_slow_message_threshold_ms: float = 0.0
 
 
 @lru_cache

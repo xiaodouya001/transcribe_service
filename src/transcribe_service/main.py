@@ -153,6 +153,7 @@ async def run() -> None:
         max_connections=settings.ws_max_connections,
         ownership_guard_refresh_interval_sec=settings.ws_ownership_guard_refresh_interval_sec,
         log_ws_error_frames=settings.log_ws_error_frames,
+        log_slow_message_threshold_ms=settings.log_slow_message_threshold_ms,
     )
 
     config = uvicorn.Config(

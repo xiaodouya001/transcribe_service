@@ -14,11 +14,13 @@ class OrchestratorResult:
         response: 发送给客户端的 JSON dict（ACK 或 ERROR）。
         disconnect: 是否应断开 WebSocket。
         close_code: 断开时使用的 WebSocket Close Code。
+        timings_ms: 仅用于排障的分段耗时（毫秒）。
     """
 
     response: dict
     disconnect: bool = False
     close_code: int = 1000
+    timings_ms: dict[str, float] | None = None
 
 
 class OrchestratorBackend(Protocol):

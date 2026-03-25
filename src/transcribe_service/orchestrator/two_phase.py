@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import structlog
 from pydantic import ValidationError
@@ -46,9 +47,20 @@ class TwoPhaseOrchestrator:
     def _disconnect_after_success(event_type: EventType) -> bool:
         return event_type == EventType.SESSION_COMPLETE
 
+    @staticmethod
+    def _elapsed_ms(started_at: float) -> float:
+        return round((time.perf_counter() - started_at) * 1000, 2)
+
+    @classmethod
+    def _finalize_timings(cls, timings: dict[str, float], started_at: float) -> dict[str, float]:
+        finalized = dict(timings)
+        finalized["orchestrator_ms"] = cls._elapsed_ms(started_at)
+        return finalized
+
     async def handle_message(self, raw_json: dict) -> OrchestratorResult:
         """处理一条上行消息。"""
         conversation_id = ""
+        started_at = time.perf_counter()
         try:
             raw_conversation_id = (raw_json.get("metaData") or {}).get("conversationId", "")
             if isinstance(raw_conversation_id, str):
@@ -70,17 +82,22 @@ class TwoPhaseOrchestrator:
                 ),
                 disconnect=True,
                 close_code=WsCloseCode.INTERNAL_ERROR,
+                timings_ms={"orchestrator_ms": self._elapsed_ms(started_at)},
             )
 
     async def _process(self, raw_json: dict, conversation_id: str) -> OrchestratorResult:
         """内部处理逻辑，按场景分支。"""
+        process_started_at = time.perf_counter()
+        timings: dict[str, float] = {}
 
         # ------------------------------------------------------------------
         # 1. Schema 校验 (场景 D)
         # ------------------------------------------------------------------
+        validate_started_at = time.perf_counter()
         try:
             msg = InboundMessage.model_validate(raw_json)
         except ValidationError as e:
+            timings["validate_ms"] = self._elapsed_ms(validate_started_at)
             error_code, close_code = self._classify_validation_error(e)
             log.warning(
                 "Orchestrator: Schema 校验失败",
@@ -97,7 +114,9 @@ class TwoPhaseOrchestrator:
                 ),
                 disconnect=True,
                 close_code=close_code,
+                timings_ms=self._finalize_timings(timings, process_started_at),
             )
+        timings["validate_ms"] = self._elapsed_ms(validate_started_at)
 
         cid = msg.metaData.conversationId
         seq = msg.payload.sequenceNumber
@@ -106,7 +125,9 @@ class TwoPhaseOrchestrator:
         # ------------------------------------------------------------------
         # 2. Prepare — Lua 原子预检
         # ------------------------------------------------------------------
+        prepare_started_at = time.perf_counter()
         result = await self._sm.prepare(cid, seq)
+        timings["prepare_ms"] = self._elapsed_ms(prepare_started_at)
 
         # 场景 B: IDEMPOTENT → 直接 ACK，不写 Kafka，不推进 Redis
         if result == PrepareResult.IDEMPOTENT:
@@ -116,15 +137,20 @@ class TwoPhaseOrchestrator:
                 conversation_id=cid,
                 seq=seq,
             )
+            ack_started_at = time.perf_counter()
+            ack = self._build_success_ack(cid, seq, event_type)
+            timings["ack_build_ms"] = self._elapsed_ms(ack_started_at)
             if should_disconnect:
                 return OrchestratorResult(
-                    response=self._build_success_ack(cid, seq, event_type),
+                    response=ack,
                     disconnect=True,
                     close_code=WsCloseCode.NORMAL,
+                    timings_ms=self._finalize_timings(timings, process_started_at),
                 )
             return OrchestratorResult(
-                response=self._build_success_ack(cid, seq, event_type),
+                response=ack,
                 disconnect=False,
+                timings_ms=self._finalize_timings(timings, process_started_at),
             )
 
         # 场景 C: OUT_OF_ORDER → E1006 + 断连 1008
@@ -143,15 +169,18 @@ class TwoPhaseOrchestrator:
                 ),
                 disconnect=True,
                 close_code=WsCloseCode.POLICY_VIOLATION,
+                timings_ms=self._finalize_timings(timings, process_started_at),
             )
 
         # ------------------------------------------------------------------
         # 3. Persistence — 写入 Kafka (场景 A / E / G)
         # ------------------------------------------------------------------
         kafka_payload = raw_json
+        kafka_send_started_at = time.perf_counter()
         try:
             await self._producer.send(cid, kafka_payload)
         except asyncio.TimeoutError:
+            timings["kafka_send_ms"] = self._elapsed_ms(kafka_send_started_at)
             # 场景 E: Kafka 超时 → E1011 + 不 commit + 断连 1013
             log.error(
                 "Orchestrator: Kafka 超时",
@@ -167,8 +196,10 @@ class TwoPhaseOrchestrator:
                 ),
                 disconnect=True,
                 close_code=WsCloseCode.TRY_AGAIN_LATER,
+                timings_ms=self._finalize_timings(timings, process_started_at),
             )
         except Exception as e:
+            timings["kafka_send_ms"] = self._elapsed_ms(kafka_send_started_at)
             # 场景 E: Kafka 失败 → E1008 + 不 commit + 断连 1013
             log.error(
                 "Orchestrator: Kafka 失败",
@@ -185,20 +216,26 @@ class TwoPhaseOrchestrator:
                 ),
                 disconnect=True,
                 close_code=WsCloseCode.TRY_AGAIN_LATER,
+                timings_ms=self._finalize_timings(timings, process_started_at),
             )
+        timings["kafka_send_ms"] = self._elapsed_ms(kafka_send_started_at)
 
         # ------------------------------------------------------------------
         # 4. Commit — 推进 Redis 状态
         # ------------------------------------------------------------------
+        commit_started_at = time.perf_counter()
         await self._sm.commit(cid, seq)
+        timings["commit_ms"] = self._elapsed_ms(commit_started_at)
 
         # ------------------------------------------------------------------
         # 5. SESSION_COMPLETE → cleanup + 主动断连 1000 (场景 G)
         # ------------------------------------------------------------------
         if event_type == EventType.SESSION_COMPLETE:
+            cleanup_started_at = time.perf_counter()
             try:
                 await self._sm.cleanup(cid)
             except Exception as e:
+                timings["cleanup_ms"] = self._elapsed_ms(cleanup_started_at)
                 # Kafka 与 commit 已完成；cleanup 仅用于缩短 TTL，失败时不应把整次完成语义翻转为 E1007
                 log.warning(
                     "Orchestrator: SESSION_COMPLETE cleanup 失败，降级为 ACK",
@@ -206,23 +243,33 @@ class TwoPhaseOrchestrator:
                     seq=seq,
                     error=str(e),
                 )
+            else:
+                timings["cleanup_ms"] = self._elapsed_ms(cleanup_started_at)
             log.info(
                 "Orchestrator: SESSION_COMPLETE 处理完成",
                 conversation_id=cid,
                 seq=seq,
             )
+            ack_started_at = time.perf_counter()
+            ack = self._build_success_ack(cid, seq, event_type)
+            timings["ack_build_ms"] = self._elapsed_ms(ack_started_at)
             return OrchestratorResult(
-                response=self._build_success_ack(cid, seq, event_type),
+                response=ack,
                 disconnect=True,
                 close_code=WsCloseCode.NORMAL,
+                timings_ms=self._finalize_timings(timings, process_started_at),
             )
 
         # ------------------------------------------------------------------
         # 场景 A: 正常 SESSION_ONGOING → ACK，不断连
         # ------------------------------------------------------------------
+        ack_started_at = time.perf_counter()
+        ack = self._build_success_ack(cid, seq, event_type)
+        timings["ack_build_ms"] = self._elapsed_ms(ack_started_at)
         return OrchestratorResult(
-            response=self._build_success_ack(cid, seq, event_type),
+            response=ack,
             disconnect=False,
+            timings_ms=self._finalize_timings(timings, process_started_at),
         )
 
     @staticmethod

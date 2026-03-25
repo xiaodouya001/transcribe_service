@@ -74,6 +74,7 @@ cp .env.example .env
 | `LOG_LEVEL` | INFO | 日志级别 |
 | `LOG_FORMAT` | auto | 日志格式：`json`、`console`、`auto` |
 | `LOG_WS_ERROR_FRAMES` | false | 是否打印服务端发出的完整 ERROR 响应 JSON；排障时可开启，压测场景通常保持关闭 |
+| `LOG_SLOW_MESSAGE_THRESHOLD_MS` | 0.0 | 慢消息分段耗时告警阈值（毫秒）；`0` 表示关闭。开启后，单条消息总耗时达到阈值时会限频输出 `WARNING`，包含 `decode/validate/prepare/kafka_send/commit/cleanup/ack_build/send/total` 等分段耗时，适合压测排障 |
 
 ---
 
