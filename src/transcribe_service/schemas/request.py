@@ -3,26 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
-
-class EventType(str, Enum):
-    """上行事件类型。"""
-
-    SESSION_ONGOING = "SESSION_ONGOING"
-    SESSION_COMPLETE = "SESSION_COMPLETE"
-
-
-class Speaker(str, Enum):
-    """说话人角色。"""
-
-    AGENT = "Agent"
-    CUSTOMER = "Customer"
-    SYSTEM = "System"
+from transcribe_service.schemas.events import EventType, Speaker
 
 
 class MetaData(BaseModel):

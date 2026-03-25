@@ -16,7 +16,8 @@ from transcribe_service.orchestrator.protocols import OrchestratorResult
 from transcribe_service.producer.protocols import ProducerBackend
 from transcribe_service.redis.protocols import PrepareResult, SequenceStateMachineBackend
 from transcribe_service.schemas.errors import ErrorCode, WsCloseCode
-from transcribe_service.schemas.request import EventType, InboundMessage
+from transcribe_service.schemas.events import EventType
+from transcribe_service.schemas.request import InboundMessage
 from transcribe_service.schemas.response import build_eol_ack, build_error, build_transcript_ack
 
 log = structlog.get_logger(__name__)

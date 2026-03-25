@@ -20,13 +20,12 @@ from starlette.websockets import WebSocketState
 
 from transcribe_service.constants import (
     APP_TITLE,
-    EVENT_EOL_ACK,
-    EVENT_TRANSCRIPT_ACK,
     MAX_ERROR_DETAILS_LEN,
     WS_CLOSE_REASON_GOING_AWAY,
     WS_PATH,
 )
 from transcribe_service.schemas.errors import ErrorCode, WsCloseCode
+from transcribe_service.schemas.events import ResponseEventType
 from transcribe_service.schemas.response import build_error
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -693,7 +692,10 @@ async def _message_loop(
         if (
             isinstance(resp, dict)
             and (resp.get("metaData") or {}).get("eventType")
-            in {EVENT_TRANSCRIPT_ACK, EVENT_EOL_ACK}
+            in {
+                ResponseEventType.TRANSCRIPT_ACK.value,
+                ResponseEventType.EOL_ACK.value,
+            }
             and isinstance(resp.get("payload"), dict)
         ):
             resp["payload"]["serverProcessingMs"] = server_processing_ms

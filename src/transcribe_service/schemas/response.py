@@ -8,12 +8,10 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from transcribe_service.constants import (
-    EVENT_EOL_ACK,
-    EVENT_ERROR,
-    EVENT_TRANSCRIPT_ACK,
     MAX_ERROR_DETAILS_LEN,
     MAX_ERROR_MESSAGE_LEN,
 )
+from transcribe_service.schemas.events import ResponseEventType
 
 
 # ---------------------------------------------------------------------------
@@ -22,7 +20,7 @@ from transcribe_service.constants import (
 
 class AckMetaData(BaseModel):
     conversationId: str
-    eventType: str
+    eventType: ResponseEventType
 
 
 class AckPayload(BaseModel):
@@ -47,7 +45,7 @@ class EolAckResponse(BaseModel):
 
 class ErrorMetaData(BaseModel):
     conversationId: str
-    eventType: str = EVENT_ERROR
+    eventType: ResponseEventType = ResponseEventType.ERROR
 
 
 class ErrorDetail(BaseModel):
@@ -70,11 +68,15 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
-def _build_success_response(conversation_id: str, sequence_number: int, event_type: str) -> dict:
+def _build_success_response(
+    conversation_id: str,
+    sequence_number: int,
+    event_type: ResponseEventType,
+) -> dict:
     return {
         "metaData": {
             "conversationId": conversation_id,
-            "eventType": event_type,
+            "eventType": event_type.value,
         },
         "payload": {
             "sequenceNumber": sequence_number,
@@ -85,12 +87,14 @@ def _build_success_response(conversation_id: str, sequence_number: int, event_ty
 
 def build_transcript_ack(conversation_id: str, sequence_number: int) -> dict:
     """构建 TRANSCRIPT_ACK 响应字典（可直接 JSON 序列化）。"""
-    return _build_success_response(conversation_id, sequence_number, EVENT_TRANSCRIPT_ACK)
+    return _build_success_response(
+        conversation_id, sequence_number, ResponseEventType.TRANSCRIPT_ACK
+    )
 
 
 def build_eol_ack(conversation_id: str, sequence_number: int) -> dict:
     """构建 EOL_ACK 响应字典（可直接 JSON 序列化）。"""
-    return _build_success_response(conversation_id, sequence_number, EVENT_EOL_ACK)
+    return _build_success_response(conversation_id, sequence_number, ResponseEventType.EOL_ACK)
 
 
 def build_error(
@@ -103,7 +107,7 @@ def build_error(
     return {
         "metaData": {
             "conversationId": conversation_id,
-            "eventType": EVENT_ERROR,
+            "eventType": ResponseEventType.ERROR.value,
         },
         "error": {
             "code": code,
