@@ -14,14 +14,13 @@ def valid_ongoing_msg(conversation_id: str) -> dict:
     return {
         "metaData": {
             "conversationId": conversation_id,
-            "agentId": "3210001",
-            "staffId": "45163407",
-            "customerId": "12345678",
             "callStartTimeStamp": "2025-03-21T10:30:02.327Z",
             "callEndTimeStamp": None,
             "eventType": "SESSION_ONGOING",
         },
         "payload": {
+            "agentId": "3210001",
+            "customerId": None,
             "sequenceNumber": 0,
             "speaker": "Agent",
             "transcript": "thank you",
@@ -39,17 +38,16 @@ def valid_complete_msg(conversation_id: str) -> dict:
     return {
         "metaData": {
             "conversationId": conversation_id,
-            "agentId": "3210001",
-            "staffId": "45163407",
-            "customerId": "12345678",
             "callStartTimeStamp": "2025-03-21T10:30:02.327Z",
             "callEndTimeStamp": "2025-03-21T10:45:00.000Z",
             "eventType": "SESSION_COMPLETE",
         },
         "payload": {
+            "agentId": None,
+            "customerId": None,
             "sequenceNumber": 42,
-            "speaker": "Agent",
-            "transcript": "Good bye",
+            "speaker": "System",
+            "transcript": "session ended",
             "engineProvider": "FanoLabs",
             "dialect": "yue-x-auto",
             "isFinal": True,

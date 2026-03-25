@@ -9,10 +9,12 @@ from transcribe_service.schemas.request import (
     Speaker,
 )
 from transcribe_service.schemas.response import (
+    EolAckResponse,
     ErrorResponse,
     TranscriptAckResponse,
-    build_ack,
+    build_eol_ack,
     build_error,
+    build_transcript_ack,
 )
 
 __all__ = [
@@ -24,8 +26,10 @@ __all__ = [
     "MetaData",
     "Payload",
     "Speaker",
+    "EolAckResponse",
     "ErrorResponse",
     "TranscriptAckResponse",
-    "build_ack",
+    "build_eol_ack",
     "build_error",
+    "build_transcript_ack",
 ]

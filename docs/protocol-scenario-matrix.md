@@ -12,23 +12,26 @@
 
 ## 一、错误流程（统一视图）
 
-| **ID** | **场景** | **握手阶段** | **错误码** | **HTTP 状态码** | **WS Close Code** | **断连?** | **JSON 示例** |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| E-01 | 缺少 `conversationId` 参数 | 握手前 | **E1003** | **400** | — | 是（拒绝握手） | 见下文 E-01 |
-| E-02 | 服务正在停机 (draining) | 握手前 | **E1008** | **503** | — | 是（拒绝握手） | 见下文 E-02 |
-| E-03 | 连接数超限 (`WS_MAX_CONNECTIONS`) | 握手前 | **E1008** | **429** | — | 是（拒绝握手） | 见下文 E-03 |
-| E-04 | JSON 解析失败 | 握手后 | **E1001** | — | **1007** (Invalid Payload) | 是 | 见下文 E-04 |
-| E-05 | 枚举值非法 (如 eventType) | 握手后 | **E1002** | — | **1008** (Policy Violation) | 是 | 见下文 E-05 |
-| E-06 | 缺少必填字段 | 握手后 | **E1003** | — | **1008** (Policy Violation) | 是 | 见下文 E-06 |
-| E-07 | 字段类型不符 | 握手后 | **E1004** | — | **1008** (Policy Violation) | 是 | 见下文 E-07 |
-| E-08 | 时间格式无效 | 握手后 | **E1005** | — | **1008** (Policy Violation) | 是 | 见下文 E-08 |
-| E-09 | 序列号乱序 | 握手后 | **E1006** | — | **1008** (Policy Violation) | 是 | 见下文 E-09 |
-| E-10 | Kafka 超时 | 握手后 | **E1011** | — | **1013** (Try Again Later) | 是 | 见下文 E-10 |
-| E-11 | Kafka 失败 | 握手后 | **E1008** | — | **1013** (Try Again Later) | 是 | 见下文 E-11 |
-| E-12 | 编排层未捕获异常 | 握手后 | **E1007** | — | **1011** (Internal Error) | 是 | 见下文 E-12 |
-| E-13 | 传输层未捕获异常 | 握手后 | **E1007** | — | **1011** (Internal Error) | 是 | 见下文 E-13 |
-| E-14 | query 与 `metaData.conversationId` 不一致（均为字符串） | 握手后 | **E1009** | — | **1008** (Policy Violation) | 是 | 见下文 E-14 |
-| E-15 | 业务规则校验失败（如 `SESSION_ONGOING` 带 `callEndTimeStamp`、`isFinal=false`） | 握手后 | **E1009** | — | **1008** (Policy Violation) | 是 | 见下文 E-15 |
+
+| **ID** | **场景**                                                             | **握手阶段** | **错误码**   | **HTTP 状态码** | **WS Close Code**           | **断连?** | **JSON 示例** |
+| ------ | ------------------------------------------------------------------ | -------- | --------- | ------------ | --------------------------- | ------- | ----------- |
+| E-01   | 缺少 `conversationId` 参数                                             | 握手前      | **E1003** | **400**      | —                           | 是（拒绝握手） | 见下文 E-01    |
+| E-02   | 服务正在停机 (draining)                                                  | 握手前      | **E1008** | **503**      | —                           | 是（拒绝握手） | 见下文 E-02    |
+| E-03   | 连接数超限 (`WS_MAX_CONNECTIONS`)                                       | 握手前      | **E1008** | **429**      | —                           | 是（拒绝握手） | 见下文 E-03    |
+| E-04   | JSON 解析失败                                                          | 握手后      | **E1001** | —            | **1007** (Invalid Payload)  | 是       | 见下文 E-04    |
+| E-05   | 枚举值非法 (如 eventType)                                                | 握手后      | **E1002** | —            | **1008** (Policy Violation) | 是       | 见下文 E-05    |
+| E-06   | 缺少必填字段                                                             | 握手后      | **E1003** | —            | **1008** (Policy Violation) | 是       | 见下文 E-06    |
+| E-07   | 字段类型不符                                                             | 握手后      | **E1004** | —            | **1008** (Policy Violation) | 是       | 见下文 E-07    |
+| E-08   | 时间格式无效                                                             | 握手后      | **E1005** | —            | **1008** (Policy Violation) | 是       | 见下文 E-08    |
+| E-09   | 序列号乱序                                                              | 握手后      | **E1006** | —            | **1008** (Policy Violation) | 是       | 见下文 E-09    |
+| E-10   | Kafka 超时                                                           | 握手后      | **E1011** | —            | **1013** (Try Again Later)  | 是       | 见下文 E-10    |
+| E-11   | Kafka 失败                                                           | 握手后      | **E1008** | —            | **1013** (Try Again Later)  | 是       | 见下文 E-11    |
+| E-12   | 编排层未捕获异常                                                           | 握手后      | **E1007** | —            | **1011** (Internal Error)   | 是       | 见下文 E-12    |
+| E-13   | 传输层未捕获异常                                                           | 握手后      | **E1007** | —            | **1011** (Internal Error)   | 是       | 见下文 E-13    |
+| E-14   | query 与 `metaData.conversationId` 不一致（均为字符串）                       | 握手后      | **E1009** | —            | **1008** (Policy Violation) | 是       | 见下文 E-14    |
+| E-15   | 业务规则校验失败（如 `SESSION_ONGOING` 带 `callEndTimeStamp`、`isFinal=false`） | 握手后      | **E1009** | —            | **1008** (Policy Violation) | 是       | 见下文 E-15    |
+| E-16   | 第二个连接并发发送同一 `conversationId`                                       | 握手前      | **E1009** | **403**      | —                           | 是（拒绝握手） | 见下文 E-16    |
+
 
 > 握手前阶段 WebSocket 连接尚未建立，无法发送 WebSocket 文本帧；只能返回 HTTP + JSON body。握手后错误才会发送 WebSocket ERROR 帧并配合 Close Code 断连。
 
@@ -36,18 +39,21 @@
 
 ## 二、正常流程（单独视图）
 
-| **ID** | **场景** | **握手阶段** | **WS Close Code** | **断连?** | **Response Json** |
-| --- | --- | --- | --- | --- | --- |
-| **N-01** | SESSION_ONGOING 正常处理 | 握手后 | — | 否 | 见下文 N-01 |
-| **N-02** | 幂等命中（重复 seq） | 握手后 | — | 否 | 见下文 N-02 |
-| **N-03** | SESSION_COMPLETE 正常处理 | 握手后 | **1000** (Normal) | 是 | 见下文 N-03 |
-| **N-04** | 优雅停机 close_all | 握手后（存量连接） | **1001** (Going Away) | 是 | *(无 JSON 响应，服务端直接发送 WebSocket close 帧)* |
+
+| **ID**   | **场景**                | **握手阶段**  | **WS Close Code**     | **断连?** | **Response Json**                       |
+| -------- | --------------------- | --------- | --------------------- | ------- | --------------------------------------- |
+| **N-01** | SESSION_ONGOING 正常处理  | 握手后       | —                     | 否       | 见下文 N-01                                |
+| **N-02** | 幂等命中（重复 seq）          | 握手后       | —                     | 否       | 见下文 N-02                                |
+| **N-03** | SESSION_COMPLETE 正常处理（EOL） | 握手后       | **1000** (Normal)     | 是       | 见下文 N-03                                |
+| **N-04** | 优雅停机 close_all        | 握手后（存量连接） | **1001** (Going Away) | 是       | *(无 JSON 响应，服务端直接发送 WebSocket close 帧)* |
+
 
 ---
 
 ## 三、正常流程 Response JSON 示例
 
 ### N-01 SESSION_ONGOING 正常处理
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "TRANSCRIPT_ACK" },
@@ -60,6 +66,7 @@
 ```
 
 ### N-02 幂等命中（重复 seq）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "TRANSCRIPT_ACK" },
@@ -71,10 +78,13 @@
 }
 ```
 
+> 本示例使用 `SESSION_ONGOING` 的重复包；若重复的是 `SESSION_COMPLETE`，成功响应类型为 `EOL_ACK`。
+
 ### N-03 SESSION_COMPLETE 正常处理
+
 ```json
 {
-  "metaData": { "conversationId": "conv-1", "eventType": "TRANSCRIPT_ACK" },
+  "metaData": { "conversationId": "conv-1", "eventType": "EOL_ACK" },
   "payload": {
     "sequenceNumber": 42,
     "createdAtTimeStamp": "2026-03-21T03:00:00.000Z",
@@ -82,6 +92,8 @@
   }
 }
 ```
+
+> 该场景对应的请求帧是系统级 EOL 控制消息：`eventType=SESSION_COMPLETE`，`payload.speaker=System`。示例中 `payload.transcript` 写为 `"EOL"`；服务端不校验固定字面值。
 
 ### N-04 优雅停机 close_all
 
@@ -92,6 +104,7 @@
 ## 四、错误场景 Response 实例
 
 ### E-01 缺少 `conversationId` 参数（HTTP 400）
+
 ```json
 {
   "metaData": { "conversationId": "", "eventType": "ERROR" },
@@ -105,6 +118,7 @@
 ```
 
 ### E-02 服务正在停机 (draining)（HTTP 503）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -118,6 +132,7 @@
 ```
 
 ### E-03 连接数超限 (`WS_MAX_CONNECTIONS`)（HTTP 429）
+
 ```json
 {
   "metaData": { "conversationId": "conv-2", "eventType": "ERROR" },
@@ -131,6 +146,7 @@
 ```
 
 ### E-04 JSON 解析失败（Close 1007）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -144,6 +160,7 @@
 ```
 
 ### E-05 枚举值非法（Close 1008）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -157,6 +174,7 @@
 ```
 
 ### E-06 缺少必填字段（Close 1008）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -170,6 +188,7 @@
 ```
 
 ### E-07 字段类型不符（Close 1008）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -183,6 +202,7 @@
 ```
 
 ### E-08 时间格式无效（Close 1008）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -196,6 +216,7 @@
 ```
 
 ### E-09 序列号乱序（Close 1008）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -209,6 +230,7 @@
 ```
 
 ### E-10 Kafka 超时（Close 1013）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -222,6 +244,7 @@
 ```
 
 ### E-11 Kafka 失败（Close 1013）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -235,6 +258,7 @@
 ```
 
 ### E-12 编排层未捕获异常（Close 1011）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -248,6 +272,7 @@
 ```
 
 ### E-13 传输层未捕获异常（Close 1011）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -277,6 +302,7 @@
 ```
 
 ### E-15 业务规则校验失败（Close 1008）
+
 ```json
 {
   "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
@@ -289,14 +315,25 @@
 }
 ```
 
+### E-16 同会话并发发送冲突（HTTP 403）
+
+在握手阶段校验：若同一 `conversationId` 已被另一活跃发送连接持有，则直接拒绝握手，返回 **HTTP 403 + E1009**；不会建立 WebSocket 连接，不会进入 orchestrator，也不会发送 WebSocket close 帧。
+
+```json
+{
+  "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
+  "error": {
+    "code": "E1009",
+    "message": "Only one sender connection is allowed",
+    "details": "another connection is already sending messages for this conversation",
+    "createdAtTimeStamp": "2026-03-21T03:00:00.000Z"
+  }
+}
+```
+
 ---
 
-## 五、实现说明
+## 五、保留错误码说明
 
-| **错误码** | **Contract 定义** | **代码现状** |
-| --- | --- | --- |
-| **E1010** | 鉴权失败 (401/1008) | **未实现** — 无 Auth 中间件 |
-| **E1011** | 下游超时 (504/1013) | **已实现** — Kafka/下游超时返回该错误码 |
-| `conversationId` 缺失 | Contract 要求 400 | **已对齐：实际 400**（由 `_WsGuardMiddleware` 统一返回 JSON ERROR） |
-
-**E1009** 用于两类场景：**传输层 query / body `conversationId` 字符串不一致**，以及 **schema 通过后触发的业务规则校验失败**。**E1010** 仍为预留鉴权错误码，后续若引入 Auth，应同步补充契约、矩阵文档与测试。
+- `E1009` 用于三类场景：传输层 query / body `conversationId` 字符串不一致、schema 通过后的业务规则校验失败、同一 `conversationId` 出现第二个并发发送连接。前两类是握手后 `ERROR + 1008`，最后一类是握手期 `HTTP 403`。
+- `E1010` 为鉴权失败保留错误码。本服务未包含鉴权流程，因此本矩阵不包含 `E1010` 的可执行场景。

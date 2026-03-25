@@ -20,6 +20,11 @@ class GracefulShutdown:
         self._shutdown_event = asyncio.Event()
 
     @property
+    def stop_timeout(self) -> int:
+        """优雅停机总预算（秒）。"""
+        return self._stop_timeout
+
+    @property
     def draining(self) -> bool:
         """True 时应拒绝新连接。"""
         return self._draining

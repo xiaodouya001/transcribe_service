@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     redis_max_connections: int = 100
     redis_active_ttl_sec: int = 3600
     redis_final_ttl_sec: int = 60
+    redis_ownership_guard_ttl_sec: int = 30
+    redis_sequence_state_key_prefix: str = "transcript:session"
+    redis_ownership_guard_key_prefix: str = "transcript:owner"
 
     # --- Kafka ---
     kafka_bootstrap_servers: str = "127.0.0.1:9092"
@@ -36,6 +39,8 @@ class Settings(BaseSettings):
     # 传入 Uvicorn `ws="websockets"`：服务端按间隔发 RFC Ping、依赖对端 Pong（见 main.py）
     ws_ping_interval: float = 20.0
     ws_ping_timeout: float = 20.0
+    # ownership guard 续租周期（秒），仅用于连接存活期间后台 refresh
+    ws_ownership_guard_refresh_interval_sec: float = 5.0
 
     # --- HTTP / Uvicorn ---
     http_host: str = "0.0.0.0"
@@ -56,6 +61,8 @@ class Settings(BaseSettings):
     log_format: Literal["json", "console", "auto"] = "auto"
     # 是否打印服务端发出的 ERROR 响应完整 JSON（默认关闭，避免压测日志过大）
     log_ws_error_frames: bool = False
+    # 慢消息分段耗时告警阈值（毫秒）；0 表示关闭
+    log_slow_message_threshold_ms: float = 0.0
 
 
 @lru_cache

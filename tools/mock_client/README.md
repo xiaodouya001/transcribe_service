@@ -46,7 +46,7 @@ python server.py
 | Benchmark 预设 | 可一键填充 `300 / 400 / 500` 并发基准档；参数参考 [env-profiles-300-400-500.md](../../PT/env-profiles-300-400-500.md) 的 Mock Client 建议，区间项默认取中值：`300 -> interval 70ms / ramp-up 25000ms`，`400 -> interval 78ms / ramp-up 30000ms`，`500 -> interval 85ms / ramp-up 37500ms`。手动修改任一字段后，下拉会自动回到「自定义」。 |
 | 场景控制值 | 含义随场景变化，见下方分项说明。 |
 | 全部运行 | 顺序 `N-01 → N-02 → N-03 → E-01 → E-04 → E-05 → E-06 → E-07 → E-08 → E-09 → E-14 → E-15`；仅 `N-01`、`N-02`、`N-03`、`E-09` 会读取场景控制值 |
-| 并发压测 | **正常闭环负载**：每条连接内在「每连接消息总数」下按 `_session_message_split` 发若干 `SESSION_ONGOING` + 最后一条 `SESSION_COMPLETE`，均期望 `TRANSCRIPT_ACK`。<strong>不包含</strong> `N-02`、`E-01`、`E-04`、`E-05`、`E-06`、`E-07`、`E-08`、`E-09`、`E-14`、`E-15` 等边界场景；用于打吞吐、延迟、并发连接。 |
+| 并发压测 | **正常闭环负载**：每条连接内在「每连接消息总数」下按 `_session_message_split` 发若干 `SESSION_ONGOING` + 最后一条 `SESSION_COMPLETE`。前者期望 `TRANSCRIPT_ACK`，最后一条结束帧期望 `EOL_ACK`。<strong>不包含</strong> `N-02`、`E-01`、`E-04`、`E-05`、`E-06`、`E-07`、`E-08`、`E-09`、`E-14`、`E-15` 等边界场景；用于打吞吐、延迟、并发连接。 |
 | 并发连接数 / 每连接消息数 / 消息间隔(ms) | **并发连接数** = 本轮**同时进行的对话路数**（≈ 同时在线 WebSocket 数），一轮共 **`concurrency` 路**，无额外倍率。「每连接消息数」= 每路业务消息**总数（含 COMPLETE）**；「消息间隔」= 同一路内相邻两条发送之间的间隔。再打一轮请再次点「启动压测」。 |
 | 压测何时结束 | 本轮 **`concurrency` 路**会话全部发完并关闭后推送 `load_done`。「停止」后尚未开始建连的路不再执行。 |
 | 启动压测 / 停止 | 启动或停止并发压测 |
@@ -64,7 +64,7 @@ python server.py
 
 ### 2. 场景结果（左侧主区域）
 
-标题栏右侧 **清空** 可移除所有场景卡片并恢复占位提示。
+标题栏右侧 **清空** 可移除所有场景卡片并恢复空状态提示。
 
 每次运行的场景以卡片形式展示，包含：
 - **一行标题**：场景名称 → **conversationId**（小标签，跟在名称后；点击可复制）→ PASS/FAIL 徽章
@@ -93,7 +93,7 @@ python server.py
 |------|------|------|----------|
 | `N-01` | `N-01` | 连续发送 N 条 `SESSION_ONGOING`，验证每条都正常处理 | 每条都收到 `TRANSCRIPT_ACK`，服务端不主动断开 |
 | `N-02` | `N-02` | 对每个 `seq ∈ [0,N)` 各发一次 `SESSION_ONGOING` 再重放同一帧 | 每次首次与重放均收到 `TRANSCRIPT_ACK` |
-| `N-03` | `N-03` | 共 N 条业务消息（含最后一条 `SESSION_COMPLETE`），重点验证最终 COMPLETE 收尾 | 最后一条收到 `TRANSCRIPT_ACK`，随后 close `1000` |
+| `N-03` | `N-03` | 共 N 条业务消息（含最后一条系统 EOL 帧 `SESSION_COMPLETE`），重点验证最终 COMPLETE 收尾 | 最后一条收到 `EOL_ACK`，随后 close `1000` |
 | `E-01` | `E-01` | 握手时不携带 query `conversationId` | 收到 HTTP `400` + `E1003` |
 | `E-04` | `E-04` | 连接后首包即非法 JSON（与 N 无关） | 收到 `ERROR(E1001)` + close `1007` |
 | `E-05` | `E-05` | 建连成功后发送 `eventType=INVALID` 的消息 | 收到 `ERROR(E1002)` + close `1008` |
@@ -102,7 +102,7 @@ python server.py
 | `E-08` | `E-08` | 将 `createdAtTimeStamp` 改为非 UTC/非法时间格式 | 收到 `ERROR(E1005)` + close `1008` |
 | `E-09` | `E-09` | seq 0 后跳到 `seq=max(2,N)`（默认 N=5 即跳 5） | 收到 `ERROR(E1006)` + close `1008` |
 | `E-14` | `E-14` | query 中的 `conversationId` 与消息体里的 `metaData.conversationId` 不一致 | 收到 `ERROR(E1009)` + close `1008` |
-| `E-15` | `E-15` | 构造违反业务规则的消息（当前使用 `isFinal=false`） | 收到 `ERROR(E1009)` + close `1008` |
+| `E-15` | `E-15` | 构造违反业务规则的消息（默认使用 `isFinal=false`） | 收到 `ERROR(E1009)` + close `1008` |
 
 > `E-02`、`E-03`、`E-10`、`E-11`、`E-12`、`E-13`、`N-04` 这类依赖服务状态、连接容量或故障注入的场景，无法稳定由普通客户端主动构造，需通过环境控制、测试桩或故障注入方式验证。
 

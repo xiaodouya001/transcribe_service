@@ -1,8 +1,8 @@
-"""Orchestrator 抽象接口 — 禁止 import 任何 impl/ 下的具体实现。"""
+"""Orchestrator protocols — 禁止 import 任何 impl/ 下的具体实现。"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Protocol
 
 
@@ -14,11 +14,13 @@ class OrchestratorResult:
         response: 发送给客户端的 JSON dict（ACK 或 ERROR）。
         disconnect: 是否应断开 WebSocket。
         close_code: 断开时使用的 WebSocket Close Code。
+        timings_ms: 仅用于排障的分段耗时（毫秒）。
     """
 
     response: dict
     disconnect: bool = False
     close_code: int = 1000
+    timings_ms: dict[str, float] | None = None
 
 
 class OrchestratorBackend(Protocol):

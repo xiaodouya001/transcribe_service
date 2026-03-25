@@ -11,9 +11,9 @@ import pytest
 from unittest.mock import MagicMock
 
 from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
+from transcribe_service.redis.protocols import PrepareResult
+from transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
 from transcribe_service.schemas.errors import ErrorCode, WsCloseCode
-from transcribe_service.state_machine.base import PrepareResult
-from transcribe_service.state_machine.redis_state import RedisStateMachine
 
 
 @pytest.fixture
@@ -47,6 +47,8 @@ class TestScenarioA:
         assert result.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
         assert result.response["payload"]["sequenceNumber"] == 0
         assert result.disconnect is False
+        assert result.timings_ms is not None
+        assert {"validate_ms", "prepare_ms", "kafka_send_ms", "commit_ms", "ack_build_ms", "orchestrator_ms"} <= set(result.timings_ms)
         mock_sm.prepare.assert_awaited_once()
         mock_producer.send.assert_awaited_once()
         mock_sm.commit.assert_awaited_once()
@@ -54,7 +56,7 @@ class TestScenarioA:
 
 
 class TestScenarioB:
-    """B. IDEMPOTENT → ACK, 不写 Kafka, 不推进 Redis, 不断连。"""
+    """B. IDEMPOTENT → 返回对应 ACK。ONGOING 不断连，COMPLETE 正常 close 1000。"""
 
     async def test_idempotent(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_ongoing_msg
@@ -65,6 +67,19 @@ class TestScenarioB:
         assert result.disconnect is False
         mock_producer.send.assert_not_awaited()
         mock_sm.commit.assert_not_awaited()
+
+    async def test_idempotent_complete_returns_eol_ack_and_close(
+        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_complete_msg
+    ):
+        mock_sm.prepare.return_value = PrepareResult.IDEMPOTENT
+        result = await orchestrator.handle_message(valid_complete_msg)
+        assert result.response["metaData"]["eventType"] == "EOL_ACK"
+        assert result.response["payload"]["sequenceNumber"] == 42
+        assert result.disconnect is True
+        assert result.close_code == 1000
+        mock_producer.send.assert_not_awaited()
+        mock_sm.commit.assert_not_awaited()
+        mock_sm.cleanup.assert_not_awaited()
 
 
 class TestScenarioC:
@@ -90,6 +105,8 @@ class TestScenarioD:
         assert result.response["metaData"]["eventType"] == "ERROR"
         assert result.disconnect is True
         assert result.close_code == 1008
+        assert result.timings_ms is not None
+        assert {"validate_ms", "orchestrator_ms"} <= set(result.timings_ms)
 
     async def test_invalid_event_type(self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg):
         valid_ongoing_msg["metaData"]["eventType"] = "UNKNOWN"
@@ -177,7 +194,12 @@ class TestScenarioE:
     async def test_retry_same_seq_after_kafka_failure_is_lossless(self, valid_ongoing_msg):
         """首次 Kafka 失败不 commit；同一 seq 重试成功；再次重放命中幂等 ACK。"""
         client = fakeredis.aioredis.FakeRedis(decode_responses=True)
-        state_machine = RedisStateMachine(client=client, active_ttl_sec=3600, final_ttl_sec=60)
+        state_machine = RedisSequenceStateMachine(
+            client=client,
+            active_ttl_sec=3600,
+            final_ttl_sec=60,
+            key_prefix="transcript:session",
+        )
         producer = AsyncMock()
         producer.send = AsyncMock(side_effect=[RuntimeError("broker down"), None])
         orchestrator = TwoPhaseOrchestrator(state_machine=state_machine, producer=producer)
@@ -287,13 +309,13 @@ class TestClassifyValidationError:
 
 
 class TestScenarioG:
-    """G. SESSION_COMPLETE → ACK, cleanup, 断连 1000。"""
+    """G. SESSION_COMPLETE → EOL_ACK, cleanup, 断连 1000。"""
 
     async def test_session_complete(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_complete_msg
     ):
         result = await orchestrator.handle_message(valid_complete_msg)
-        assert result.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+        assert result.response["metaData"]["eventType"] == "EOL_ACK"
         assert result.response["payload"]["sequenceNumber"] == 42
         assert result.disconnect is True
         assert result.close_code == 1000
@@ -307,10 +329,12 @@ class TestScenarioG:
 
         result = await orchestrator.handle_message(valid_complete_msg)
 
-        assert result.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+        assert result.response["metaData"]["eventType"] == "EOL_ACK"
         assert result.response["payload"]["sequenceNumber"] == 42
         assert result.disconnect is True
         assert result.close_code == 1000
+        assert result.timings_ms is not None
+        assert "cleanup_ms" in result.timings_ms
         mock_producer.send.assert_awaited_once()
         mock_sm.commit.assert_awaited_once()
         mock_sm.cleanup.assert_awaited_once()

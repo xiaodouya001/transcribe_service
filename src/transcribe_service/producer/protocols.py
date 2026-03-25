@@ -1,4 +1,4 @@
-"""ProducerBackend 抽象接口 — 禁止包含任何网络 I/O 实现。"""
+"""Producer protocols — 禁止包含任何网络 I/O 实现。"""
 
 from __future__ import annotations
 

@@ -80,30 +80,46 @@ def generate_message(
     *,
     event_type: str = "SESSION_ONGOING",
     agent_id: str | None = None,
-    staff_id: str | None = None,
     customer_id: str | None = None,
     start_ts: str | None = None,
 ) -> dict[str, Any]:
     """生成一条符合 InboundMessage schema 的消息。"""
     now = _utc_now_iso()
-    return {
-        "metaData": {
-            "conversationId": conversation_id,
-            "agentId": agent_id or f"AGT-{_random_hex(4)}",
-            "staffId": staff_id or f"STF-{_random_hex(4)}",
-            "customerId": customer_id or f"CST-{_random_hex(4)}",
-            "callStartTimeStamp": start_ts or now,
-            "callEndTimeStamp": now if event_type == "SESSION_COMPLETE" else None,
-            "eventType": event_type,
-        },
-        "payload": {
+    if event_type == "SESSION_COMPLETE":
+        payload = {
+            "agentId": None,
+            "customerId": None,
             "sequenceNumber": seq,
-            "speaker": random.choice(["Agent", "Customer"]),
+            "speaker": "System",
+            "transcript": "EOL",
+            "engineProvider": "FanoLabs",
+            "isFinal": True,
+            "createdAtTimeStamp": now,
+        }
+    else:
+        speaker = random.choice(["Agent", "Customer"])
+        payload = {
+            "sequenceNumber": seq,
+            "speaker": speaker,
             "transcript": random_transcript(),
             "engineProvider": "FanoLabs",
             "isFinal": True,
             "createdAtTimeStamp": now,
+        }
+        if speaker == "Agent":
+            payload["agentId"] = agent_id or f"AGT-{_random_hex(4)}"
+            payload["customerId"] = None
+        else:
+            payload["agentId"] = None
+            payload["customerId"] = customer_id or f"CST-{_random_hex(4)}"
+    return {
+        "metaData": {
+            "conversationId": conversation_id,
+            "callStartTimeStamp": start_ts or now,
+            "callEndTimeStamp": now if event_type == "SESSION_COMPLETE" else None,
+            "eventType": event_type,
         },
+        "payload": payload,
     }
 
 
@@ -377,9 +393,9 @@ async def _session_ongoing_plus_complete_and_close(
         "seq": complete_seq,
         "resp_type": resp.get("metaData", {}).get("eventType") if resp else None,
     }
-    if not resp or resp.get("metaData", {}).get("eventType") != "TRANSCRIPT_ACK":
+    if not resp or resp.get("metaData", {}).get("eventType") != "EOL_ACK":
         result.passed = False
-        step["error"] = "期望 TRANSCRIPT_ACK"
+        step["error"] = "期望 EOL_ACK"
     result.steps.append(step)
     await emit("scenario_step", {"scenario": result.name, "step": step})
 
@@ -429,7 +445,7 @@ async def scenario_a_normal_flow(
     result = ScenarioResult(name="N-01", passed=True)
     cid = f"mock-N01-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit(
                 "conversation_registered",
                 {"conversation_id": cid, "scenario": result.name},
@@ -465,7 +481,7 @@ async def scenario_b_idempotent(
     result = ScenarioResult(name="N-02", passed=True)
     cid = f"mock-N02-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit(
                 "conversation_registered",
                 {"conversation_id": cid, "scenario": result.name},
@@ -521,7 +537,7 @@ async def scenario_c_out_of_order(
     jump_seq = max(2, n_messages)
     cid = f"mock-E09-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit(
                 "conversation_registered",
                 {"conversation_id": cid, "scenario": result.name},
@@ -726,7 +742,7 @@ async def scenario_e05_invalid_enum(ws_url: str, emit: EventCallback) -> Scenari
     result = ScenarioResult(name="E-05", passed=True)
     cid = f"mock-E05-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
 
     try:
@@ -763,7 +779,7 @@ async def scenario_e07_wrong_type(ws_url: str, emit: EventCallback) -> ScenarioR
     result = ScenarioResult(name="E-07", passed=True)
     cid = f"mock-E07-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
 
     try:
@@ -800,7 +816,7 @@ async def scenario_e08_invalid_timestamp(ws_url: str, emit: EventCallback) -> Sc
     result = ScenarioResult(name="E-08", passed=True)
     cid = f"mock-E08-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
 
     try:
@@ -837,7 +853,7 @@ async def scenario_e14_conversation_id_mismatch(ws_url: str, emit: EventCallback
     result = ScenarioResult(name="E-14", passed=True)
     cid = f"mock-E14-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
 
     try:
@@ -874,7 +890,7 @@ async def scenario_e15_business_rule_violation(ws_url: str, emit: EventCallback)
     result = ScenarioResult(name="E-15", passed=True)
     cid = f"mock-E15-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
 
     try:
@@ -915,7 +931,7 @@ async def scenario_g_session_complete(
     result = ScenarioResult(name="N-03", passed=True)
     cid = f"mock-N03-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "staff_id": f"STF-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit(
                 "conversation_registered",
                 {"conversation_id": cid, "scenario": result.name},
@@ -983,7 +999,6 @@ async def _load_single_conversation(
     start_ts = _utc_now_iso()
     meta_base = {
         "agent_id": f"AGT-{_random_hex()}",
-        "staff_id": f"STF-{_random_hex()}",
         "customer_id": f"CST-{_random_hex()}",
         "start_ts": start_ts,
     }
@@ -1046,7 +1061,7 @@ async def _load_single_conversation(
         latency = time.monotonic() - t0
         stats.sent += 1
         stats.latencies.append(latency)
-        if resp and resp.get("metaData", {}).get("eventType") == "TRANSCRIPT_ACK":
+        if resp and resp.get("metaData", {}).get("eventType") == "EOL_ACK":
             stats.ack += 1
             srv_ms = (resp.get("payload") or {}).get("serverProcessingMs")
             if isinstance(srv_ms, (int, float)):
@@ -1058,7 +1073,7 @@ async def _load_single_conversation(
             elif et == "ERROR":
                 detail = f"服务端错误: {_format_server_error(resp)}"
             else:
-                detail = f"期望 TRANSCRIPT_ACK，实际 eventType={et!r}"
+                detail = f"期望 EOL_ACK，实际 eventType={et!r}"
             stats.record_load_error(
                 stage="complete",
                 cid=cid,

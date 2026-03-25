@@ -45,6 +45,31 @@ def test_add_service_context():
     assert "version" in out
 
 
+def test_group_identity():
+    ed = {
+        "service": "transcribe-service",
+        "version": "0.1.0",
+        "conversation_id": "conv-1",
+        "event": "ready",
+    }
+    out = lc._group_identity(logging.getLogger("t"), "info", ed)
+    assert out["identity"] == {
+        "service": "transcribe-service",
+        "version": "0.1.0",
+        "conversation_id": "conv-1",
+    }
+    assert out["event"] == "ready"
+    assert "service" not in out
+    assert "version" not in out
+    assert "conversation_id" not in out
+
+
+def test_group_identity_without_fixed_fields_returns_original():
+    ed = {"event": "ready"}
+    out = lc._group_identity(logging.getLogger("t"), "info", dict(ed))
+    assert out == ed
+
+
 def test_mask_redis_url_empty():
     assert lc._mask_redis_url("") == ""
 
@@ -107,6 +132,7 @@ def test_configure_logging_stdlib_logger_json(monkeypatch, capsys):
     lc.configure_logging(level="INFO", format="json")
     logging.getLogger("uvicorn.access").info("GET /health 200")
     out = capsys.readouterr().err
+    assert '"identity": {' in out
     assert '"service": "transcribe-service"' in out
     assert '"logger": "uvicorn.access"' in out
     assert '"conversation_id": "-"' in out
@@ -120,9 +146,11 @@ def test_configure_logging_structlog_json_includes_conversation_id(monkeypatch, 
     lc.get_logger("app").info("ready")
     out = capsys.readouterr().err.strip()
     payload = json.loads(out)
-    assert payload["service"] == "transcribe-service"
-    assert payload["conversation_id"] == "-"
+    assert payload["identity"]["service"] == "transcribe-service"
+    assert payload["identity"]["conversation_id"] == "-"
     assert payload["event"] == "ready"
+    assert "service" not in payload
+    assert "conversation_id" not in payload
 
 
 def test_configure_logging_auto_tty_json(monkeypatch):
@@ -139,6 +167,18 @@ def test_configure_logging_auto_tty_console(monkeypatch):
     with patch.object(lc.sys.stderr, "isatty", return_value=True):
         lc.configure_logging(format="auto")
     lc.get_logger("b").info("y")
+
+
+def test_configure_logging_console_groups_identity(monkeypatch, capsys):
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    monkeypatch.delenv("LOG_FORMAT", raising=False)
+    with patch.object(lc.sys.stderr, "isatty", return_value=False):
+        lc.configure_logging(format="console", level="INFO")
+    lc.get_logger("console_app").info("ready", conversation_id="conv-1")
+    out = capsys.readouterr().err
+    assert "identity={'service': 'transcribe-service'" in out
+    assert "'conversation_id': 'conv-1'" in out
+    assert " conversation_id=" not in out
 
 
 def test_configure_logging_invalid_level_uses_info(monkeypatch):
