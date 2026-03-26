@@ -6,7 +6,7 @@ import structlog
 from redis.asyncio import Redis
 from redis.exceptions import NoScriptError
 
-from transcribe_service.redis.protocols import PrepareResult
+from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
 
 log = structlog.get_logger(__name__)
 
@@ -19,9 +19,9 @@ local current = redis.call('GET', key)
 if current == false then
     if incoming == 0 then
         redis.call('SET', key, 0, 'EX', ttl)
-        return 'PRE_CHECK_OK'
+        return {'PRE_CHECK_OK', 0}
     else
-        return 'OUT_OF_ORDER'
+        return {'OUT_OF_ORDER', 0}
     end
 end
 
@@ -29,11 +29,11 @@ current = tonumber(current)
 
 if incoming == current then
     redis.call('EXPIRE', key, ttl)
-    return 'PRE_CHECK_OK'
+    return {'PRE_CHECK_OK', current}
 elseif incoming < current then
-    return 'IDEMPOTENT'
+    return {'IDEMPOTENT', current}
 else
-    return 'OUT_OF_ORDER'
+    return {'OUT_OF_ORDER', current}
 end
 """
 
@@ -100,26 +100,39 @@ class RedisSequenceStateMachine:
     def _key(self, conversation_id: str) -> str:
         return f"{self._key_prefix}:{conversation_id}"
 
-    async def prepare(self, conversation_id: str, seq: int) -> PrepareResult:
+    @staticmethod
+    def _parse_prepare_result(result: list[object] | tuple[object, ...]) -> PrepareOutcome:
+        if len(result) != 2:
+            raise ValueError(f"Unexpected prepare result shape: {result!r}")
+
+        status_raw, expected_raw = result
+        expected_sequence = None if expected_raw is None else int(expected_raw)
+        return PrepareOutcome(
+            status=PrepareResult(str(status_raw)),
+            expected_sequence=expected_sequence,
+        )
+
+    async def prepare(self, conversation_id: str, seq: int) -> PrepareOutcome:
         client = await self._get_client()
         await self._ensure_scripts_loaded()
         try:
-            result: str = await client.evalsha(
+            raw_result: list[object] | tuple[object, ...] = await client.evalsha(
                 self._sha_prepare, 1, self._key(conversation_id), seq, self._active_ttl
             )
         except NoScriptError:
             self._sha_prepare = await client.script_load(LUA_PREPARE)
-            result = await client.evalsha(
+            raw_result = await client.evalsha(
                 self._sha_prepare, 1, self._key(conversation_id), seq, self._active_ttl
             )
-        pr = PrepareResult(result)
+        outcome = self._parse_prepare_result(raw_result)
         log.debug(
             "StateMachine.prepare",
             conversation_id=conversation_id,
             seq=seq,
-            result=pr.value,
+            result=outcome.status.value,
+            expected_sequence=outcome.expected_sequence,
         )
-        return pr
+        return outcome
 
     async def commit(self, conversation_id: str, seq: int) -> None:
         client = await self._get_client()
@@ -162,3 +175,4 @@ class RedisSequenceStateMachine:
         if self._client is not None and not self._client_injected:
             await self._client.aclose()
         self._client = None
+

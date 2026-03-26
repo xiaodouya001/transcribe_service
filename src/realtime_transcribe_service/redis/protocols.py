@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
@@ -14,10 +15,18 @@ class PrepareResult(str, Enum):
     OUT_OF_ORDER = "OUT_OF_ORDER"
 
 
+@dataclass(frozen=True)
+class PrepareOutcome:
+    """Prepare result plus optional sequencing metadata for logging/diagnostics."""
+
+    status: PrepareResult
+    expected_sequence: int | None = None
+
+
 class SequenceStateMachineBackend(Protocol):
     """Distributed sequence guard protocol."""
 
-    async def prepare(self, conversation_id: str, seq: int) -> PrepareResult:
+    async def prepare(self, conversation_id: str, seq: int) -> PrepareOutcome:
         ...  # pragma: no cover
 
     async def commit(self, conversation_id: str, seq: int) -> None:

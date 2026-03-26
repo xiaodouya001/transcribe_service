@@ -21,7 +21,7 @@ def _json_serializer(obj: Any, **kwargs: Any) -> str:
     kwargs.setdefault("ensure_ascii", False)
     return json.dumps(obj, **kwargs)
 
-SERVICE_NAME = "transcribe-service"
+SERVICE_NAME = "realtime-transcribe-service"
 
 
 @lru_cache(maxsize=1)
@@ -67,7 +67,7 @@ def _group_identity(
     identity = {key: value for key, value in identity.items() if value is not None}
     if not identity:
         return event_dict
-    return {"identity": identity, **event_dict}
+    return {**event_dict, "identity": identity}
 
 
 def _mask_redis_url(url: str) -> str:
@@ -107,13 +107,13 @@ _SHARED_PROCESSORS: list[structlog.typing.Processor] = [
     _mask_sensitive_processor,
     structlog.contextvars.merge_contextvars,
     _ensure_conversation_id,
-    _group_identity,
     structlog.stdlib.add_logger_name,
     structlog.processors.add_log_level,
     structlog.processors.TimeStamper(fmt="iso", utc=True),
     structlog.processors.StackInfoRenderer(),
     structlog.processors.format_exc_info,
     structlog.processors.UnicodeDecoder(),
+    _group_identity,
 ]
 
 _STRUCTLOG_PRE_PROCESSORS: list[structlog.typing.Processor] = [
@@ -177,7 +177,11 @@ def configure_logging(
         ]
         foreign_pre_chain = _SHARED_PROCESSORS
     else:
-        renderer = structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty(), pad_event_to=25)
+        renderer = structlog.dev.ConsoleRenderer(
+            colors=sys.stderr.isatty(),
+            pad_event_to=25,
+            sort_keys=False,
+        )
         processors = _CONSOLE_PRE_PROCESSORS + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ]

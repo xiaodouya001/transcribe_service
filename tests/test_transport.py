@@ -14,17 +14,17 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 from unittest.mock import patch
 
-from transcribe_service.orchestrator.protocols import OrchestratorResult
-from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
-from transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
-from transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
-from transcribe_service.schemas.response import (
+from realtime_transcribe_service.orchestrator.protocols import OrchestratorResult
+from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
+from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
+from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
+from realtime_transcribe_service.schemas.response import (
     build_eol_ack,
     build_error,
     build_transcript_ack,
 )
-from transcribe_service.shutdown.graceful import GracefulShutdown
-from transcribe_service.transport.websocket_handler import (
+from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
+from realtime_transcribe_service.transport.websocket_handler import (
     ConnectionRegistry,
     _format_client_addr,
     _ownership_refresh_loop,
@@ -278,7 +278,7 @@ class TestWebSocket:
             client=fake_redis,
             active_ttl_sec=120,
             final_ttl_sec=5,
-            key_prefix="transcript:session",
+            key_prefix="real-time-transcriber:transcript-checker",
         )
         producer = AsyncMock()
         producer.send = AsyncMock()
@@ -299,7 +299,7 @@ class TestWebSocket:
                 resp = orjson.loads(ws.receive_text())
                 assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
 
-            key = "transcript:session:conv-reconnect"
+            key = "real-time-transcriber:transcript-checker:conv-reconnect"
             ttl = asyncio.run(fake_redis.ttl(key))
             assert 5 < ttl <= 120
             assert asyncio.run(fake_redis.get(key)) == "1"
@@ -328,7 +328,7 @@ class TestWebSocket:
         owner = RedisConversationOwnershipGuard(
             client=fake_redis,
             guard_ttl_sec=30,
-            key_prefix="transcript:owner",
+            key_prefix="real-time-transcriber:conversation-owner",
         )
         app = create_app(
             mock_orchestrator,
@@ -367,7 +367,7 @@ class TestWebSocket:
         owner = RedisConversationOwnershipGuard(
             client=fake_redis,
             guard_ttl_sec=30,
-            key_prefix="transcript:owner",
+            key_prefix="real-time-transcriber:conversation-owner",
         )
         app = create_app(
             mock_orchestrator,
@@ -381,9 +381,13 @@ class TestWebSocket:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ):
-                assert asyncio.run(fake_redis.get("transcript:owner:conv-1")) is not None
+                assert asyncio.run(
+                    fake_redis.get("real-time-transcriber:conversation-owner:conv-1")
+                ) is not None
 
-            assert asyncio.run(fake_redis.get("transcript:owner:conv-1")) is None
+            assert asyncio.run(
+                fake_redis.get("real-time-transcriber:conversation-owner:conv-1")
+            ) is None
 
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
@@ -421,7 +425,7 @@ class TestWebSocket:
     def test_ws_owner_store_unavailable_on_fallback_claim_returns_e1008(
         self, mock_orchestrator, shutdown, registry
     ):
-        from transcribe_service.transport import websocket_handler as wh
+        from realtime_transcribe_service.transport import websocket_handler as wh
 
         owner = ScriptedOwnerBackend([RuntimeError("owner store down")])
 
@@ -452,7 +456,7 @@ class TestWebSocket:
     def test_ws_owner_conflict_on_fallback_claim_returns_e1009(
         self, mock_orchestrator, shutdown, registry
     ):
-        from transcribe_service.transport import websocket_handler as wh
+        from realtime_transcribe_service.transport import websocket_handler as wh
 
         owner = ScriptedOwnerBackend([False])
 
@@ -539,7 +543,7 @@ class TestWebSocket:
         )
         client = TestClient(app)
 
-        with patch("transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+        with patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ):
@@ -566,6 +570,31 @@ class TestWebSocket:
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_text()
             assert ei.value.code == 1008
+
+    def test_ws_conversation_id_mismatch_warning_includes_error_and_close_code(
+        self, app, mock_orchestrator
+    ):
+        client = TestClient(app)
+        with patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ) as ws:
+                ws.send_text('{"metaData":{"conversationId":"conv-2"}}')
+                resp = orjson.loads(ws.receive_text())
+                assert resp["error"]["code"] == "E1009"
+                with pytest.raises(WebSocketDisconnect) as ei:
+                    ws.receive_text()
+                assert ei.value.code == 1008
+
+        warn_mock.assert_any_call(
+            "Transport: metaData.conversationId 与握手 query 不一致",
+            conversation_id="conv-1",
+            handshake_conversation_id="conv-1",
+            metadata_conversation_id="conv-2",
+            error_code="E1009",
+            close_code=1008,
+        )
+        mock_orchestrator.handle_message.assert_not_awaited()
 
     def test_ws_meta_conversation_id_missing_still_invokes_orchestrator(
         self, shutdown, registry
@@ -602,6 +631,7 @@ class TestWebSocket:
             ws.send_text(orjson.dumps(msg).decode())
             resp = orjson.loads(ws.receive_text())
             assert resp["error"]["code"] == "E1003"
+            assert resp["metaData"]["conversationId"] == "conv-1"
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_text()
             assert ei.value.code == 1008
@@ -644,9 +674,37 @@ class TestWebSocket:
             ws.send_text(orjson.dumps(msg).decode())
             resp = orjson.loads(ws.receive_text())
             assert resp["error"]["code"] == "E1004"
+            assert resp["metaData"]["conversationId"] == "conv-1"
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_text()
             assert ei.value.code == 1008
+        sm.prepare.assert_not_awaited()
+        producer.send.assert_not_awaited()
+
+    def test_ws_non_object_json_returns_e1004_with_handshake_conversation_id(
+        self, shutdown, registry
+    ):
+        """顶层 JSON 非对象时应返回客户端类型错误，而不是 E1007。"""
+        sm = AsyncMock()
+        sm.prepare = AsyncMock()
+        sm.commit = AsyncMock()
+        sm.cleanup = AsyncMock()
+        producer = AsyncMock()
+        producer.send = AsyncMock()
+        app = create_app(TwoPhaseOrchestrator(sm, producer), shutdown, registry)
+        client = TestClient(app)
+
+        with client.websocket_connect(
+            "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+        ) as ws:
+            ws.send_text("[]")
+            resp = orjson.loads(ws.receive_text())
+            assert resp["error"]["code"] == "E1004"
+            assert resp["metaData"]["conversationId"] == "conv-1"
+            with pytest.raises(WebSocketDisconnect) as ei:
+                ws.receive_text()
+            assert ei.value.code == 1008
+
         sm.prepare.assert_not_awaited()
         producer.send.assert_not_awaited()
 
@@ -672,6 +730,27 @@ class TestWebSocket:
             ws.send_text("not json at all")
             resp = orjson.loads(ws.receive_text())
             assert resp["error"]["code"] == "E1001"
+
+    def test_ws_invalid_json_warning_includes_error_and_close_code(self, app):
+        client = TestClient(app)
+        with patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ) as ws:
+                ws.send_text("not json at all")
+                resp = orjson.loads(ws.receive_text())
+                assert resp["error"]["code"] == "E1001"
+                with pytest.raises(WebSocketDisconnect) as ei:
+                    ws.receive_text()
+                assert ei.value.code == 1007
+
+        warn_mock.assert_any_call(
+            "Transport: JSON 解析失败",
+            conversation_id="conv-1",
+            error=ANY,
+            error_code="E1001",
+            close_code=1007,
+        )
 
     def test_ws_missing_conversation_id(self, app):
         client = TestClient(app)
@@ -763,7 +842,7 @@ class TestWebSocket:
         )
         client = TestClient(app)
         msg = _ongoing_message()
-        with patch("transcribe_service.transport.websocket_handler.log.info") as info_mock:
+        with patch("realtime_transcribe_service.transport.websocket_handler.log.info") as info_mock:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ) as ws:
@@ -779,7 +858,7 @@ class TestWebSocket:
     def test_ws_logs_slow_message_breakdown_when_threshold_exceeded(
         self, mock_orchestrator, shutdown, registry
     ):
-        async def slow_handle(_raw_json):
+        async def slow_handle(_raw_json, _conversation_id=""):
             return OrchestratorResult(
                 response=build_transcript_ack("conv-1", 0),
                 disconnect=False,
@@ -803,9 +882,9 @@ class TestWebSocket:
         client = TestClient(app)
 
         with patch(
-            "transcribe_service.transport.websocket_handler._elapsed_ms",
+            "realtime_transcribe_service.transport.websocket_handler._elapsed_ms",
             side_effect=[0.12, 12.34, 0.45, 12.79],
-        ), patch("transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+        ), patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ) as ws:
@@ -844,7 +923,7 @@ class TestWebSocket:
     def test_ws_does_not_log_slow_message_when_threshold_disabled(
         self, mock_orchestrator, shutdown, registry
     ):
-        async def slow_handle(_raw_json):
+        async def slow_handle(_raw_json, _conversation_id=""):
             return OrchestratorResult(
                 response=build_transcript_ack("conv-1", 0),
                 disconnect=False,
@@ -856,9 +935,9 @@ class TestWebSocket:
         client = TestClient(app)
 
         with patch(
-            "transcribe_service.transport.websocket_handler._elapsed_ms",
+            "realtime_transcribe_service.transport.websocket_handler._elapsed_ms",
             side_effect=[0.12, 12.34, 0.45],
-        ), patch("transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+        ), patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ) as ws:
@@ -874,7 +953,7 @@ class TestWebSocket:
 
 @pytest.mark.asyncio
 async def test_send_error_and_close_swallows_inner_failure():
-    from transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import websocket_handler as wh
 
     ws = MagicMock()
     ws.client_state = WebSocketState.CONNECTED
@@ -886,7 +965,7 @@ async def test_send_error_and_close_swallows_inner_failure():
 
 
 def test_maybe_log_slow_message_skips_when_below_threshold():
-    from transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import websocket_handler as wh
 
     wh._slow_message_log_window_started_at = 0.0
     wh._slow_message_log_emitted_in_window = 0
@@ -908,14 +987,14 @@ def test_maybe_log_slow_message_skips_when_below_threshold():
 
 
 def test_maybe_log_slow_message_rate_limits_and_reports_suppressed():
-    from transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import websocket_handler as wh
 
     wh._slow_message_log_window_started_at = 0.0
     wh._slow_message_log_emitted_in_window = 0
     wh._slow_message_log_suppressed = 0
 
     with patch.object(wh, "_elapsed_ms", return_value=120.0), patch(
-        "transcribe_service.transport.websocket_handler.time.perf_counter",
+        "realtime_transcribe_service.transport.websocket_handler.time.perf_counter",
         side_effect=[1.0, 1.2, 2.5],
     ), patch.object(wh.log, "warning") as warn_mock:
         for _ in range(3):
@@ -937,13 +1016,13 @@ def test_maybe_log_slow_message_rate_limits_and_reports_suppressed():
 
 @pytest.mark.asyncio
 async def test_send_error_and_close_logs_error_frame_when_enabled():
-    from transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import websocket_handler as wh
 
     ws = MagicMock()
     ws.client_state = WebSocketState.CONNECTED
     ws.send_text = AsyncMock()
     ws.close = AsyncMock()
-    with patch("transcribe_service.transport.websocket_handler.log.info") as info_mock:
+    with patch("realtime_transcribe_service.transport.websocket_handler.log.info") as info_mock:
         await wh._send_error_and_close(
             ws,
             "conv-x",
@@ -967,7 +1046,7 @@ async def test_send_error_and_close_logs_error_frame_when_enabled():
 
 @pytest.mark.asyncio
 async def test_ownership_refresh_loop_error_closes_ws():
-    from transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import websocket_handler as wh
 
     ws = MagicMock()
     ws.client_state = WebSocketState.CONNECTED
@@ -989,7 +1068,7 @@ async def test_ownership_refresh_loop_error_closes_ws():
 
 @pytest.mark.asyncio
 async def test_ownership_refresh_loop_conflict_closes_ws():
-    from transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import websocket_handler as wh
 
     ws = MagicMock()
     ws.client_state = WebSocketState.CONNECTED
@@ -1103,3 +1182,4 @@ class TestConnectionRegistry:
         registry.add("conv-2", MagicMock())
         registry.remove("conv-1")
         assert registry.active_count == 1
+

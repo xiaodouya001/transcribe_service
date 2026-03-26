@@ -3,23 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import fakeredis.aioredis
 import pytest
 
 from unittest.mock import MagicMock
 
-from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
-from transcribe_service.redis.protocols import PrepareResult
-from transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
-from transcribe_service.schemas.errors import ErrorCode, WsCloseCode
+from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
+from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
+from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
+from realtime_transcribe_service.schemas.errors import ErrorCode, WsCloseCode
 
 
 @pytest.fixture
 def mock_sm():
     sm = AsyncMock()
-    sm.prepare = AsyncMock(return_value=PrepareResult.PRE_CHECK_OK)
+    sm.prepare = AsyncMock(return_value=PrepareOutcome(status=PrepareResult.PRE_CHECK_OK))
     sm.commit = AsyncMock()
     sm.cleanup = AsyncMock()
     return sm
@@ -61,7 +61,7 @@ class TestScenarioB:
     async def test_idempotent(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_ongoing_msg
     ):
-        mock_sm.prepare.return_value = PrepareResult.IDEMPOTENT
+        mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.IDEMPOTENT)
         result = await orchestrator.handle_message(valid_ongoing_msg)
         assert result.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
         assert result.disconnect is False
@@ -71,7 +71,7 @@ class TestScenarioB:
     async def test_idempotent_complete_returns_eol_ack_and_close(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_complete_msg
     ):
-        mock_sm.prepare.return_value = PrepareResult.IDEMPOTENT
+        mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.IDEMPOTENT)
         result = await orchestrator.handle_message(valid_complete_msg)
         assert result.response["metaData"]["eventType"] == "EOL_ACK"
         assert result.response["payload"]["sequenceNumber"] == 42
@@ -88,12 +88,35 @@ class TestScenarioC:
     async def test_out_of_order(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, valid_ongoing_msg
     ):
-        mock_sm.prepare.return_value = PrepareResult.OUT_OF_ORDER
+        mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.OUT_OF_ORDER)
         result = await orchestrator.handle_message(valid_ongoing_msg)
         assert result.response["metaData"]["eventType"] == "ERROR"
         assert result.response["error"]["code"] == "E1006"
         assert result.disconnect is True
         assert result.close_code == 1008
+
+    async def test_out_of_order_warning_includes_error_and_close_code(
+        self, orchestrator: TwoPhaseOrchestrator, mock_sm, valid_ongoing_msg
+    ):
+        mock_sm.prepare.return_value = PrepareOutcome(
+            status=PrepareResult.OUT_OF_ORDER,
+            expected_sequence=1,
+        )
+        with patch("realtime_transcribe_service.orchestrator.two_phase.log.warning") as warn_mock:
+            result = await orchestrator.handle_message(valid_ongoing_msg)
+
+        assert result.response["error"]["code"] == "E1006"
+        assert result.disconnect is True
+        assert result.close_code == 1008
+        warn_mock.assert_any_call(
+            "Orchestrator: 序列号乱序",
+            conversation_id=valid_ongoing_msg["metaData"]["conversationId"],
+            seq=valid_ongoing_msg["payload"]["sequenceNumber"],
+            actual_sequence=valid_ongoing_msg["payload"]["sequenceNumber"],
+            expected_sequence=1,
+            error_code="E1006",
+            close_code=1008,
+        )
 
 
 class TestScenarioD:
@@ -107,6 +130,16 @@ class TestScenarioD:
         assert result.close_code == 1008
         assert result.timings_ms is not None
         assert {"validate_ms", "orchestrator_ms"} <= set(result.timings_ms)
+
+    async def test_missing_field_uses_fallback_conversation_id(
+        self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
+    ):
+        del valid_ongoing_msg["metaData"]["conversationId"]
+        result = await orchestrator.handle_message(valid_ongoing_msg, "conv-1")
+        assert result.response["error"]["code"] == "E1003"
+        assert result.response["metaData"]["conversationId"] == "conv-1"
+        assert result.disconnect is True
+        assert result.close_code == 1008
 
     async def test_invalid_event_type(self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg):
         valid_ongoing_msg["metaData"]["eventType"] = "UNKNOWN"
@@ -128,6 +161,15 @@ class TestScenarioD:
         result = await orchestrator.handle_message(valid_ongoing_msg)
         assert result.response["error"]["code"] == "E1004"
         assert result.response["metaData"]["conversationId"] == ""
+        assert result.disconnect is True
+        assert result.close_code == 1008
+
+    async def test_non_object_json_returns_e1004_with_fallback_conversation_id(
+        self, orchestrator: TwoPhaseOrchestrator
+    ):
+        result = await orchestrator.handle_message([], "conv-1")
+        assert result.response["error"]["code"] == "E1004"
+        assert result.response["metaData"]["conversationId"] == "conv-1"
         assert result.disconnect is True
         assert result.close_code == 1008
 
@@ -198,7 +240,7 @@ class TestScenarioE:
             client=client,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="transcript:session",
+            key_prefix="real-time-transcriber:transcript-checker",
         )
         producer = AsyncMock()
         producer.send = AsyncMock(side_effect=[RuntimeError("broker down"), None])
@@ -211,7 +253,7 @@ class TestScenarioE:
             assert first.close_code == 1013
 
             cid = valid_ongoing_msg["metaData"]["conversationId"]
-            key = f"transcript:session:{cid}"
+            key = f"real-time-transcriber:transcript-checker:{cid}"
             assert await client.get(key) == "0"
 
             second = await orchestrator.handle_message(valid_ongoing_msg)
@@ -338,3 +380,4 @@ class TestScenarioG:
         mock_producer.send.assert_awaited_once()
         mock_sm.commit.assert_awaited_once()
         mock_sm.cleanup.assert_awaited_once()
+

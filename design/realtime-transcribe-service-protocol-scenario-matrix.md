@@ -2,11 +2,11 @@
 
 本文将 WebSocket 协议在“正常流、错误流、握手前拒绝、关闭码、典型 JSON 响应”上的关键场景集中到一处，作为：
 
-- [API 契约](../design/transcribe-service-API-contract.md) 的补充视图
-- [设计护栏定稿](design-guardrails.md) 中“契约级场景矩阵”的落地文档
+- [API 契约](realtime-transcribe-service-api-contract.md) 的补充视图
+- [设计护栏定稿](realtime-transcribe-service-design-guardrails.md) 中“契约级场景矩阵”的落地文档
 - [契约级矩阵测试](../tests/test_contract_matrix.py) 的文档对照版本
 
-如本矩阵与 [API 契约](../design/transcribe-service-API-contract.md) 存在冲突，以 API 契约为准。
+如本矩阵与 [API 契约](realtime-transcribe-service-api-contract.md) 存在冲突，以 API 契约为准。
 
 ---
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Transcribe Service Testing - Mock Console</title>
+<title>Realtime Transcribe Service Testing - Mock Console</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -1490,7 +1490,7 @@ select.cp-select:focus {
 <body>
 
 <header>
-  <h1>Transcribe Service Testing - Mock Console</h1>
+  <h1>Realtime Transcribe Service Testing - Mock Console</h1>
   <span class="tag">Realtime WS + Kafka</span>
   <div class="theme-switch">
     <label for="theme-select">Theme</label>
@@ -1613,7 +1613,7 @@ select.cp-select:focus {
           </div>
           <div class="form-group" style="flex:1.2;min-width:160px;max-width:280px">
             <label>Topic</label>
-            <input type="text" id="kafka-topic" value="cc.transcript.realtime.v1">
+            <input type="text" id="kafka-topic" value="AI_STAGING_TRANSCRIPTION">
           </div>
           <div class="form-group">
             <label>Kafka 消费<span id="kafka-status" class="kafka-inline-status"></span></label>
@@ -1719,14 +1719,14 @@ select.cp-select:focus {
           <div class="load-stats-grid">
             <div class="load-stat-card"><div class="value" id="stat-sent">0</div><div class="label">已发送</div></div>
             <div class="load-stat-card"><div class="value" id="stat-active">0</div><div class="label">活跃连接</div></div>
-            <div class="load-stat-card"><div class="value" id="stat-tps">0</div><div class="label">TPS</div></div>
+            <div class="load-stat-card"><div class="value" id="stat-tps">0</div><div class="label">ACK TPS</div></div>
           </div>
         </section>
         <section class="metric-group">
           <h4 class="metric-group-title">结果质量</h4>
           <div class="load-stats-grid">
             <div class="load-stat-card green"><div class="value" id="stat-ack">0</div><div class="label">ACK</div></div>
-            <div class="load-stat-card red"><div class="value" id="stat-error">0</div><div class="label">错误</div></div>
+            <div class="load-stat-card red"><div class="value" id="stat-error">0</div><div class="label">错误事件</div></div>
           </div>
         </section>
         <section class="metric-group">
@@ -1738,7 +1738,7 @@ select.cp-select:focus {
           </div>
         </section>
         <section class="metric-group">
-          <h4 class="metric-group-title">服务端延迟</h4>
+          <h4 class="metric-group-title">服务端处理延迟（ACK 样本）</h4>
           <div class="load-stats-grid">
             <div class="load-stat-card"><div class="value" id="stat-server-p50">0</div><div class="label">P50 (ms)</div></div>
             <div class="load-stat-card"><div class="value" id="stat-server-p95">0</div><div class="label">P95 (ms)</div></div>
@@ -2828,7 +2828,7 @@ function updateStats(d) {
   document.getElementById('stat-ack').textContent = d.ack ?? 0;
   document.getElementById('stat-error').textContent = d.error ?? 0;
   document.getElementById('stat-active').textContent = d.active_connections ?? 0;
-  document.getElementById('stat-tps').textContent = fmtInt(d.tps);
+  document.getElementById('stat-tps').textContent = fmtInt(d.ack_tps ?? d.tps);
   document.getElementById('stat-p50').textContent = fmtInt(d.p50_ms);
   document.getElementById('stat-p95').textContent = fmtInt(d.p95_ms);
   document.getElementById('stat-p99').textContent = fmtInt(d.p99_ms);
@@ -2875,3 +2875,4 @@ function updateStats(d) {
 </script>
 </body>
 </html>
+

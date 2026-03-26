@@ -1,7 +1,7 @@
 """全局常量 — 路径、事件类型、字段长度等跨模块共享的不可变值。"""
 
 # ---- 应用元信息 ----
-APP_TITLE = "Transcribe Service"
+APP_TITLE = "Realtime Transcribe Service"
 
 # ---- WebSocket 路由 ----
 WS_PATH = "/ws/v1/realtime-transcriptions"

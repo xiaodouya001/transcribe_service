@@ -51,7 +51,7 @@ pytest 配置，无需单独 `pytest.ini`。
 
 ### 1.6 [tool.setuptools.packages.find]
 
-setuptools 包发现，包含 `config` 与 `transcribe_service`（`src/`）。
+setuptools 包发现，包含 `config` 与 `realtime_transcribe_service`（`src/`）。
 
 ### 1.7 [tool.poetry]（可选）
 
@@ -70,7 +70,7 @@ pip install -e .
 # 或
 poetry install
 
-python -m transcribe_service.main
+python -m realtime_transcribe_service.main
 ```
 
 - **依赖**：`[project].dependencies`
@@ -99,7 +99,7 @@ pip install .
 # 或
 poetry install --no-dev
 
-python -m transcribe_service.main
+python -m realtime_transcribe_service.main
 ```
 
 - **依赖**：仅 `[project].dependencies`
@@ -118,3 +118,4 @@ python -m transcribe_service.main
 也可使用项目根目录的 `requirements.txt` / `requirements-dev.txt`（与 `pyproject` 对齐时）配合 `pip install -r`。
 
 Poetry 示例：`poetry install`、`poetry install --with dev`、`poetry install --without dev`。
+

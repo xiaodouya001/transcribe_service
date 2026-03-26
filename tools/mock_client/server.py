@@ -43,7 +43,7 @@ _kafka_forward_task: asyncio.Task | None = None
 
 DEFAULT_WS_URL = "ws://127.0.0.1:8080/ws/v1/realtime-transcriptions"
 DEFAULT_KAFKA_BOOTSTRAP = "127.0.0.1:9092"
-DEFAULT_KAFKA_TOPIC = "cc.transcript.realtime.v1"
+DEFAULT_KAFKA_TOPIC = "AI_STAGING_TRANSCRIPTION"
 
 
 # ---------------------------------------------------------------------------

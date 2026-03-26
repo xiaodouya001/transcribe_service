@@ -14,7 +14,7 @@
 
 状态机通过 Redis Lua 原子预检，若 `sequenceNumber > expected`（跳号）则返回 `OUT_OF_ORDER`，服务端发送 ERROR 帧并断开连接（Close Code 1008）。
 
-**解决**：确保上游 STT Provider 在同一 `conversationId` 下严格递增发送 `sequenceNumber`。断连后重连会从 Redis 中已保存的 expected 序号继续。
+**解决**：确保上游 Fano Assist 在同一 `conversationId` 下严格递增发送 `sequenceNumber`。断连后重连会从 Redis 中已保存的 expected 序号继续。
 
 ---
 
@@ -54,9 +54,10 @@ Kafka 发送超时/失败 → 返回 ERROR 帧（E1008/E1011）→ 断连（Clos
 - **重复重试要保持幂等键不变**：同一次业务重试必须保持 `(conversationId, sequenceNumber)` 不变；服务端会按幂等语义返回 ACK，不会重复写 Kafka。
 - **事件语义**：中间过程使用 `SESSION_ONGOING`，此时 `callEndTimeStamp` 必须为 `null`；结束时发送 `SESSION_COMPLETE`，并提供 `callEndTimeStamp`，作为最终 EOL 控制事件。该结束帧使用 `payload.speaker=System`，成功后收到 `EOL_ACK`；`payload.transcript` 为普通字符串字段，服务端不校验固定字面值。
 - **仅发送 final transcript**：`payload.isFinal` 必须为 `true`；服务不接收 partial / interim transcript。
-- **请求体必须满足契约字段要求**：必填字段、时间戳格式、`speaker` 取值、`agentId/customerId` 的条件必填规则，以及 `dialect` 的可选语义都必须满足 API 契约；详细字段定义以 `design/transcribe-service-API-contract.md` 为准。
+- **请求体必须满足契约字段要求**：必填字段、时间戳格式、`speaker` 取值、`agentId/customerId` 的条件必填规则，以及 `dialect` 的可选语义都必须满足 API 契约；详细字段定义以 `design/realtime-transcribe-service-api-contract.md` 为准。
 
 协议错误码、关闭码与典型正常/异常流，请统一参考：
 
-- `design/transcribe-service-API-contract.md`
-- `docs/protocol-scenario-matrix.md`
+- `design/realtime-transcribe-service-api-contract.md`
+- `design/realtime-transcribe-service-protocol-scenario-matrix.md`
+

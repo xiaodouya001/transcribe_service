@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import transcribe_service.main as main_mod
+import realtime_transcribe_service.main as main_mod
 
 
 @pytest.mark.asyncio
@@ -105,8 +105,8 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "transcript:session"
-    settings.redis_ownership_guard_key_prefix = "transcript:owner"
+    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
+    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -226,8 +226,8 @@ async def test_run_graceful_shutdown_order(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "transcript:session"
-    settings.redis_ownership_guard_key_prefix = "transcript:owner"
+    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
+    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -337,8 +337,8 @@ async def test_run_startup_checks_are_parallel(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "transcript:session"
-    settings.redis_ownership_guard_key_prefix = "transcript:owner"
+    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
+    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -441,8 +441,8 @@ async def test_run_stop_timeout_forces_cleanup(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "transcript:session"
-    settings.redis_ownership_guard_key_prefix = "transcript:owner"
+    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
+    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -528,8 +528,8 @@ async def test_run_stop_timeout_cancels_server_task_when_graceful_stop_stalls(mo
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "transcript:session"
-    settings.redis_ownership_guard_key_prefix = "transcript:owner"
+    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
+    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -659,8 +659,8 @@ async def test_run_propagates_exception(monkeypatch):
     settings.http_port = 18081
     settings.kafka_startup_timeout_sec = 5.0
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "transcript:session"
-    settings.redis_ownership_guard_key_prefix = "transcript:owner"
+    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
+    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -722,8 +722,8 @@ async def test_run_port_conflict_system_exit(monkeypatch):
     settings.http_port = 18082
     settings.kafka_startup_timeout_sec = 5.0
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "transcript:session"
-    settings.redis_ownership_guard_key_prefix = "transcript:owner"
+    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
+    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -735,7 +735,7 @@ async def test_run_port_conflict_system_exit(monkeypatch):
     prod = MagicMock(flush=AsyncMock(), close=AsyncMock())
     monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: prod)
     monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: MagicMock())
-    from transcribe_service.shutdown.graceful import GracefulShutdown as _GS
+    from realtime_transcribe_service.shutdown.graceful import GracefulShutdown as _GS
     shutdown_inst = _GS(stop_timeout=1)
     monkeypatch.setattr(main_mod, "GracefulShutdown", lambda **kw: shutdown_inst)
     monkeypatch.setattr(main_mod, "ConnectionRegistry", lambda: MagicMock(close_all=AsyncMock()))
@@ -758,3 +758,4 @@ async def test_run_port_conflict_system_exit(monkeypatch):
 
     prod.close.assert_awaited()
     sm.close.assert_awaited()
+

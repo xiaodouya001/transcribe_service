@@ -22,12 +22,12 @@ class Settings(BaseSettings):
     redis_active_ttl_sec: int = 3600
     redis_final_ttl_sec: int = 60
     redis_ownership_guard_ttl_sec: int = 30
-    redis_sequence_state_key_prefix: str = "transcript:session"
-    redis_ownership_guard_key_prefix: str = "transcript:owner"
+    redis_sequence_state_key_prefix: str = "real-time-transcriber:transcript-checker"
+    redis_ownership_guard_key_prefix: str = "real-time-transcriber:conversation-owner"
 
     # --- Kafka ---
     kafka_bootstrap_servers: str = "127.0.0.1:9092"
-    kafka_topic: str = "cc.transcript.realtime.v1"
+    kafka_topic: str = "AI_STAGING_TRANSCRIPTION"
     kafka_topic_num_partitions: int = 50
     kafka_replication_factor: int = 1
     kafka_compression_type: Literal["none", "gzip", "snappy", "lz4", "zstd"] = "zstd"

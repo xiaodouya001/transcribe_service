@@ -21,4 +21,5 @@ ENV PYTHONUNBUFFERED=1
 
 USER appuser
 
-CMD ["python", "-m", "transcribe_service.main"]
+CMD ["python", "-m", "realtime_transcribe_service.main"]
+

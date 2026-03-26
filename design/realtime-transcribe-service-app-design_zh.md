@@ -1,4 +1,4 @@
-# Transcribe Service 设计总览
+# Realtime Transcribe Service 设计总览
 
 ---
 
@@ -6,18 +6,18 @@
 
 ### 1.1 业务背景
 
-在呼叫中心智能化升级背景下，本行引入了第三方厂商 FanoLabs 的 ASR（自动语音识别）引擎。该引擎**由本行代为托管并部署于本行 GCP 环境中**，负责将客服通话语音实时转化为文本。
+在呼叫中心智能化升级背景下，Fano Assist 作为 ASR（自动语音识别）引擎客户端（该引擎**由本行代为托管并部署于本行 GCP 环境中**）负责将客服通话语音实时转化为文本。
 
-**Transcribe Service** 部署于本行 AWS 环境，作为连接 GCP 与 AWS 内部数据生态的**核心多云实时数据网关**。
+**Realtime Transcribe Service** 部署于本行 AWS 环境，作为连接 GCP 与 AWS 内部数据生态的**核心多云实时数据网关**。
 
 ### 1.2 业务目标
 
 
-| 目标        | 指标                          |
-| --------- | --------------------------- |
-| **并发容量**  | 早高峰 700～1,000 路并发通话（设计目标）   |
-| **端到端延迟** | < 50 ms（GCP 接收 → AWS Kafka） |
-| **数据完整性** | 严格保序、零丢失                    |
+| 目标           | 指标                                     |
+| -------------- | ---------------------------------------- |
+| **并发容量**   | 早高峰 700～1,000 路并发通话（设计目标） |
+| **端到端延迟** | TBC（GCP 接收 → AWS Kafka）              |
+| **数据完整性** | 严格保序、零丢失                         |
 
 
 ### 1.3 职责边界
@@ -31,9 +31,9 @@
 
 ### 1.4 核心架构要点
 
-- **连接模式**：STT Provider 作为 WebSocket 客户端，主动连接 Transcribe Service（服务端）
-- **保序机制**：Redis Sequence State Machine（Lua 原子校验）+ Redis Conversation Ownership Guard + 两阶段提交（2PC）
-- **数据流**：Vendor → Transcribe Service → Kafka；下游以 Consumer Group 订阅消费
+- **连接模式**：Fano Assist 作为 WebSocket 客户端，主动连接 Realtime Transcribe Service（服务端）
+- **保序机制**：Redis (Conversation Ownership Guard) + Redis (Sequence State Machine（Lua 原子校验）)+ 两阶段提交（2PC）
+- **数据流**：Fano Assist → Realtime Transcribe Service → Kafka；下游以 Consumer Group 订阅消费
 
 ---
 
@@ -44,25 +44,25 @@
 ```mermaid
 flowchart TB
     subgraph GCP [GCP]
-        Vendor[STT Provider / Vendor]
+        Assist[Fano Assist]
     end
 
     subgraph AWS [AWS]
         subgraph ALB [ALB]
-            ALB1[Transcribe Service ALB]
+            ALB1[Realtime Transcribe Service ALB]
         end
         subgraph ECS [ECS Fargate]
-            Task0[Transcribe Service Pod 0]
-            Task1[Transcribe Service Pod 1]
-            TaskN[Transcribe Service Pod N]
+            Task0[Realtime Transcribe Service Pod 0]
+            Task1[Realtime Transcribe Service Pod 1]
+            TaskN[Realtime Transcribe Service Pod N]
         end
         subgraph Data [数据层]
-            Redis[(Redis: Sequence State Machine + Ownership Guard)]
+            Redis[(Redis:  Ownership Guard + Sequence State Machine)]
             Kafka[(Kafka)]
         end
     end
 
-    Vendor -->|"WebSocket 客户端连接 (WSS)"| ALB1
+    Assist -->|"WebSocket 客户端连接 (WSS)"| ALB1
     ALB1 --> Task0
     ALB1 --> Task1
     Task0 --> Redis
@@ -73,15 +73,15 @@ flowchart TB
 
 
 
-### 2.2 核心时序图 (Core Sequence Diagrams)
+### 2.2  Core Sequence Diagrams
 
-#### 2.2.1 启动阶段 (Startup)
+#### 2.2.1 启动阶段 (Start Up)
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Main as main.py
-    participant RedisCore as Redis (State Machine + Ownership Guard)
+    participant RedisCore as Redis (Ownership Guard + State Machine)
     participant Kafka as Kafka
 
     Main->>Main: 加载配置（Settings）
@@ -119,33 +119,33 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Vendor as 上游 (FanoLabs)
-    participant Trans as Transcribe Service
+    participant Upstream as Fano Assist
+    participant Trans as Realtime Transcribe Service
     participant RedisOwnership as Redis (Conversation Ownership Guard)
     participant RedisState as Redis (Sequence State Machine)
-    participant Kafka as MSK (消息总线)
+    participant Kafka as Kafka
 
-    Vendor->>Trans: 发起 WebSocket 握手 (conversationId)
+    Upstream->>Trans: 发起 WebSocket 握手 (conversationId)
     Trans->>RedisOwnership: 握手阶段 claim_or_refresh(conversationId, ownershipToken)
     alt ownership guard 已被其他连接占用
         RedisOwnership-->>Trans: BUSY
-        Trans-->>Vendor: 拒绝握手 (HTTP 403 + E1009)
+        Trans-->>Upstream: 拒绝握手 (HTTP 403 + E1009)
     else ownership guard 获取成功
         RedisOwnership-->>Trans: OWNED
-        Trans->>Vendor: 接受 WebSocket 升级
+        Trans->>Upstream: 接受 WebSocket 升级
         Trans->>Trans: 启动后台 refresh loop
     end
 
-    Vendor->>Trans: 推送 SESSION_ONGOING (seq=N)
+    Upstream->>Trans: 推送 SESSION_ONGOING (seq=N)
     Trans->>Trans: 内部动作: 接入层解包与 Schema 校验
     Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
     
     alt 若 seq < 期望值 (重复包)
         RedisState-->>Trans: 返回 IDEMPOTENT (幂等)
-        Trans-->>Vendor: 直接返回 TRANSCRIPT_ACK (拦截下发)
+        Trans-->>Upstream: 直接返回 TRANSCRIPT_ACK (拦截下发)
     else 若 seq > 期望值 (乱序/跳号)
         RedisState-->>Trans: 返回 OUT_OF_ORDER
-        Trans-->>Vendor: 抛出异常 (要求重发)
+        Trans-->>Upstream: 抛出异常 (要求重发)
     else 若 seq == 期望值 (正常流转)
         RedisState-->>Trans: 返回 PRE_CHECK_OK（状态不推进）
         
@@ -155,7 +155,7 @@ sequenceDiagram
         Trans->>RedisState: 阶段三：提交流转 (期望值自增 N+1, 刷新TTL)
         RedisState-->>Trans: 状态更新成功
         
-        Trans-->>Vendor: 返回 TRANSCRIPT_ACK (seq=N)
+        Trans-->>Upstream: 返回 TRANSCRIPT_ACK (seq=N)
     end
 
     Note over Trans,RedisOwnership: 连接存活期间后台周期 refresh ownership TTL；断连/结束时 release ownership
@@ -170,22 +170,22 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Vendor as 上游 (FanoLabs)
-    participant Trans as Transcribe Service
+    participant Upstream as Fano Assist
+    participant Trans as Realtime Transcribe Service
     participant RedisOwnership as Redis (Conversation Ownership Guard)
     participant RedisState as Redis (Sequence State Machine)
-    participant Kafka as MSK (消息总线)
+    participant Kafka as Kafka
 
     Note over Trans,RedisOwnership: 建连阶段完成 ownership guard claim，连接存活期间持续 refresh
 
-    Vendor->>Trans: 推送 SESSION_COMPLETE (seq=M, 系统 EOL 控制帧)
+    Upstream->>Trans: 推送 SESSION_COMPLETE (seq=M, 系统 EOL 控制帧)
     Trans->>Trans: 内部动作: Schema校验与结束事件识别
     
     Trans->>RedisState: 阶段一：序列号最终校验 (Lua 脚本)
     
     alt 若序列号不匹配 (乱序/重发)
         RedisState-->>Trans: 返回异常状态
-        Trans-->>Vendor: 返回 ERROR 响应 (seq=M)
+        Trans-->>Upstream: 返回 ERROR 响应 (seq=M)
         Trans->>Trans: 内部动作: 标记异常，准备强制断开
     else 若序列号匹配 (正常结束)
         RedisState-->>Trans: 返回 PRE_CHECK_OK
@@ -204,84 +204,76 @@ sequenceDiagram
             Trans->>Trans: 记录告警；不翻转已成功的提交结果
         end
 
-        Trans-->>Vendor: 返回最终 EOL_ACK (seq=M)
+        Trans-->>Upstream: 返回最终 EOL_ACK (seq=M)
     end
     
     Trans->>RedisOwnership: release(conversationId, ownershipToken)
     RedisOwnership-->>Trans: released / no-op
     Trans->>Trans: 内部动作: 释放协程资源，执行 WebSocket.close()
-    Trans->>Vendor: 主动断开 WebSocket 连接 (Close Code 1000)
-    Vendor-->>Trans: 确认 Close (TCP 挥手完成)
+    Trans->>Upstream: 主动断开 WebSocket 连接 (Close Code 1000)
+    Upstream-->>Trans: 确认 Close (TCP 挥手完成)
 ```
 
 
 
 #### 2.2.4 异常处理与错误响应时序图 (Exception Handling)
 
-当校验失败或下游不可用时，Transcribe Service 先发送 `eventType=ERROR` 的错误帧，再按策略关闭 WebSocket 连接。错误码与 Close Code 的映射参见 [API 契约 §4. 状态码与错误码](transcribe-service-API-contract.md#4-状态码与错误码)。
+当校验失败或下游不可用时，Realtime Transcribe Service 先发送 `eventType=ERROR` 的错误帧，再按策略关闭 WebSocket 连接。错误码与 Close Code 的映射参见 [API 契约 §4. 状态码与错误码](realtime-transcribe-service-api-contract.md#4-status-codes-and-error-codes)。
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Vendor as 上游 (FanoLabs)
-    participant Trans as Transcribe Service
+    participant Upstream as Fano Assist
+    participant Trans as Realtime Transcribe Service
     participant RedisOwnership as Redis (Conversation Ownership Guard)
     participant RedisState as Redis (Sequence State Machine)
-    participant Kafka as MSK (消息总线)
+    participant Kafka as Kafka
+    Upstream->>Trans: 推送消息 (SESSION_ONGOING / SESSION_COMPLETE)
+    Trans->>Trans: 握手阶段 claim 已通过；后台持续 refresh ownership
+    Trans->>Trans: 内部动作: Schema 校验与编排
 
-    Vendor->>Trans: 推送消息 (SESSION_ONGOING / SESSION_COMPLETE)
-
-        alt 处理过程中任意阶段发生未捕获异常 (E1007)
-            Trans->>Trans: 内部发生未预期异常 (非用户输入问题)
-            Trans-->>Vendor: 发送 ERROR 帧 (E1007)
-            Trans->>Vendor: 关闭连接 (Close Code 1011)
-        else 正常处理流程
-            Trans->>Trans: 内部动作: Schema 校验
-
-            alt ownership guard 后台 refresh 存储不可用
-                Trans->>RedisOwnership: refresh
-                RedisOwnership-->>Trans: 异常
-                Trans-->>Vendor: 发送 ERROR 帧 (E1008)
-                Trans->>Vendor: 关闭连接 (Close Code 1013)
-            else ownership guard 后台 refresh 检测到冲突
-                Trans->>RedisOwnership: refresh
-                RedisOwnership-->>Trans: BUSY
-                Trans-->>Vendor: 发送 ERROR 帧 (E1009, Only one sender connection is allowed)
-                Trans->>Vendor: 关闭连接 (Close Code 1008)
-            else ownership guard 正常
-                Note over Trans,RedisOwnership: 握手阶段 claim 已通过，连接存活期间 refresh 正常，继续进入消息校验与编排
-            end
-
-            alt Schema / 业务规则校验失败 (E1002/E1003/E1004/E1005/E1009)
-                Trans-->>Vendor: 发送 ERROR 帧 (code, message, details)
-                Trans->>Vendor: 关闭连接 (Close Code 1008 策略违规)
-            else Schema 通过，进入 Redis 预检
-                Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
-            end
-
-            alt 重复包 (IDEMPOTENT)
-                RedisState-->>Trans: 返回 IDEMPOTENT
-                Trans-->>Vendor: 直接返回对应成功 ACK
-            else 序列号乱序 (E1006)
-                RedisState-->>Trans: 返回 OUT_OF_ORDER
-                Trans-->>Vendor: 发送 ERROR 帧 (E1006)
-                Trans->>Vendor: 关闭连接 (Close Code 1008)
-            else 预检通过，投递 Kafka
-                RedisState-->>Trans: 返回 PRE_CHECK_OK
-                Trans->>Kafka: 阶段二：异步投递
-            end
-
-            alt 下游不可用或超时 (E1008/E1011)
-                Kafka-->>Trans: 超时或连接失败
-                Trans-->>Vendor: 发送 ERROR 帧 (E1008 或 E1011)
-                Trans->>Vendor: 关闭连接 (Close Code 1013)
-            else Kafka 投递成功
-                Kafka-->>Trans: 返回 Ack
-                Trans->>RedisState: 阶段三：Commit (INCR)
-                RedisState-->>Trans: 状态更新成功
-                Trans-->>Vendor: 返回对应成功 ACK
-            end
-        end
+    alt 处理过程中任意阶段发生未捕获异常 (E1007)
+        Trans->>Trans: 内部发生未预期异常 (非用户输入问题)
+        Trans-->>Upstream: 发送 ERROR 帧 (E1007)
+        Trans->>Upstream: 关闭连接 (Close Code 1011)
+    else ownership guard 后台 refresh 存储不可用 (E1008)
+        Trans->>RedisOwnership: refresh
+        RedisOwnership-->>Trans: 异常
+        Trans-->>Upstream: 发送 ERROR 帧 (E1008)
+        Trans->>Upstream: 关闭连接 (Close Code 1013)
+    else ownership guard 后台 refresh 检测到冲突 (E1009)
+        Trans->>RedisOwnership: refresh
+        RedisOwnership-->>Trans: BUSY
+        Trans-->>Upstream: 发送 ERROR 帧 (E1009, Only one sender connection is allowed)
+        Trans->>Upstream: 关闭连接 (Close Code 1008)
+    else Schema / 业务规则校验失败 (E1002/E1003/E1004/E1005/E1009)
+        Trans-->>Upstream: 发送 ERROR 帧 (code, message, details)
+        Trans->>Upstream: 关闭连接 (Close Code 1008 策略违规)
+    else 重复包 (IDEMPOTENT)
+        Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
+        RedisState-->>Trans: 返回 IDEMPOTENT
+        Trans-->>Upstream: 直接返回对应成功 ACK
+    else 序列号乱序 (E1006)
+        Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
+        RedisState-->>Trans: 返回 OUT_OF_ORDER
+        Trans-->>Upstream: 发送 ERROR 帧 (E1006)
+        Trans->>Upstream: 关闭连接 (Close Code 1008)
+    else 下游不可用或超时 (E1008/E1011)
+        Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
+        RedisState-->>Trans: 返回 PRE_CHECK_OK
+        Trans->>Kafka: 阶段二：异步投递
+        Kafka-->>Trans: 超时或连接失败
+        Trans-->>Upstream: 发送 ERROR 帧 (E1008 或 E1011)
+        Trans->>Upstream: 关闭连接 (Close Code 1013)
+    else 正常成功路径
+        Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
+        RedisState-->>Trans: 返回 PRE_CHECK_OK
+        Trans->>Kafka: 阶段二：异步投递
+        Kafka-->>Trans: 返回 Ack
+        Trans->>RedisState: 阶段三：Commit (INCR)
+        RedisState-->>Trans: 状态更新成功
+        Trans-->>Upstream: 返回对应成功 ACK
+    end
 ```
 
 
@@ -292,11 +284,11 @@ sequenceDiagram
 sequenceDiagram
     autonumber
     participant AWS as AWS Fargate / ECS
-    participant Trans as Transcribe Service
-    participant Vendor as 上游 (FanoLabs)
+    participant Trans as Realtime Transcribe Service
+    participant Upstream as Fano Assist
     participant RedisState as Redis (Sequence State Machine)
     participant RedisOwnership as Redis (Conversation Ownership Guard)
-    participant Kafka as MSK (消息总线)
+    participant Kafka as Kafka
 
     AWS->>Trans: 发送 SIGTERM 信号 (预告关机)
     
@@ -304,7 +296,7 @@ sequenceDiagram
     Trans->>Trans: 内部动作: 检索活跃 Session，准备迁移指令
     
     Trans->>Trans: 内部逻辑: 构造 1001 (Going Away) 状态码
-    Trans->>Vendor: 物理动作: 发送 WebSocket Close (Code 1001)
+    Trans->>Upstream: 物理动作: 发送 WebSocket Close (Code 1001)
     
     Trans->>Trans: 内部动作: 等待存量异步任务处理完成
     
@@ -330,11 +322,11 @@ sequenceDiagram
 
 | 核心模块 (Module) | 核心职责与定位 | 允许的核心动作 | 架构禁区 |
 | --- | --- | --- | --- |
-| `main.py` | 应用生命周期与依赖注入入口 | 初始化 Redis/Kafka 组件；组装应用；执行优雅停机 | 不编写业务判断逻辑或 JSON 解析代码 |
-| `schemas/` | 协议契约与数据校验层 | 校验字段、类型、时间戳与业务规则；构造标准响应 | 不做网络 I/O 或数据库调用 |
+| `main.py` | 应用生命周期与依赖注入入口 | - 初始化 Redis/Kafka 组件；<br />- 组装应用；<br />- 执行优雅停机 | 不编写业务判断逻辑或 JSON 解析代码 |
+| `schemas/` | 协议契约与数据校验层 | - 校验字段、类型、时间戳与业务规则；<br />- 构造标准响应 | 不做网络 I/O 或数据库调用 |
 | `transport/` | WebSocket 接入层 | 握手准入、连接保活、协议一致性校验、错误映射 | 不做业务编排、状态推进或下游投递 |
-| `redis/sequence_state_machine.py` | 序列状态机 | Lua 原子预检与状态推进；维护 active/final TTL | 不感知 Kafka 或下游业务逻辑 |
 | `redis/ownership_guard.py` | 会话发送所有权守卫 | claim、refresh、release 会话发送所有权 | 不承担序列推进、字段校验或消息投递 |
+| `redis/sequence_state_machine.py` | 序列状态机 | - Lua 原子预检与状态推进；<br />- 维护 active/final TTL | 不感知 Kafka 或下游业务逻辑 |
 | `producer/` | Kafka 投递层 | 异步写入、分区路由、发送超时处理 | 不修改原始消息载荷 |
 | `orchestrator/` | 两阶段提交编排层 | 调用状态机预检、调用 producer 投递、提交状态并返回 ACK | 仅依赖 `protocols.py` 抽象接口，不直接依赖具体实现 |
 
@@ -355,23 +347,33 @@ sequenceDiagram
 ### 3.3 连接生命周期与保活
 
 
-| 机制       | 配置                                                |
-| -------- | ------------------------------------------------- |
+连接生命周期以握手 query `conversationId` 作为连接级会话标识，并由 Redis Conversation Ownership Guard 负责“同一会话同一时刻仅允许一个发送连接”。
+
+
+| 机制 | 配置 |
+| --- | --- |
+| **连接标识** | 握手 query `conversationId` 是连接级唯一标识；若消息体 `metaData.conversationId` 显式提供字符串，则必须与握手值一致 |
+| **发送所有权获取** | 握手阶段先对 ownership guard 执行 `claim_or_refresh(conversationId, ownershipToken)`；成功后才接受 WebSocket 升级 |
+| **冲突处理** | 若 ownership guard 已被其他连接占用，则在握手阶段直接拒绝（HTTP `403` + `E1009`），不进入编排器 |
+| **连接存活期保活** | 连接建立后后台周期 `refresh` ownership guard TTL；若 refresh 发现冲突或存储不可用，则发送 `ERROR` 并关闭连接 |
+| **释放时机** | 正常 `SESSION_COMPLETE`、客户端断开、服务端异常收尾时，均在连接结束路径执行 `release(conversationId, ownershipToken)` |
 | **业务信号** | `SESSION_ONGOING`、`SESSION_COMPLETE`（最终 EOL 控制事件） |
-| **协议保活** | 每 20 秒 Ping/Pong（ALB 空闲超时 60 秒）                   |
+| **协议保活** | 每 20 秒 Ping/Pong（ALB 空闲超时 60 秒） |
 
 
 ### 3.4 状态机（乐观数据锁）
 
-所有会话状态下沉 Redis，无本地会话状态。通过 Lua 脚本实现原子序列校验。
+所有会话控制状态均下沉 Redis，无本地会话状态。Redis 侧职责拆为两类：
 
 
-| **阶段**      | **操作**                          | **Redis 状态**        |
-| ----------- | ------------------------------- | ------------------- |
-| Prepare     | 收到 `seq=5`，预检通过（`current == 5`） | key 仍为 5，**不 INCR** |
-| Persistence | 写入 Kafka，等待 Ack                 | key 仍为 5            |
-| **Commit**  | **收到 Kafka Ack 后执行 INCR**       | key 从 5 → 6         |
-| Ack         | 返回对应成功 ACK 给上游                  | —                   |
+| Redis 组件 | 作用域 | 核心职责 | 关键操作 | 不负责 |
+| --- | --- | --- | --- | --- |
+| **Conversation Ownership Guard** | 连接级 | 保证同一 `conversationId` 在任一时刻只有一个发送连接持有所有权 | `claim_or_refresh` / `refresh` / `release` | 不负责序列推进、Kafka 投递或业务字段校验 |
+| **Sequence State Machine** | 消息级 | 保证 `sequenceNumber` 严格按预期推进，并维护 active/final TTL | `prepare` / `commit` / `cleanup` | 不负责连接发送权判定 |
+
+其中 ownership guard 解决的是“谁可以发送”，Sequence State Machine 解决的是“发送的消息序列是否正确”；两者共同构成会话级 Redis 控制面。
+
+下表描述的是 **Sequence State Machine** 的消息级推进语义，通过 Lua 脚本实现原子序列校验。
 
 
 #### 3.4.1 悲观锁 (SET NX) vs 乐观锁 (Lua + Seq)
@@ -408,7 +410,7 @@ sequenceDiagram
 | **维度**     | **悲观锁 (SET NX)** | **乐观锁 (Lua + Seq)** | **本设计选择** |
 | ---------- | ---------------- | ------------------- | ------------------------- |
 | **并发冲突频率** | 高冲突，必须成功         | 允许部分失效，追求快          | **乐观锁**                 |
-| **系统响应要求** | 毫秒级不敏感           | **极度敏感（实时通话）**      | **乐观锁**                 |
+| **系统响应要求** | 毫秒级不敏感           | 极度敏感（实时通话）      | **乐观锁**                 |
 | **异常处理**   | 担心死锁/清理锁         | 担心重复/乱序             | **乐观锁**                 |
 | **核心关注点**  | 数据的“绝对完整”        | 消息的“时序与去重”          | **乐观锁**                 |
 
@@ -417,26 +419,26 @@ sequenceDiagram
 
 系统不使用分布式事务，而是通过“状态滞后推进”实现一致性：
 
-1. **Prepare**: FanoAssist 发送 `seq=5`。Transcribe Service 调用 Lua 预检。
+1. **Prepare**: Fano Assist 发送 `seq=5`。Realtime Transcribe Service 调用 Lua 预检。
 2. **Persistence**: 写入 Kafka。设置 `acks=all`。
 3. **Commit**: 收到 Kafka Ack。调用 Redis `INCR` 脚本将期望值推至 6。
 4. **Ack**: 回复对应成功 ACK（普通 transcript 为 `TRANSCRIPT_ACK`，结束帧为 `EOL_ACK`）。
 5. **异常处理**：若 Kafka 写入失败，不执行第 3 步。上游超时后重发 `seq=5`，Redis 此时存的仍是 5，预检依然通过，实现无损重试。
 
 
-| 阶段                   | 操作                                         |
-| -------------------- | ------------------------------------------ |
-| **Prepare（预检）**      | Lua 预检（不自增）                                |
-| **Persistence（持久化）** | 写入 Kafka，`conversationId` 为 Key，`acks=all` |
-| **Commit（提交）**       | Kafka Ack 后调用 Redis INCR                   |
-| **Ack**              | 发送对应成功 ACK（`TRANSCRIPT_ACK` / `EOL_ACK`）   |
+| 阶段                      | 操作                                                         |
+| ------------------------- | ------------------------------------------------------------ |
+| **Prepare（预检）**       | Lua 预检Payload中`sequenceNumber` 和 `real-time-transcriber:transcript-checker:{conversationId}` 是否一致（不自增） |
+| **Persistence（持久化）** | 写入 Kafka，`conversationId` 为 Key，`acks=all`              |
+| **Commit（提交）**        | Kafka Ack 后`real-time-transcriber:transcript-checker:{conversationId}` 值递增 |
+| **Ack**                   | 发送对应event(SESSION_ONGOING/SESSION_COMPLETE) 消息处理成功的ACK（`TRANSCRIPT_ACK` / `EOL_ACK`） |
 
 
 ### 3.6 容器漂移与优雅停机 (Graceful Shutdown)
 
 在 ECS Fargate 触发版本发布或缩容时，系统必须平滑处理正在处理中的长连接。
 
-- 接收到容器编排发出的 `SIGTERM` 信号后，Transcribe Service 立即停止接收新连接。
+- 接收到容器编排发出的 `SIGTERM` 信号后，Realtime Transcribe Service 立即停止接收新连接。
 - 对存量 WebSocket 连接主动发送 Close 帧（Code 1001），通知对端暂停发送并准备重连至新节点。
 - 阻塞主进程退出，直至内存缓冲区中已校验的最后几条记录安全落盘至 Kafka，确保应用漂移期间的绝对零数据丢失。
 
@@ -457,7 +459,7 @@ sequenceDiagram
 
 | 项目 | 配置 | 说明 |
 | --- | --- | --- |
-| Topic | `cc.transcript.realtime.v1` | 默认主题名称 |
+| Topic | `AI_STAGING_TRANSCRIPTION` | 默认主题名称 |
 | Partition Key | `conversationId` | 同一会话固定落到同一分区 |
 | Message Key | `conversationId` | UTF-8 字节 |
 | Message Value | 与上行请求一致的 `metaData + payload` JSON | 不附加 ACK、ERROR 或服务端增强字段 |
@@ -465,17 +467,17 @@ sequenceDiagram
 | `acks` | `all` | 用于保证 Kafka 持久化确认后再进入 Commit |
 | 压缩 | `zstd` | 默认压缩方式 |
 
-Kafka 落盘消息的完整契约见 [transcribe-service-API-contract.md](transcribe-service-API-contract.md#6-kafka-落盘契约)。
+Kafka 落盘消息的完整契约见 [realtime-transcribe-service-api-contract.md](realtime-transcribe-service-api-contract.md#6-kafka-persistence-contract)。
 
 ### 4.2 Redis 约束
 
 | 项目 | 配置 | 说明 |
 | --- | --- | --- |
-| Sequence State Key | `transcript:session:{conversationId}` | 维护期望的下一个 `sequenceNumber` |
-| Ownership Guard Key | `transcript:owner:{conversationId}` | 维护同会话单连接发送约束 |
-| Value | 整数字符串或 ownership token | 分别用于状态推进与发送所有权判定 |
+| Sequence State Key | `real-time-transcriber:transcript-checker:{conversationId}` | 维护期望的下一个 `sequenceNumber` |
+| Ownership Guard Key | `real-time-transcriber:conversation-owner:{conversationId}` | 维护同会话单连接发送约束 |
+| Value | Sequence State Value: 整数字符串<br />Ownership Guard Value: ownership token | 分别用于状态推进与发送所有权判定 |
 | 更新策略 | Lua 预检 + commit / `SET NX` 续租 | 保证序列推进与单连接发送 |
-| TTL | active TTL 默认 3600 秒；final TTL 默认 60 秒；ownership guard TTL 默认 30 秒 | 通过环境变量配置 |
+| TTL | - ownership guard TTL 默认 30 秒<br />- active TTL 默认 3600 秒；<br />- final TTL 默认 60 秒； | 通过环境变量配置 |
 | 内存 | 量级较小 | 状态只保存会话级最小必要信息 |
 
 
@@ -483,4 +485,5 @@ Kafka 落盘消息的完整契约见 [transcribe-service-API-contract.md](transc
 
 ## 附录 A — API 契约完整规格
 
-> **完整 API 契约请参见**：[Transcribe Service API Contract 契约文档](transcribe-service-API-contract.md)
+> **完整 API 契约请参见**：[Realtime Transcribe Service API Contract 契约文档](realtime-transcribe-service-api-contract.md)
+

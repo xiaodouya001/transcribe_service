@@ -23,7 +23,7 @@ class KafkaViewer:
     def __init__(
         self,
         bootstrap_servers: str = "127.0.0.1:9092",
-        topic: str = "cc.transcript.realtime.v1",
+        topic: str = "AI_STAGING_TRANSCRIPTION",
         on_error: Any = None,
     ) -> None:
         self._bootstrap = bootstrap_servers

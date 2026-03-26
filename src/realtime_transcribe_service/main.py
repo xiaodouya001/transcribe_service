@@ -15,14 +15,14 @@ import uvicorn
 
 from config.logging_config import configure_logging, get_logger
 from config.settings import get_settings
-from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
-from transcribe_service.producer.kafka_producer import KafkaProducer
-from transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
-from transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
-from transcribe_service.shutdown.graceful import GracefulShutdown
-from transcribe_service.schemas.errors import WsCloseCode
-from transcribe_service.constants import WS_CLOSE_REASON_GOING_AWAY, WS_PATH
-from transcribe_service.transport.websocket_handler import (
+from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
+from realtime_transcribe_service.producer.kafka_producer import KafkaProducer
+from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
+from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
+from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
+from realtime_transcribe_service.schemas.errors import WsCloseCode
+from realtime_transcribe_service.constants import WS_CLOSE_REASON_GOING_AWAY, WS_PATH
+from realtime_transcribe_service.transport.websocket_handler import (
     ConnectionRegistry,
     create_app,
 )
@@ -92,7 +92,7 @@ async def _check_kafka(producer: KafkaProducer, timeout: float) -> None:
 
 
 async def run() -> None:
-    """启动 Transcribe Service。"""
+    """启动 Realtime Transcribe Service。"""
     settings = get_settings()
     configure_logging(level=settings.log_level, format=settings.log_format)
 
@@ -171,7 +171,7 @@ async def run() -> None:
     server = uvicorn.Server(config)
 
     log.info(
-        "Transcribe Service: 已启动",
+        "Realtime Transcribe Service: 已启动",
         ws_endpoint=WS_PATH,
         host=settings.http_host,
         port=settings.http_port,
@@ -223,7 +223,7 @@ async def run() -> None:
         await producer.close()
         await sequence_state_machine.close()
         await ownership_guard.close()
-        log.info("Transcribe Service: 已安全退出")
+        log.info("Realtime Transcribe Service: 已安全退出")
 
 
 def main() -> None:
@@ -239,3 +239,4 @@ def main() -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     main()
+

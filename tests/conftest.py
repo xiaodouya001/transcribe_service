@@ -1,6 +1,14 @@
 """Shared test fixtures."""
 
+from pathlib import Path
+import sys
+
 import pytest
+
+
+_SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
+if str(_SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SRC_ROOT))
 
 
 @pytest.fixture

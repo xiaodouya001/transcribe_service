@@ -19,18 +19,18 @@ import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
-from transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
-from transcribe_service.redis.protocols import PrepareResult
-from transcribe_service.schemas.response import build_transcript_ack
-from transcribe_service.shutdown.graceful import GracefulShutdown
-from transcribe_service.transport.websocket_handler import ConnectionRegistry, create_app
+from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
+from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
+from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
+from realtime_transcribe_service.schemas.response import build_transcript_ack
+from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
+from realtime_transcribe_service.transport.websocket_handler import ConnectionRegistry, create_app
 
 
 @pytest.fixture
 def mock_sm():
     sm = AsyncMock()
-    sm.prepare = AsyncMock(return_value=PrepareResult.PRE_CHECK_OK)
+    sm.prepare = AsyncMock(return_value=PrepareOutcome(status=PrepareResult.PRE_CHECK_OK))
     sm.commit = AsyncMock()
     sm.cleanup = AsyncMock()
     return sm
@@ -125,6 +125,23 @@ class TestTransportContractMatrix:
 
         orchestrator.handle_message.assert_not_awaited()
 
+    def test_non_object_json_returns_e1004_and_close_1008(self, mock_sm, mock_producer):
+        """E-07：顶层 JSON 非对象时返回 E1004，并以 1008 断开。"""
+        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+        client = TestClient(_build_app(orchestrator))
+
+        with client.websocket_connect("/ws/v1/realtime-transcriptions?conversationId=conv-1") as ws:
+            ws.send_text("[]")
+            resp = orjson.loads(ws.receive_text())
+            assert resp["error"]["code"] == "E1004"
+            assert resp["metaData"]["conversationId"] == "conv-1"
+            with pytest.raises(WebSocketDisconnect) as ei:
+                ws.receive_text()
+            assert ei.value.code == 1008
+
+        mock_sm.prepare.assert_not_awaited()
+        mock_producer.send.assert_not_awaited()
+
     def test_transport_internal_exception_returns_e1007_and_close_1011(self):
         """E-13：传输层未捕获异常时返回 E1007，并以 1011 断开。"""
         orchestrator = AsyncMock()
@@ -132,7 +149,7 @@ class TestTransportContractMatrix:
         client = TestClient(_build_app(orchestrator))
 
         with patch(
-            "transcribe_service.transport.websocket_handler.orjson.loads",
+            "realtime_transcribe_service.transport.websocket_handler.orjson.loads",
             side_effect=RuntimeError("boom"),
         ):
             with client.websocket_connect(
@@ -170,7 +187,7 @@ class TestTransportContractMatrix:
         owner = RedisConversationOwnershipGuard(
             client=fakeredis.aioredis.FakeRedis(decode_responses=True),
             guard_ttl_sec=30,
-            key_prefix="transcript:owner",
+            key_prefix="real-time-transcriber:conversation-owner",
         )
         client = TestClient(
             create_app(
@@ -270,7 +287,7 @@ class TestOrchestratorContractMatrix:
         self, valid_ongoing_msg, mock_sm, mock_producer
     ):
         """N-02：重复 seq 命中幂等 ACK，不断连且不重复写下游。"""
-        mock_sm.prepare.return_value = PrepareResult.IDEMPOTENT
+        mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.IDEMPOTENT)
         orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
 
         result = await orchestrator.handle_message(copy.deepcopy(valid_ongoing_msg))
@@ -284,7 +301,7 @@ class TestOrchestratorContractMatrix:
         self, valid_complete_msg, mock_sm, mock_producer
     ):
         """N-02：重复 COMPLETE 命中幂等时返回 EOL_ACK，并正常 close 1000。"""
-        mock_sm.prepare.return_value = PrepareResult.IDEMPOTENT
+        mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.IDEMPOTENT)
         orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
 
         result = await orchestrator.handle_message(copy.deepcopy(valid_complete_msg))
@@ -317,7 +334,7 @@ class TestOrchestratorContractMatrix:
         self, valid_ongoing_msg, mock_sm, mock_producer
     ):
         """E-09：序列号乱序时返回 E1006，并以 1008 断开。"""
-        mock_sm.prepare.return_value = PrepareResult.OUT_OF_ORDER
+        mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.OUT_OF_ORDER)
         orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
 
         result = await orchestrator.handle_message(copy.deepcopy(valid_ongoing_msg))
@@ -368,3 +385,4 @@ class TestOrchestratorContractMatrix:
         assert result.response["error"]["code"] == "E1007"
         assert result.disconnect is True
         assert result.close_code == 1011
+

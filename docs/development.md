@@ -34,7 +34,7 @@ pip install -e ".[dev]"
 ### 2.3 验证
 
 ```bash
-python -c "import transcribe_service; print('OK')"
+python -c "import realtime_transcribe_service; print('OK')"
 ```
 
 ---
@@ -52,7 +52,7 @@ docker compose up -d
 ### 3.2 运行服务
 
 ```bash
-python -m transcribe_service.main
+python -m realtime_transcribe_service.main
 ```
 
 服务启动后监听 `0.0.0.0:8080`，WebSocket 端点为 `/ws/v1/realtime-transcriptions?conversationId=xxx`。
@@ -92,7 +92,7 @@ UT 不依赖真实 Kafka/Redis 环境：
 ### 4.3 覆盖率
 
 - 覆盖率由 `pytest-cov` 按 `pyproject.toml` 中的 `addopts` 收集。
-- 收集范围包括 `src/transcribe_service` 与 `config`。
+- 收集范围包括 `src/realtime_transcribe_service` 与 `config`。
 - 覆盖率阈值为 **100%**。
 
 ---
@@ -101,5 +101,6 @@ UT 不依赖真实 Kafka/Redis 环境：
 
 - **日志级别**：`LOG_LEVEL=DEBUG` 查看详细日志
 - **日志格式**：`LOG_FORMAT=console` 本地开发时使用可读格式
-- **Kafka 消息**：通过 Kafka UI (http://127.0.0.1:8090) 查看 Topic `cc.transcript.realtime.v1`
-- **断点调试**：以 `python -m transcribe_service.main` 或 `python -m pytest` 启动
+- **Kafka 消息**：通过 Kafka UI (http://127.0.0.1:8090) 查看 Topic `AI_STAGING_TRANSCRIPTION`
+- **断点调试**：以 `python -m realtime_transcribe_service.main` 或 `python -m pytest` 启动
+

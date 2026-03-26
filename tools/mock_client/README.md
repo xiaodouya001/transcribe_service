@@ -1,6 +1,6 @@
-# Mock Client — Transcribe Service 虚拟测试客户端
+# Mock Client — Realtime Transcribe Service 虚拟测试客户端
 
-模拟 FanoLabs 客户端行为，通过 WebSocket 向 Transcribe Service 发送转写消息，
+模拟 Fano Assist 客户端行为，通过 WebSocket 向 Realtime Transcribe Service 发送转写消息，
 验证契约矩阵中已落地的主要客户端可触发场景，并支持并发压测和 Kafka 消息回显。
 
 ## 前置条件
@@ -11,10 +11,10 @@
 docker compose up -d   # Redis + Kafka + Kafka UI
 ```
 
-2. **Transcribe Service 已启动**：
+2. **Realtime Transcribe Service 已启动**：
 
 ```bash
-python -m transcribe_service.main
+python -m realtime_transcribe_service.main
 # 默认监听 ws://127.0.0.1:8080/ws/v1/realtime-transcriptions
 ```
 
@@ -41,7 +41,7 @@ python server.py
 
 | 控件 | 说明 |
 |------|------|
-| WebSocket URL | Transcribe Service 的 WS 端点地址，默认 `ws://127.0.0.1:8080/ws/v1/realtime-transcriptions` |
+| WebSocket URL | Realtime Transcribe Service 的 WS 端点地址，默认 `ws://127.0.0.1:8080/ws/v1/realtime-transcriptions` |
 | 场景测试（两块） | **① 使用场景控制值**：`N-01`、`N-02`、`N-03`、`E-09` + 「场景控制值」输入框（含义见下表）。**② 固定错误场景**：`E-01`、`E-04`、`E-05`、`E-06`、`E-07`、`E-08`、`E-14`、`E-15`（直接构造固定握手错误、协议错误或业务规则错误；不会读取场景控制值） |
 | Benchmark 预设 | 可一键填充 `300 / 400 / 500` 并发基准档；参数参考 [env-profiles-300-400-500.md](../../PT/env-profiles-300-400-500.md) 的 Mock Client 建议，区间项默认取中值：`300 -> interval 70ms / ramp-up 25000ms`，`400 -> interval 78ms / ramp-up 30000ms`，`500 -> interval 85ms / ramp-up 37500ms`。手动修改任一字段后，下拉会自动回到「自定义」。 |
 | 场景控制值 | 含义随场景变化，见下方分项说明。 |
@@ -52,7 +52,7 @@ python server.py
 | 启动压测 / 停止 | 启动或停止并发压测 |
 | **实时指标** | 卡片内「启动/停止压测」下方；**仅压测**写入统计，场景测试不影响；SSE `stats`（约 1s）与 `load_done` 更新；启动压测时先清零，避免显示上一轮残留 |
 
-**超高并发（如 1000 路）若 Mock UI 指标不刷新**：旧版曾向浏览器对**每路**发 `conversation_registered`，几分钟内几千条 SSE 会塞满队列并把订阅踢掉。现已默认**压测不发**该事件，并加大 SSE 缓冲 + 满则丢最旧帧。若仍长时间全 0，多半是 **Transcribe Service** 吃满 CPU/线程或拒连，请看其日志与机器资源。
+**超高并发（如 1000 路）若 Mock UI 指标不刷新**：旧版曾向浏览器对**每路**发 `conversation_registered`，几分钟内几千条 SSE 会塞满队列并把订阅踢掉。现已默认**压测不发**该事件，并加大 SSE 缓冲 + 满则丢最旧帧。若仍长时间全 0，多半是 **Realtime Transcribe Service** 吃满 CPU/线程或拒连，请看其日志与机器资源。
 
 场景控制值说明：
 
@@ -134,7 +134,7 @@ curl -X POST "http://127.0.0.1:8088/api/kafka/stop"
 
 # 清空 Topic 已提交消息（DeleteRecords；可与 kafka/start 相同 query 传 bootstrap、topic）
 # restart_consumer=true（默认）：若清空前正在消费同一 bootstrap+topic，清空后自动再次 start
-curl -X POST "http://127.0.0.1:8088/api/kafka/purge?bootstrap=127.0.0.1:9092&topic=cc.transcript.realtime.v1"
+curl -X POST "http://127.0.0.1:8088/api/kafka/purge?bootstrap=127.0.0.1:9092&topic=AI_STAGING_TRANSCRIPTION"
 ```
 
 ## 文件结构
@@ -152,7 +152,7 @@ tools/mock_client/
 ## 常见问题
 
 **Q: `N-01` 会话中正常处理连接失败？**
-确认 Transcribe Service 已启动且监听在 `ws://127.0.0.1:8080`。
+确认 Realtime Transcribe Service 已启动且监听在 `ws://127.0.0.1:8080`。
 
 **Q: Kafka 消费看不到消息？**
 确认已点击"开始消费"按钮，且 Kafka 容器健康（`docker compose ps`）。Consumer 使用 `auto_offset_reset=earliest`，无 group_id，每次启动会从 topic 最早的消息开始回放。
@@ -162,3 +162,6 @@ tools/mock_client/
 
 **Q: zstd 压缩报错？**
 安装 `cramjam`：`pip install cramjam`。
+
+
+

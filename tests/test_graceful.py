@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from transcribe_service.shutdown.graceful import GracefulShutdown
+from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
 
 
 @pytest.mark.asyncio
@@ -79,3 +79,4 @@ def test_register_signal_skips_when_not_win32_and_no_handler(monkeypatch):
     finally:
         asyncio.set_event_loop(None)
         loop.close()
+

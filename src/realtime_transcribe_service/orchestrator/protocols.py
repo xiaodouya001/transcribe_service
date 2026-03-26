@@ -26,7 +26,11 @@ class OrchestratorResult:
 class OrchestratorBackend(Protocol):
     """业务编排协议。"""
 
-    async def handle_message(self, raw_json: dict) -> OrchestratorResult:
+    async def handle_message(
+        self,
+        raw_json: object,
+        conversation_id: str = "",
+    ) -> OrchestratorResult:
         """
         处理一条上行消息，执行完整的 2PC 流程。
 

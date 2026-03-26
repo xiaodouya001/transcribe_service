@@ -32,7 +32,7 @@ docker run -d -p 8090:8080 \
 ## 2. 查看消息
 
 1. 浏览器打开 **http://127.0.0.1:8090**（随 compose 启动时）
-2. 左侧选择 **Topics** → 选择与 [.env.example](../.env.example) / `KAFKA_TOPIC` 一致的 Topic（默认 **`cc.transcript.realtime.v1`**）
+2. 左侧选择 **Topics** → 选择与 [.env.example](../.env.example) / `KAFKA_TOPIC` 一致的 Topic（默认 **`AI_STAGING_TRANSCRIPTION`**）
 3. 在 **Messages** 标签页查看消息
 4. Value 为 UTF-8 JSON，对应 API 契约中的上行结构（`metaData` + `payload` 等）
 
@@ -52,6 +52,6 @@ docker run -d -p 8090:8080 \
 
 ## 4. 与本项目的 Topic
 
-- **Topic 名称**：默认 `cc.transcript.realtime.v1`（由 `KAFKA_TOPIC` 配置）
+- **Topic 名称**：默认 `AI_STAGING_TRANSCRIPTION`（由 `KAFKA_TOPIC` 配置）
 - **Partition Key**：`conversationId`（UTF-8），同一通话路由到同一分区
-- **Value**：JSON，与 [design/transcribe-service-API-contract.md](../design/transcribe-service-API-contract.md) 中 Client→Server 消息体一致（或按部署约定封装；生产以实际落盘格式为准）
+- **Value**：JSON，与 [design/realtime-transcribe-service-api-contract.md](../design/realtime-transcribe-service-api-contract.md) 中 Client→Server 消息体一致（或按部署约定封装；生产以实际落盘格式为准）

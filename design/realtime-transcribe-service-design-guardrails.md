@@ -10,7 +10,7 @@
 
 以下两项已明确为**暂不纳入缺陷范围**。若需落地，应单独立项，不应在常规代码改动中以不完整形态引入：
 
-- 鉴权/授权（`Authorization` / Token 校验）尚未实现
+- 鉴权/授权（`Authorization` / Token 校验）尚未实现；契约中的 `Authorization` / `E1010` 仅作预留
 - Kafka `max_in_flight=1` / 熔断器（Circuit Breaker）尚未实现
 
 ---
@@ -104,7 +104,7 @@
 
 契约级场景矩阵已经集中沉淀到：
 
-- [protocol-scenario-matrix.md](protocol-scenario-matrix.md)
+- [realtime-transcribe-service-protocol-scenario-matrix.md](realtime-transcribe-service-protocol-scenario-matrix.md)
 - 对应测试：[test_contract_matrix.py](../tests/test_contract_matrix.py)
 
 矩阵覆盖的关键场景如下：
@@ -175,8 +175,8 @@
 
 每次较大改动后，至少复核以下文档是否仍然成立：
 
-- `design/transcribe-service-API-contract.md`
-- `design/application-design_zh.md`
+- `design/realtime-transcribe-service-api-contract.md`
+- `design/realtime-transcribe-service-app-design_zh.md`
 - `docs/faq.md`
 - 与行为变化相关的 `docs/*.md`
 
@@ -184,7 +184,7 @@
 
 ### 4.6 契约优先规则
 
-当 UI、测试、实现与 API 契约冲突时，以 [transcribe-service-API-contract.md](../design/transcribe-service-API-contract.md) 为准。
+当 UI、测试、实现与 API 契约冲突时，以 [realtime-transcribe-service-api-contract.md](realtime-transcribe-service-api-contract.md) 为准。
 
 其他文档和 mock tool 只能跟随契约，不得反过来改写契约语义。
 
