@@ -940,6 +940,12 @@ class TestWebSocket:
             "ack_build_ms": 0.55,
             "orchestrator_ms": 12.34,
         }
+        assert slow_log["bottleneck"] == {
+            "stage": "ack_build_ms",
+            "ms": 0.55,
+            "pct": 4.5,
+        }
+        assert slow_log["bottleneck_hint"] == "ack_build_ms=0.55ms (~4.5% of orchestrator_ms)"
 
     def test_ws_does_not_log_slow_message_when_threshold_disabled(
         self, mock_orchestrator, shutdown, registry
@@ -983,6 +989,33 @@ async def test_send_error_and_close_swallows_inner_failure():
     await wh._send_error_and_close(
         ws, "conv-x", "E1001", "bad", wh.WsCloseCode.INVALID_PAYLOAD
     )
+
+
+def test_orchestrator_bottleneck_prefers_leaf_max_and_falls_back_to_leaf_sum():
+    from realtime_transcribe_service.transport import websocket_handler as wh
+
+    out = wh._orchestrator_bottleneck(
+        {"validate_ms": 1.0, "kafka_send_ms": 10.0, "orchestrator_ms": 50.0}
+    )
+    assert out is not None
+    b, hint = out
+    assert b["stage"] == "kafka_send_ms"
+    assert b["ms"] == 10.0
+    assert b["pct"] == 20.0
+    assert "orchestrator_ms" in hint
+
+    out2 = wh._orchestrator_bottleneck({"validate_ms": 2.0, "prepare_ms": 8.0})
+    assert out2 is not None
+    _b2, hint2 = out2
+    assert _b2["stage"] == "prepare_ms"
+    assert "summed leaf phases" in hint2
+
+
+def test_orchestrator_bottleneck_none_when_no_leaf_timings():
+    from realtime_transcribe_service.transport import websocket_handler as wh
+
+    assert wh._orchestrator_bottleneck({"orchestrator_ms": 100.0}) is None
+    assert wh._orchestrator_bottleneck(None) is None
 
 
 def test_maybe_log_slow_message_skips_when_below_threshold():
