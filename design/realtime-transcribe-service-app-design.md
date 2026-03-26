@@ -216,7 +216,8 @@ sequenceDiagram
     participant Kafka as Kafka
 
     Upstream->>Trans: Send message (SESSION_ONGOING or SESSION_COMPLETE)
-    Trans->>Trans: Handshake claim already passed; background ownership refresh continues
+    Trans->>Trans: Handshake claim already passed before message processing starts
+    Trans->>Trans: Background ownership refresh continues during request processing
     Trans->>Trans: Validate schema and orchestrate the request
 
     alt Unhandled exception at any processing stage (E1007)
