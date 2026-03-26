@@ -29,7 +29,7 @@ docker build -f docker/Dockerfile -t realtime-transcribe-service:latest .
 
 `wss://<your-host>/ws/v1/realtime-transcriptions?conversationId=<id>`
 
-完整契约见 [design/transcribe-service-API-contract.md](../design/transcribe-service-API-contract.md)。
+完整契约见 [design/realtime-transcribe-service-api-contract.md](../design/realtime-transcribe-service-api-contract.md)。
 
 ---
 
@@ -81,8 +81,7 @@ docker build -f docker/Dockerfile -t realtime-transcribe-service:latest .
 ## 6. 相关文档
 
 - [configuration.md](configuration.md) 环境变量完整说明
-- [concurrency-capacity.md](concurrency-capacity.md) **Kafka / Redis / 单机** 与千级并发 WebSocket 的瓶颈与调参
-- [design/application-design_zh.md](../design/application-design_zh.md) 架构与优雅停机
+- [design/realtime-transcribe-service-app-design_zh.md](../design/realtime-transcribe-service-app-design_zh.md) 架构与优雅停机
 
 
 

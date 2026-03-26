@@ -218,7 +218,7 @@ sequenceDiagram
 
 #### 2.2.4 异常处理与错误响应时序图 (Exception Handling)
 
-当校验失败或下游不可用时，Realtime Transcribe Service 先发送 `eventType=ERROR` 的错误帧，再按策略关闭 WebSocket 连接。错误码与 Close Code 的映射参见 [API 契约 §4. 状态码与错误码](transcribe-service-API-contract.md#4-状态码与错误码)。
+当校验失败或下游不可用时，Realtime Transcribe Service 先发送 `eventType=ERROR` 的错误帧，再按策略关闭 WebSocket 连接。错误码与 Close Code 的映射参见 [API 契约 §4. 状态码与错误码](realtime-transcribe-service-api-contract.md#4-status-codes-and-error-codes)。
 
 ```mermaid
 sequenceDiagram
@@ -474,7 +474,7 @@ sequenceDiagram
 | `acks` | `all` | 用于保证 Kafka 持久化确认后再进入 Commit |
 | 压缩 | `zstd` | 默认压缩方式 |
 
-Kafka 落盘消息的完整契约见 [transcribe-service-API-contract.md](transcribe-service-API-contract.md#6-kafka-落盘契约)。
+Kafka 落盘消息的完整契约见 [realtime-transcribe-service-api-contract.md](realtime-transcribe-service-api-contract.md#6-kafka-persistence-contract)。
 
 ### 4.2 Redis 约束
 
@@ -492,5 +492,5 @@ Kafka 落盘消息的完整契约见 [transcribe-service-API-contract.md](transc
 
 ## 附录 A — API 契约完整规格
 
-> **完整 API 契约请参见**：[Realtime Transcribe Service API Contract 契约文档](transcribe-service-API-contract.md)
+> **完整 API 契约请参见**：[Realtime Transcribe Service API Contract 契约文档](realtime-transcribe-service-api-contract.md)
 

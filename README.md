@@ -34,8 +34,8 @@ realtime_transcribe_service/
 │   ├── orchestrator/                # 调度层：两阶段提交编排
 │   └── shutdown/                    # 优雅停机
 ├── tests/
-├── design/                          # 设计文档与 API 契约
-├── docs/                            # 配置、部署、开发、排障与护栏
+├── design/                          # 设计文档、护栏、场景矩阵与 API 契约
+├── docs/                            # 配置、部署、开发与排障
 ├── tools/mock_client/               # 场景测试、压测与 Kafka 回显工具
 └── docker-compose.yml               # Redis + Kafka + Kafka UI
 ```
@@ -49,11 +49,11 @@ realtime_transcribe_service/
 
 | 文档 | 说明 |
 |------|------|
-| [design/application-design_zh.md](design/application-design_zh.md) | 应用设计总览 |
-| [design/transcribe-service-API-contract.md](design/transcribe-service-API-contract.md) | API 契约 |
-| [docs/design-guardrails.md](docs/design-guardrails.md) | 长期维护护栏与变更约束 |
-| [docs/protocol-scenario-matrix.md](docs/protocol-scenario-matrix.md) | 协议场景矩阵 |
-| [docs/concurrency-capacity.md](docs/concurrency-capacity.md) | 并发与容量说明 |
+| [design/realtime-transcribe-service-app-design_zh.md](design/realtime-transcribe-service-app-design_zh.md) | 应用设计总览（中文） |
+| [design/realtime-transcribe-service-app-design.md](design/realtime-transcribe-service-app-design.md) | Application architecture overview (English) |
+| [design/realtime-transcribe-service-api-contract.md](design/realtime-transcribe-service-api-contract.md) | API contract (English) |
+| [design/realtime-transcribe-service-design-guardrails.md](design/realtime-transcribe-service-design-guardrails.md) | 长期维护护栏与变更约束 |
+| [design/realtime-transcribe-service-protocol-scenario-matrix.md](design/realtime-transcribe-service-protocol-scenario-matrix.md) | 协议场景矩阵 |
 | [tools/mock_client/README.md](tools/mock_client/README.md) | Mock Client、场景测试与压测说明 |
 | [docs/README.md](docs/README.md) | 文档总索引 |
 

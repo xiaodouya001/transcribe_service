@@ -54,4 +54,4 @@ docker run -d -p 8090:8080 \
 
 - **Topic 名称**：默认 `AI_STAGING_TRANSCRIPTION`（由 `KAFKA_TOPIC` 配置）
 - **Partition Key**：`conversationId`（UTF-8），同一通话路由到同一分区
-- **Value**：JSON，与 [design/transcribe-service-API-contract.md](../design/transcribe-service-API-contract.md) 中 Client→Server 消息体一致（或按部署约定封装；生产以实际落盘格式为准）
+- **Value**：JSON，与 [design/realtime-transcribe-service-api-contract.md](../design/realtime-transcribe-service-api-contract.md) 中 Client→Server 消息体一致（或按部署约定封装；生产以实际落盘格式为准）
