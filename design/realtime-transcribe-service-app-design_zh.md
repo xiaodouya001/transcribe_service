@@ -229,7 +229,7 @@ sequenceDiagram
     participant RedisState as Redis (Sequence State Machine)
     participant Kafka as Kafka
     Upstream->>Trans: 推送消息 (SESSION_ONGOING / SESSION_COMPLETE)
-    Note over Trans,RedisOwnership: 握手阶段 claim 已通过；连接存活期间后台持续 refresh ownership，同时继续处理消息
+    Trans->>Trans: 握手阶段 claim 已通过；后台持续 refresh ownership
     Trans->>Trans: 内部动作: Schema 校验与编排
 
     alt 处理过程中任意阶段发生未捕获异常 (E1007)
