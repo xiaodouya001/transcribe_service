@@ -539,7 +539,7 @@ This section defines the message contract written by the service on the success 
 
 ### 6.2 Kafka Message Value Examples
 
-`**SESSION_ONGOING**`
+**SESSION_ONGOING**
 
 Kafka Message Key:
 
@@ -574,7 +574,7 @@ Kafka Message Value:
 }
 ```
 
-`**SESSION_COMPLETE**`
+**SESSION_COMPLETE**
 
 Kafka Message Key:
 
