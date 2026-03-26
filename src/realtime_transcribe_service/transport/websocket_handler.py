@@ -79,6 +79,39 @@ def _log_handshake_reject(
     )
 
 
+_ORCHESTRATOR_LEAF_TIMING_KEYS = (
+    "validate_ms",
+    "prepare_ms",
+    "kafka_send_ms",
+    "commit_ms",
+    "ack_build_ms",
+)
+
+
+def _orchestrator_bottleneck(timings_ms: dict[str, float] | None) -> tuple[dict[str, object], str] | None:
+    """Pick the slowest orchestrator leaf phase and a short hint string for logs."""
+    if not timings_ms:
+        return None
+    leaves = {k: timings_ms[k] for k in _ORCHESTRATOR_LEAF_TIMING_KEYS if k in timings_ms}
+    if not leaves:
+        return None
+    stage, ms = max(leaves.items(), key=lambda kv: kv[1])
+    orch = timings_ms.get("orchestrator_ms")
+    if orch and orch > 0:
+        pct = round(100.0 * ms / orch, 1)
+        hint = f"{stage}={ms:.2f}ms (~{pct}% of orchestrator_ms)"
+    else:
+        total = sum(leaves.values())
+        pct = round(100.0 * ms / total, 1) if total > 0 else 0.0
+        hint = f"{stage}={ms:.2f}ms (~{pct}% of summed leaf phases)"
+    bottleneck: dict[str, object] = {
+        "stage": stage,
+        "ms": round(ms, 2),
+        "pct": pct,
+    }
+    return bottleneck, hint
+
+
 def _maybe_log_slow_message(
     *,
     threshold_ms: float,
@@ -159,6 +192,12 @@ def _maybe_log_slow_message(
     flow = {key: value for key, value in flow.items() if value is not None}
     outcome = {key: value for key, value in outcome.items() if value is not None}
 
+    bottleneck_info = _orchestrator_bottleneck(timings_ms)
+    bottleneck: dict[str, object] | None = None
+    bottleneck_hint: str | None = None
+    if bottleneck_info is not None:
+        bottleneck, bottleneck_hint = bottleneck_info
+
     log.warning(
         "Transport: 慢消息分段耗时",
         conversation_id=conversation_id,
@@ -168,6 +207,8 @@ def _maybe_log_slow_message(
         flow=flow,
         outcome=outcome,
         timings_ms=stage_timings,
+        bottleneck=bottleneck,
+        bottleneck_hint=bottleneck_hint,
     )
     _slow_message_log_emitted_in_window += 1
 
