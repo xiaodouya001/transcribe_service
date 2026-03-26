@@ -1,6 +1,6 @@
 # 文档索引
 
-Transcribe Service 项目文档导航，汇总 `design/`、`docs/` 和关键工具文档入口。
+Realtime Transcribe Service 项目文档导航，汇总 `design/`、`docs/` 和关键工具文档入口。
 
 ---
 
@@ -43,3 +43,4 @@ Transcribe Service 项目文档导航，汇总 `design/`、`docs/` 和关键工�
 | 文档 | 说明 |
 |------|------|
 | [tools/mock_client/README.md](../tools/mock_client/README.md) | Mock Client、场景测试、压测与 Kafka 消息回显 |
+

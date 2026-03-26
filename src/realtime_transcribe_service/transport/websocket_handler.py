@@ -18,25 +18,25 @@ from starlette import status
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.websockets import WebSocketState
 
-from transcribe_service.constants import (
+from realtime_transcribe_service.constants import (
     APP_TITLE,
     MAX_ERROR_DETAILS_LEN,
     WS_CLOSE_REASON_GOING_AWAY,
     WS_PATH,
 )
-from transcribe_service.schemas.errors import ErrorCode, WsCloseCode
-from transcribe_service.schemas.events import ResponseEventType
-from transcribe_service.schemas.response import build_error
+from realtime_transcribe_service.schemas.errors import ErrorCode, WsCloseCode
+from realtime_transcribe_service.schemas.events import ResponseEventType
+from realtime_transcribe_service.schemas.response import build_error
 
 if TYPE_CHECKING:  # pragma: no cover
-    from transcribe_service.orchestrator.protocols import OrchestratorBackend
-    from transcribe_service.redis.protocols import ConversationOwnershipGuardBackend
-    from transcribe_service.shutdown.graceful import GracefulShutdown
+    from realtime_transcribe_service.orchestrator.protocols import OrchestratorBackend
+    from realtime_transcribe_service.redis.protocols import ConversationOwnershipGuardBackend
+    from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
 
 log = structlog.get_logger(__name__)
 OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC = 5.0
-SCOPE_OWNERSHIP_TOKEN = "transcribe_service.ownership_token"
-SCOPE_OWNERSHIP_ACQUIRED = "transcribe_service.ownership_acquired"
+SCOPE_OWNERSHIP_TOKEN = "realtime_transcribe_service.ownership_token"
+SCOPE_OWNERSHIP_ACQUIRED = "realtime_transcribe_service.ownership_acquired"
 SLOW_MESSAGE_LOG_WINDOW_SEC = 1.0
 SLOW_MESSAGE_LOG_MAX_PER_WINDOW = 1
 _slow_message_log_window_started_at = 0.0
@@ -463,7 +463,7 @@ def create_app(
         ws: WebSocket,
         conversationId: str = Query("", max_length=64),
     ):
-        """主 WebSocket 端点：FanoLabs 作为客户端连接此服务端。"""
+        """主 WebSocket 端点：Fano Assist 作为客户端连接此服务端。"""
         scope_token = ws.scope.get(SCOPE_OWNERSHIP_TOKEN)
         ownership_token = scope_token if isinstance(scope_token, str) else uuid.uuid4().hex
         ownership_acquired = bool(ws.scope.get(SCOPE_OWNERSHIP_ACQUIRED))
@@ -850,3 +850,4 @@ async def _deny_websocket(
             "body": body,
         }
     )
+

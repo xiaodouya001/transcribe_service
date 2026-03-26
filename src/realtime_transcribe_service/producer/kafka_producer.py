@@ -54,7 +54,7 @@ class KafkaProducer:
     def __init__(
         self,
         bootstrap_servers: str = "127.0.0.1:9092",
-        topic: str = "cc.transcript.realtime.v1",
+        topic: str = "AI_STAGING_TRANSCRIPTION",
         *,
         compression_type: str = "zstd",
         send_timeout_sec: float = 2.0,

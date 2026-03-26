@@ -3,9 +3,9 @@
 import pytest
 from pydantic import ValidationError
 
-from transcribe_service.schemas.events import EventType, ResponseEventType, Speaker
-from transcribe_service.schemas.request import InboundMessage
-from transcribe_service.schemas.response import (
+from realtime_transcribe_service.schemas.events import EventType, ResponseEventType, Speaker
+from realtime_transcribe_service.schemas.request import InboundMessage
+from realtime_transcribe_service.schemas.response import (
     build_eol_ack,
     build_error,
     build_transcript_ack,
@@ -191,3 +191,4 @@ class TestBuildError:
     def test_error_without_details(self, conversation_id: str):
         err = build_error(conversation_id, "E1007", "Internal error")
         assert err["error"]["details"] is None
+

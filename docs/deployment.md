@@ -1,16 +1,16 @@
 # 部署指南
 
-本文档说明 Transcribe Service 的构建、部署与运行要求，覆盖 WebSocket 网关、Redis 序列状态机 + Redis 发送所有权守卫，以及 Kafka 投递架构。
+本文档说明 Realtime Transcribe Service 的构建、部署与运行要求，覆盖 WebSocket 网关、Redis 序列状态机 + Redis 发送所有权守卫，以及 Kafka 投递架构。
 
 ---
 
 ## 1. 构建镜像
 
 ```bash
-docker build -f docker/Dockerfile -t transcribe-service:latest .
+docker build -f docker/Dockerfile -t realtime-transcribe-service:latest .
 ```
 
-镜像基于 `python:3.12-slim`，多阶段构建，非 root 用户运行，入口为 `python -m transcribe_service.main`。
+镜像基于 `python:3.12-slim`，多阶段构建，非 root 用户运行，入口为 `python -m realtime_transcribe_service.main`。
 
 ---
 
@@ -23,7 +23,7 @@ docker build -f docker/Dockerfile -t transcribe-service:latest .
   - Sequence State Machine（序列守卫 / 2PC 状态）
   - Conversation Ownership Guard（同会话单连接发送所有权）
 - **MSK**：提供 `KAFKA_BOOTSTRAP_SERVERS`
-- **负载均衡**：上游 STT Provider 通过 **WSS** 连接；通常使用 **ALB**（空闲超时需大于 WebSocket 心跳，见设计文档），目标组健康检查指向 HTTP 端点（见下文）
+- **负载均衡**：上游 Fano Assist 通过 **WSS** 连接；通常使用 **ALB**（空闲超时需大于 WebSocket 心跳，见设计文档），目标组健康检查指向 HTTP 端点（见下文）
 
 **协议说明**：本服务是 **WebSocket 服务端**，不再主动连接外部 STT；上游客户端连接：
 
@@ -41,7 +41,7 @@ docker build -f docker/Dockerfile -t transcribe-service:latest .
 |------|------|
 | `REDIS_URL` | ElastiCache Redis 连接串 |
 | `KAFKA_BOOTSTRAP_SERVERS` | MSK broker 地址 |
-| `KAFKA_TOPIC` | 默认 `cc.transcript.realtime.v1`（须与 Topic 实际名称一致） |
+| `KAFKA_TOPIC` | 默认 `AI_STAGING_TRANSCRIPTION`（须与 Topic 实际名称一致） |
 | `KAFKA_TOPIC_NUM_PARTITIONS` | 仅当服务负责建 Topic 时有效；生产 Topic 通常由运维预建 |
 | `KAFKA_REPLICATION_FACTOR` | 生产环境通常取 ≥ 2（与 MSK 策略一致） |
 | `KAFKA_COMPRESSION_TYPE` | 默认 `zstd`；也可设为 `gzip` 等 |
@@ -83,3 +83,7 @@ docker build -f docker/Dockerfile -t transcribe-service:latest .
 - [configuration.md](configuration.md) 环境变量完整说明
 - [concurrency-capacity.md](concurrency-capacity.md) **Kafka / Redis / 单机** 与千级并发 WebSocket 的瓶颈与调参
 - [design/application-design_zh.md](../design/application-design_zh.md) 架构与优雅停机
+
+
+
+

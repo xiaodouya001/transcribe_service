@@ -62,7 +62,7 @@
 
 | 关键字 | 含义 |
 |--------|------|
-| `Transcribe Service: 已启动` | 启动成功 |
+| `Realtime Transcribe Service: 已启动` | 启动成功 |
 | `Transport: 连接已建立` | WebSocket 连接建立 |
 | `StateMachine.prepare` | Lua 预检结果 |
 | `StateMachine.commit` | 序列号推进 |
@@ -70,3 +70,4 @@
 | `Orchestrator: 幂等命中` | 重复包被拦截 |
 | `Orchestrator: 序列号乱序` | 乱序包被拒绝 |
 | `Shutdown: 开始优雅停机` | 收到 SIGTERM |
+

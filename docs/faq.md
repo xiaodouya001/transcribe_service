@@ -14,7 +14,7 @@
 
 状态机通过 Redis Lua 原子预检，若 `sequenceNumber > expected`（跳号）则返回 `OUT_OF_ORDER`，服务端发送 ERROR 帧并断开连接（Close Code 1008）。
 
-**解决**：确保上游 STT Provider 在同一 `conversationId` 下严格递增发送 `sequenceNumber`。断连后重连会从 Redis 中已保存的 expected 序号继续。
+**解决**：确保上游 Fano Assist 在同一 `conversationId` 下严格递增发送 `sequenceNumber`。断连后重连会从 Redis 中已保存的 expected 序号继续。
 
 ---
 
@@ -60,3 +60,4 @@ Kafka 发送超时/失败 → 返回 ERROR 帧（E1008/E1011）→ 断连（Clos
 
 - `design/transcribe-service-API-contract.md`
 - `docs/protocol-scenario-matrix.md`
+

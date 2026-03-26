@@ -1,6 +1,6 @@
 # 配置说明
 
-本文档说明 Transcribe Service 的环境变量配置，与 [config/settings.py](../config/settings.py) 对应。
+本文档说明 Realtime Transcribe Service 的环境变量配置，与 [config/settings.py](../config/settings.py) 对应。
 
 ---
 
@@ -25,15 +25,15 @@ cp .env.example .env
 | `REDIS_ACTIVE_TTL_SEC` | 3600 | 活跃会话 TTL（秒），每次写入自动续期 |
 | `REDIS_FINAL_TTL_SEC` | 60 | SESSION_COMPLETE 后残留 TTL（秒） |
 | `REDIS_OWNERSHIP_GUARD_TTL_SEC` | 30 | 单个 `conversationId` 会话发送所有权键（conversation ownership key）的 TTL（秒）；服务端在连接建立时 claim 所有权，并在连接存活期间周期 refresh，用于跨 pod 保证“同会话同一时刻仅一个连接发送消息” |
-| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | transcript:session | Redis Sequence State Machine 键前缀 |
-| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | transcript:owner | Redis Ownership Guard 键前缀 |
+| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | real-time-transcriber:transcript-checker | Redis Sequence State Machine 键前缀 |
+| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | real-time-transcriber:conversation-owner | Redis Ownership Guard 键前缀 |
 
 ### Kafka
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `KAFKA_BOOTSTRAP_SERVERS` | 127.0.0.1:9092 | Kafka 集群地址 |
-| `KAFKA_TOPIC` | cc.transcript.realtime.v1 | Topic 名称 |
+| `KAFKA_TOPIC` | AI_STAGING_TRANSCRIPTION | Topic 名称 |
 | `KAFKA_TOPIC_NUM_PARTITIONS` | 50 | 新建 Topic 时的分区数 |
 | `KAFKA_REPLICATION_FACTOR` | 1 | 副本因子（生产环境≥2） |
 | `KAFKA_COMPRESSION_TYPE` | zstd | 压缩：`none`、`gzip`、`snappy`、`lz4`、`zstd` |
@@ -94,8 +94,9 @@ LOG_FORMAT=console
 ```env
 REDIS_URL=redis://your-elasticache:6379/0
 KAFKA_BOOTSTRAP_SERVERS=your-msk:9092
-KAFKA_TOPIC=cc.transcript.realtime.v1
+KAFKA_TOPIC=AI_STAGING_TRANSCRIPTION
 KAFKA_TOPIC_NUM_PARTITIONS=100
 KAFKA_REPLICATION_FACTOR=3
 LOG_FORMAT=json
 ```
+

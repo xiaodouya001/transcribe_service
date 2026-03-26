@@ -19,12 +19,12 @@ import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
-from transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
-from transcribe_service.redis.protocols import PrepareResult
-from transcribe_service.schemas.response import build_transcript_ack
-from transcribe_service.shutdown.graceful import GracefulShutdown
-from transcribe_service.transport.websocket_handler import ConnectionRegistry, create_app
+from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
+from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
+from realtime_transcribe_service.redis.protocols import PrepareResult
+from realtime_transcribe_service.schemas.response import build_transcript_ack
+from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
+from realtime_transcribe_service.transport.websocket_handler import ConnectionRegistry, create_app
 
 
 @pytest.fixture
@@ -132,7 +132,7 @@ class TestTransportContractMatrix:
         client = TestClient(_build_app(orchestrator))
 
         with patch(
-            "transcribe_service.transport.websocket_handler.orjson.loads",
+            "realtime_transcribe_service.transport.websocket_handler.orjson.loads",
             side_effect=RuntimeError("boom"),
         ):
             with client.websocket_connect(
@@ -170,7 +170,7 @@ class TestTransportContractMatrix:
         owner = RedisConversationOwnershipGuard(
             client=fakeredis.aioredis.FakeRedis(decode_responses=True),
             guard_ttl_sec=30,
-            key_prefix="transcript:owner",
+            key_prefix="real-time-transcriber:conversation-owner",
         )
         client = TestClient(
             create_app(
@@ -368,3 +368,4 @@ class TestOrchestratorContractMatrix:
         assert result.response["error"]["code"] == "E1007"
         assert result.disconnect is True
         assert result.close_code == 1011
+

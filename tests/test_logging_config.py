@@ -35,26 +35,26 @@ def test_get_version_is_cached():
     with patch("importlib.metadata.version", return_value="9.9.9") as version:
         assert lc._get_version() == "9.9.9"
         assert lc._get_version() == "9.9.9"
-    version.assert_called_once_with("transcribe-service")
+    version.assert_called_once_with("realtime-transcribe-service")
 
 
 def test_add_service_context():
     ed = {}
     out = lc._add_service_context(logging.getLogger("t"), "info", ed)
-    assert out["service"] == "transcribe-service"
+    assert out["service"] == "realtime-transcribe-service"
     assert "version" in out
 
 
 def test_group_identity():
     ed = {
-        "service": "transcribe-service",
+        "service": "realtime-transcribe-service",
         "version": "0.1.0",
         "conversation_id": "conv-1",
         "event": "ready",
     }
     out = lc._group_identity(logging.getLogger("t"), "info", ed)
     assert out["identity"] == {
-        "service": "transcribe-service",
+        "service": "realtime-transcribe-service",
         "version": "0.1.0",
         "conversation_id": "conv-1",
     }
@@ -133,7 +133,7 @@ def test_configure_logging_stdlib_logger_json(monkeypatch, capsys):
     logging.getLogger("uvicorn.access").info("GET /health 200")
     out = capsys.readouterr().err
     assert '"identity": {' in out
-    assert '"service": "transcribe-service"' in out
+    assert '"service": "realtime-transcribe-service"' in out
     assert '"logger": "uvicorn.access"' in out
     assert '"conversation_id": "-"' in out
     assert "GET /health 200" in out
@@ -146,7 +146,7 @@ def test_configure_logging_structlog_json_includes_conversation_id(monkeypatch, 
     lc.get_logger("app").info("ready")
     out = capsys.readouterr().err.strip()
     payload = json.loads(out)
-    assert payload["identity"]["service"] == "transcribe-service"
+    assert payload["identity"]["service"] == "realtime-transcribe-service"
     assert payload["identity"]["conversation_id"] == "-"
     assert payload["event"] == "ready"
     assert "service" not in payload
@@ -176,7 +176,7 @@ def test_configure_logging_console_groups_identity(monkeypatch, capsys):
         lc.configure_logging(format="console", level="INFO")
     lc.get_logger("console_app").info("ready", conversation_id="conv-1")
     out = capsys.readouterr().err
-    assert "identity={'service': 'transcribe-service'" in out
+    assert "identity={'service': 'realtime-transcribe-service'" in out
     assert "'conversation_id': 'conv-1'" in out
     assert " conversation_id=" not in out
 
@@ -215,3 +215,4 @@ def test_configure_logging_filters_debug_before_expensive_processors(monkeypatch
     log.info("visible")
 
     assert seen == [("info", "visible")]
+

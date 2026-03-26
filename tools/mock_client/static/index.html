@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Transcribe Service Testing - Mock Console</title>
+<title>Realtime Transcribe Service Testing - Mock Console</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -1490,7 +1490,7 @@ select.cp-select:focus {
 <body>
 
 <header>
-  <h1>Transcribe Service Testing - Mock Console</h1>
+  <h1>Realtime Transcribe Service Testing - Mock Console</h1>
   <span class="tag">Realtime WS + Kafka</span>
   <div class="theme-switch">
     <label for="theme-select">Theme</label>
@@ -1613,7 +1613,7 @@ select.cp-select:focus {
           </div>
           <div class="form-group" style="flex:1.2;min-width:160px;max-width:280px">
             <label>Topic</label>
-            <input type="text" id="kafka-topic" value="cc.transcript.realtime.v1">
+            <input type="text" id="kafka-topic" value="AI_STAGING_TRANSCRIPTION">
           </div>
           <div class="form-group">
             <label>Kafka 消费<span id="kafka-status" class="kafka-inline-status"></span></label>
@@ -2875,3 +2875,4 @@ function updateStats(d) {
 </script>
 </body>
 </html>
+

@@ -5,8 +5,8 @@ import fakeredis.aioredis
 from redis.exceptions import NoScriptError
 from unittest.mock import AsyncMock, MagicMock
 
-from transcribe_service.redis.protocols import PrepareResult
-from transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
+from realtime_transcribe_service.redis.protocols import PrepareResult
+from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ async def sm():
         client=client,
         active_ttl_sec=3600,
         final_ttl_sec=60,
-        key_prefix="transcript:session",
+        key_prefix="real-time-transcriber:transcript-checker",
     )
     yield machine
     await machine.close()
@@ -90,7 +90,7 @@ class TestCommit:
             client=client,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="transcript:session",
+            key_prefix="real-time-transcriber:transcript-checker",
         )
         sm._sha_commit = "sha-commit-old"
         sm._ensure_scripts_loaded = AsyncMock()
@@ -109,7 +109,7 @@ class TestCleanup:
         await sm.cleanup("conv-1")
 
         client = await sm._get_client()
-        ttl = await client.ttl("transcript:session:conv-1")
+        ttl = await client.ttl("real-time-transcriber:transcript-checker:conv-1")
         assert 0 < ttl <= 60
 
     async def test_cleanup_reload_script_after_noscript(self):
@@ -121,7 +121,7 @@ class TestCleanup:
             client=client,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="transcript:session",
+            key_prefix="real-time-transcriber:transcript-checker",
         )
         sm._sha_cleanup = "sha-cleanup-old"
         sm._ensure_scripts_loaded = AsyncMock()
@@ -143,3 +143,4 @@ class TestIsolation:
 
         r = await sm.prepare("conv-A", 1)
         assert r == PrepareResult.PRE_CHECK_OK
+

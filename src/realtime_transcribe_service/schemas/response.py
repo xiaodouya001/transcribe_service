@@ -7,11 +7,11 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from transcribe_service.constants import (
+from realtime_transcribe_service.constants import (
     MAX_ERROR_DETAILS_LEN,
     MAX_ERROR_MESSAGE_LEN,
 )
-from transcribe_service.schemas.events import ResponseEventType
+from realtime_transcribe_service.schemas.events import ResponseEventType
 
 
 # ---------------------------------------------------------------------------
@@ -116,3 +116,4 @@ def build_error(
             "createdAtTimeStamp": _utc_now_iso(),
         },
     }
+

@@ -10,10 +10,10 @@ import pytest
 
 from unittest.mock import MagicMock
 
-from transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
-from transcribe_service.redis.protocols import PrepareResult
-from transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
-from transcribe_service.schemas.errors import ErrorCode, WsCloseCode
+from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
+from realtime_transcribe_service.redis.protocols import PrepareResult
+from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
+from realtime_transcribe_service.schemas.errors import ErrorCode, WsCloseCode
 
 
 @pytest.fixture
@@ -198,7 +198,7 @@ class TestScenarioE:
             client=client,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="transcript:session",
+            key_prefix="real-time-transcriber:transcript-checker",
         )
         producer = AsyncMock()
         producer.send = AsyncMock(side_effect=[RuntimeError("broker down"), None])
@@ -211,7 +211,7 @@ class TestScenarioE:
             assert first.close_code == 1013
 
             cid = valid_ongoing_msg["metaData"]["conversationId"]
-            key = f"transcript:session:{cid}"
+            key = f"real-time-transcriber:transcript-checker:{cid}"
             assert await client.get(key) == "0"
 
             second = await orchestrator.handle_message(valid_ongoing_msg)
@@ -338,3 +338,4 @@ class TestScenarioG:
         mock_producer.send.assert_awaited_once()
         mock_sm.commit.assert_awaited_once()
         mock_sm.cleanup.assert_awaited_once()
+

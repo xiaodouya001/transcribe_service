@@ -17,8 +17,8 @@
 | `WS_MAX_CONNECTIONS`         | 360            | 480           | 600            |
 | `REDIS_MAX_CONNECTIONS`      | 900            | 1200          | 1600           |
 | `REDIS_OWNERSHIP_GUARD_TTL_SEC` | 30       | 30            | 30             |
-| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | transcript:session | transcript:session | transcript:session |
-| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | transcript:owner | transcript:owner | transcript:owner |
+| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | real-time-transcriber:transcript-checker | real-time-transcriber:transcript-checker | real-time-transcriber:transcript-checker |
+| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | real-time-transcriber:conversation-owner | real-time-transcriber:conversation-owner | real-time-transcriber:conversation-owner |
 | `HTTP_BACKLOG`               | 4096           | 4096          | 4096           |
 | `KAFKA_COMPRESSION_TYPE`     | lz4            | lz4           | lz4            |
 | `KAFKA_LINGER_MS`            | 1              | 1             | 1              |
@@ -67,8 +67,8 @@
 WS_MAX_CONNECTIONS=360
 REDIS_MAX_CONNECTIONS=900
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=transcript:session
-REDIS_OWNERSHIP_GUARD_KEY_PREFIX=transcript:owner
+REDIS_SEQUENCE_STATE_KEY_PREFIX=real-time-transcriber:transcript-checker
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=real-time-transcriber:conversation-owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
@@ -85,8 +85,8 @@ WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 WS_MAX_CONNECTIONS=480
 REDIS_MAX_CONNECTIONS=1200
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=transcript:session
-REDIS_OWNERSHIP_GUARD_KEY_PREFIX=transcript:owner
+REDIS_SEQUENCE_STATE_KEY_PREFIX=real-time-transcriber:transcript-checker
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=real-time-transcriber:conversation-owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
@@ -103,8 +103,8 @@ WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 WS_MAX_CONNECTIONS=600
 REDIS_MAX_CONNECTIONS=1600
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=transcript:session
-REDIS_OWNERSHIP_GUARD_KEY_PREFIX=transcript:owner
+REDIS_SEQUENCE_STATE_KEY_PREFIX=real-time-transcriber:transcript-checker
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=real-time-transcriber:conversation-owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1

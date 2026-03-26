@@ -11,14 +11,14 @@ import time
 import structlog
 from pydantic import ValidationError
 
-from transcribe_service.constants import MAX_ERROR_DETAILS_LEN, MAX_ERROR_MESSAGE_LEN
-from transcribe_service.orchestrator.protocols import OrchestratorResult
-from transcribe_service.producer.protocols import ProducerBackend
-from transcribe_service.redis.protocols import PrepareResult, SequenceStateMachineBackend
-from transcribe_service.schemas.errors import ErrorCode, WsCloseCode
-from transcribe_service.schemas.events import EventType
-from transcribe_service.schemas.request import InboundMessage
-from transcribe_service.schemas.response import build_eol_ack, build_error, build_transcript_ack
+from realtime_transcribe_service.constants import MAX_ERROR_DETAILS_LEN, MAX_ERROR_MESSAGE_LEN
+from realtime_transcribe_service.orchestrator.protocols import OrchestratorResult
+from realtime_transcribe_service.producer.protocols import ProducerBackend
+from realtime_transcribe_service.redis.protocols import PrepareResult, SequenceStateMachineBackend
+from realtime_transcribe_service.schemas.errors import ErrorCode, WsCloseCode
+from realtime_transcribe_service.schemas.events import EventType
+from realtime_transcribe_service.schemas.request import InboundMessage
+from realtime_transcribe_service.schemas.response import build_eol_ack, build_error, build_transcript_ack
 
 log = structlog.get_logger(__name__)
 
@@ -291,3 +291,4 @@ class TwoPhaseOrchestrator:
             if err_type == "value_error":
                 return ErrorCode.E1009, WsCloseCode.POLICY_VIOLATION
         return ErrorCode.E1003, WsCloseCode.POLICY_VIOLATION
+

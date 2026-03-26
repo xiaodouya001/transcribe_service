@@ -6,7 +6,7 @@ import structlog
 from redis.asyncio import Redis
 from redis.exceptions import NoScriptError
 
-from transcribe_service.redis.protocols import PrepareResult
+from realtime_transcribe_service.redis.protocols import PrepareResult
 
 log = structlog.get_logger(__name__)
 
@@ -162,3 +162,4 @@ class RedisSequenceStateMachine:
         if self._client is not None and not self._client_injected:
             await self._client.aclose()
         self._client = None
+

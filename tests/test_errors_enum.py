@@ -2,7 +2,7 @@
 
 import pytest
 
-from transcribe_service.schemas.errors import ErrorCode, WsCloseCode, close_code_for_error
+from realtime_transcribe_service.schemas.errors import ErrorCode, WsCloseCode, close_code_for_error
 
 
 @pytest.mark.parametrize(
@@ -23,3 +23,4 @@ from transcribe_service.schemas.errors import ErrorCode, WsCloseCode, close_code
 )
 def test_close_code_for_error(code: ErrorCode, expected: WsCloseCode):
     assert close_code_for_error(code) == expected
+

@@ -2,9 +2,9 @@
 # 各配置块用途及 Local/Dev/Production 使用方式见 docs/pyproject-config.md
 
 [project]
-name = "transcribe-service"
+name = "realtime-transcribe-service"
 version = "0.1.0"
-description = "Transcribe Service - realtime transcription WebSocket gateway"
+description = "Realtime Transcribe Service - realtime transcription WebSocket gateway"
 requires-python = ">=3.11"
 dependencies = [
     "aiokafka[lz4]>=0.10.0",
@@ -28,7 +28,7 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--cov=src/transcribe_service --cov=config --cov-report=term-missing --cov-fail-under=100"
+addopts = "--cov=src/realtime_transcribe_service --cov=config --cov-report=term-missing --cov-fail-under=100"
 
 [tool.coverage.run]
 source = ["src", "config"]
@@ -44,16 +44,16 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = [".", "src"]
-include = ["config*", "transcribe_service*"]
+include = ["config*", "realtime_transcribe_service*"]
 
 # Poetry 包管理（可选，与 pip/venv 二选一）
 [tool.poetry]
-name = "transcribe-service"
+name = "realtime-transcribe-service"
 version = "0.1.0"
-description = "Transcribe Service - realtime transcription WebSocket gateway"
+description = "Realtime Transcribe Service - realtime transcription WebSocket gateway"
 packages = [
     {include = "config"},
-    {include = "transcribe_service", from = "src"}
+    {include = "realtime_transcribe_service", from = "src"}
 ]
 
 [tool.poetry.dependencies]
@@ -72,3 +72,4 @@ pytest-asyncio = ">=0.21.0"
 fakeredis = {extras = ["lua"], version = ">=2.20.0"}
 httpx = ">=0.27.0"
 pytest-cov = ">=7.0.0,<8.0.0"
+

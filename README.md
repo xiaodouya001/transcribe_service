@@ -1,6 +1,6 @@
-# Transcribe Service
+# Realtime Transcribe Service
 
-> 多云实时数据网关。FanoLabs STT Provider 通过 WebSocket 主动连接本服务，Transcribe Service 执行两阶段提交（Redis Lua 保序 + Kafka 持久化），将转写文本可靠投递至 Kafka。
+> 多云实时数据网关。Fano Assist 通过 WebSocket 主动连接本服务，Realtime Transcribe Service 执行两阶段提交（Redis Lua 保序 + Kafka 持久化），将转写文本可靠投递至 Kafka。
 
 ---
 
@@ -15,7 +15,7 @@ poetry shell
 docker compose up -d
 
 # 3. 运行
-python -m transcribe_service.main
+python -m realtime_transcribe_service.main
 ```
 
 ---
@@ -23,9 +23,9 @@ python -m transcribe_service.main
 ## 项目结构
 
 ```
-transcribe_service/
+realtime_transcribe_service/
 ├── config/                          # Pydantic Settings
-├── src/transcribe_service/
+├── src/realtime_transcribe_service/
 │   ├── main.py                      # 主控入口（DI + 生命周期）
 │   ├── schemas/                     # 契约层：Pydantic 请求/响应模型
 │   ├── transport/                   # 接入层：WebSocket 服务端
@@ -62,7 +62,11 @@ transcribe_service/
 ## 部署
 
 ```bash
-docker build -f docker/Dockerfile -t transcribe-service:latest .
+docker build -f docker/Dockerfile -t realtime-transcribe-service:latest .
 ```
 
 目标环境：AWS ECS Fargate。详见 [docs/deployment.md](docs/deployment.md)。
+
+
+
+

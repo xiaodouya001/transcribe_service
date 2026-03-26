@@ -21,7 +21,7 @@ def _json_serializer(obj: Any, **kwargs: Any) -> str:
     kwargs.setdefault("ensure_ascii", False)
     return json.dumps(obj, **kwargs)
 
-SERVICE_NAME = "transcribe-service"
+SERVICE_NAME = "realtime-transcribe-service"
 
 
 @lru_cache(maxsize=1)

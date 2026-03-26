@@ -8,7 +8,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
-from transcribe_service.schemas.events import EventType, Speaker
+from realtime_transcribe_service.schemas.events import EventType, Speaker
 
 
 class MetaData(BaseModel):
@@ -120,3 +120,4 @@ class InboundMessage(BaseModel):
                 raise ValueError("customerId must be null or omitted when speaker=System")
 
         return self
+

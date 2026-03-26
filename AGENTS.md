@@ -1,4 +1,4 @@
-# Transcribe Service Agent Rules
+# Realtime Transcribe Service Agent Rules
 
 ## 契约优先
 
@@ -17,3 +17,4 @@
 - `docs/design-guardrails.md` 是长期维护基线。
 - `docs/protocol-scenario-matrix.md` 是协议场景的唯一说明入口。
 - 当实现与文档不一致时，优先修正文档或明确宣布契约已变更。
+

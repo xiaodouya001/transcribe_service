@@ -10,7 +10,7 @@
 
 以下两项已明确为**暂不纳入缺陷范围**。若需落地，应单独立项，不应在常规代码改动中以不完整形态引入：
 
-- 鉴权/授权（`Authorization` / Token 校验）尚未实现
+- 鉴权/授权（`Authorization` / Token 校验）尚未实现；契约中的 `Authorization` / `E1010` 仅作预留
 - Kafka `max_in_flight=1` / 熔断器（Circuit Breaker）尚未实现
 
 ---

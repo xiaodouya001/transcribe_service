@@ -1,6 +1,6 @@
-# Redis + Kafka for Transcribe Service (local dev)
+# Redis + Kafka for Realtime Transcribe Service (local dev)
 # Usage: docker compose up -d
-# Then: python -m transcribe_service.main
+# Then: python -m realtime_transcribe_service.main
 # WebSocket endpoint: ws://127.0.0.1:8080/ws/v1/realtime-transcriptions?conversationId=xxx
 #
 # Kafka data is ephemeral (no volume). Redis data persists in redis_data volume.
@@ -55,7 +55,7 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     ports:
-      - "8090:8080"  # 8090 避免与 Transcribe Service (8080) 冲突
+      - "8090:8080"  # 8090 避免与 Realtime Transcribe Service (8080) 冲突
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:19092
@@ -66,3 +66,5 @@ services:
 
 volumes:
   redis_data:
+
+

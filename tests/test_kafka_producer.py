@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from transcribe_service.producer import kafka_producer as kp
+from realtime_transcribe_service.producer import kafka_producer as kp
 
 
 @pytest.mark.asyncio
@@ -141,3 +141,4 @@ async def test_ensure_ready_ensure_topic_raises():
         p = kp.KafkaProducer()
         with pytest.raises(RuntimeError, match="admin down"):
             await p.ensure_ready()
+
