@@ -15,6 +15,7 @@ import uvicorn
 
 from config.logging_config import configure_logging, get_logger
 from config.settings import get_settings
+from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from realtime_transcribe_service.producer.kafka_producer import KafkaProducer
 from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
@@ -123,6 +124,7 @@ async def run() -> None:
     orchestrator = TwoPhaseOrchestrator(
         state_machine=sequence_state_machine,
         producer=producer,
+        message_converter=KafkaMessageConverter(),
     )
     shutdown = GracefulShutdown(stop_timeout=settings.stop_timeout)
     shutdown.register_signal()

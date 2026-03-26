@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -12,6 +11,7 @@ from realtime_transcribe_service.constants import (
     MAX_ERROR_MESSAGE_LEN,
 )
 from realtime_transcribe_service.schemas.events import ResponseEventType
+from realtime_transcribe_service.utils.timestamp import utc_now_timestamp
 
 
 # ---------------------------------------------------------------------------
@@ -64,10 +64,6 @@ class ErrorResponse(BaseModel):
 # Builder helpers
 # ---------------------------------------------------------------------------
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-
-
 def _build_success_response(
     conversation_id: str,
     sequence_number: int,
@@ -80,7 +76,7 @@ def _build_success_response(
         },
         "payload": {
             "sequenceNumber": sequence_number,
-            "createdAtTimeStamp": _utc_now_iso(),
+            "createdAtTimeStamp": utc_now_timestamp(),
         },
     }
 
@@ -113,7 +109,7 @@ def build_error(
             "code": code,
             "message": message,
             "details": details,
-            "createdAtTimeStamp": _utc_now_iso(),
+            "createdAtTimeStamp": utc_now_timestamp(),
         },
     }
 

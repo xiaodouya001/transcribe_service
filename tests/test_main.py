@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 import realtime_transcribe_service.main as main_mod
+from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
 
 
 @pytest.mark.asyncio
@@ -126,7 +127,13 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: prod)
 
     orch = MagicMock()
-    monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: orch)
+    orchestrator_kwargs: dict = {}
+
+    def make_orchestrator(**kw):
+        orchestrator_kwargs.update(kw)
+        return orch
+
+    monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", make_orchestrator)
 
     shutdown_inst = main_mod.GracefulShutdown(stop_timeout=1)
 
@@ -193,6 +200,7 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     assert kw["backlog"] == 4096
     assert kw["log_config"] is None
     assert kw["log_level"] == "info"
+    assert isinstance(orchestrator_kwargs["message_converter"], KafkaMessageConverter)
 
     reg.close_all.assert_awaited()
     prod.flush.assert_awaited()

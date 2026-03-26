@@ -305,6 +305,8 @@ The application follows a dependency-inversion architecture. The orchestrator si
 | --- | --- | --- | --- |
 | `main.py` | Application lifecycle and dependency assembly | Initialize Redis and Kafka components; wire the app; handle graceful shutdown | No business decisions and no JSON parsing |
 | `schemas/` | Protocol contract and validation layer | Validate fields, types, timestamps, and business rules; build standard responses | No network I/O and no data-store calls |
+| `converter/` | Kafka outbound conversion layer | Build `KafkaOutboundMessage` from validated `InboundMessage`, set `enrich.eventProduceTimestamp` immediately before `producer.send`, and validate outbound schema | Must not perform network I/O or mutate caller input |
+| `utils/` | Shared utility helpers | Provide reusable pure helpers such as canonical UTC timestamp formatting | No business orchestration and no network/data-store I/O |
 | `transport/` | WebSocket ingress layer | Handshake admission, connection keepalive, protocol consistency checks, and error mapping | No business orchestration, state advancement, or downstream delivery |
 | `redis/ownership_guard.py` | Conversation ownership control | Claim, refresh, and release send ownership for a conversation | No sequence advancement, field validation, or message delivery |
 | `redis/sequence_state_machine.py` | Sequence state machine | Atomic Lua pre-check and state advancement; manage active and final TTL | No Kafka awareness and no downstream business logic |
@@ -393,7 +395,7 @@ The table below describes the message-level advancement semantics of the **Seque
 The system does not rely on a distributed transaction manager. Instead, it achieves consistency by delaying state advancement until Kafka confirms persistence.
 
 1. **Prepare**: Fano Assist sends `seq=5`. Realtime Transcribe Service runs the Lua pre-check.
-2. **Persistence**: The service writes the event to Kafka with `acks=all`.
+2. **Persistence**: The converter assembles the Kafka value (`metaData + payload + enrich`); the service writes it to Kafka with `acks=all`.
 3. **Commit**: After Kafka ACK, Redis advances the expected value to `6`.
 4. **ACK**: The service returns the corresponding success ACK (`TRANSCRIPT_ACK` for a transcript event, `EOL_ACK` for a completion event).
 5. **Failure behavior**: If Kafka write fails, step 3 does not run. When the upstream retries `seq=5`, Redis still expects `5`, so the pre-check succeeds again and the retry remains lossless.
@@ -401,7 +403,7 @@ The system does not rely on a distributed transaction manager. Instead, it achie
 | Phase | Operation |
 | --- | --- |
 | **Prepare** | Lua pre-check verifies that `payload.sequenceNumber` matches `real-time-transcriber:transcript-checker:{conversationId}` without incrementing it |
-| **Persistence** | Kafka write, keyed by `conversationId`, with `acks=all` |
+| **Persistence** | Converter-assembled Kafka value, then Kafka write keyed by `conversationId`, with `acks=all` |
 | **Commit** | After Kafka ACK, increment `real-time-transcriber:transcript-checker:{conversationId}` |
 | **ACK** | Return `TRANSCRIPT_ACK` or `EOL_ACK` based on the processed event |
 
@@ -431,7 +433,7 @@ When ECS Fargate triggers a rolling deployment or scales the service down, the s
 | Topic | `AI_STAGING_TRANSCRIPTION` | Default topic name |
 | Partition key | `conversationId` | Keeps each conversation pinned to one partition |
 | Message key | `conversationId` | UTF-8 bytes |
-| Message value | JSON containing the original `metaData + payload` | No ACK, ERROR, or server-enriched wrapper fields |
+| Message value | JSON containing `metaData + payload + enrich` | `enrich.eventProduceTimestamp` is generated immediately before each Kafka send attempt |
 | Partition count | 50 or 100 | Decided when the topic is provisioned in each environment |
 | `acks` | `all` | Required before the service can commit Redis state |
 | Compression | `zstd` | Default compression strategy |

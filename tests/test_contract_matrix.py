@@ -19,6 +19,7 @@ import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
 from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
@@ -127,7 +128,11 @@ class TestTransportContractMatrix:
 
     def test_non_object_json_returns_e1004_and_close_1008(self, mock_sm, mock_producer):
         """E-07：顶层 JSON 非对象时返回 E1004，并以 1008 断开。"""
-        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+        orchestrator = TwoPhaseOrchestrator(
+            mock_sm,
+            mock_producer,
+            message_converter=KafkaMessageConverter(),
+        )
         client = TestClient(_build_app(orchestrator))
 
         with client.websocket_connect("/ws/v1/realtime-transcriptions?conversationId=conv-1") as ws:
@@ -273,7 +278,11 @@ class TestOrchestratorContractMatrix:
         """E-05/E-06/E-07/E-08/E-15：schema 与业务规则校验矩阵。"""
         msg = copy.deepcopy(valid_ongoing_msg)
         mutator(msg)
-        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+        orchestrator = TwoPhaseOrchestrator(
+            mock_sm,
+            mock_producer,
+            message_converter=KafkaMessageConverter(),
+        )
 
         result = await orchestrator.handle_message(msg)
 
@@ -288,7 +297,11 @@ class TestOrchestratorContractMatrix:
     ):
         """N-02：重复 seq 命中幂等 ACK，不断连且不重复写下游。"""
         mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.IDEMPOTENT)
-        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+        orchestrator = TwoPhaseOrchestrator(
+            mock_sm,
+            mock_producer,
+            message_converter=KafkaMessageConverter(),
+        )
 
         result = await orchestrator.handle_message(copy.deepcopy(valid_ongoing_msg))
 
@@ -302,7 +315,11 @@ class TestOrchestratorContractMatrix:
     ):
         """N-02：重复 COMPLETE 命中幂等时返回 EOL_ACK，并正常 close 1000。"""
         mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.IDEMPOTENT)
-        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+        orchestrator = TwoPhaseOrchestrator(
+            mock_sm,
+            mock_producer,
+            message_converter=KafkaMessageConverter(),
+        )
 
         result = await orchestrator.handle_message(copy.deepcopy(valid_complete_msg))
 
@@ -318,7 +335,11 @@ class TestOrchestratorContractMatrix:
         self, valid_complete_msg, mock_sm, mock_producer
     ):
         """N-03：SESSION_COMPLETE 正常处理返回 EOL_ACK，并以 1000 断开。"""
-        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+        orchestrator = TwoPhaseOrchestrator(
+            mock_sm,
+            mock_producer,
+            message_converter=KafkaMessageConverter(),
+        )
 
         result = await orchestrator.handle_message(copy.deepcopy(valid_complete_msg))
 
@@ -335,7 +356,11 @@ class TestOrchestratorContractMatrix:
     ):
         """E-09：序列号乱序时返回 E1006，并以 1008 断开。"""
         mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.OUT_OF_ORDER)
-        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+        orchestrator = TwoPhaseOrchestrator(
+            mock_sm,
+            mock_producer,
+            message_converter=KafkaMessageConverter(),
+        )
 
         result = await orchestrator.handle_message(copy.deepcopy(valid_ongoing_msg))
 
@@ -350,7 +375,11 @@ class TestOrchestratorContractMatrix:
     ):
         """E-10：下游超时时返回 E1011，并以 1013 断开。"""
         mock_producer.send.side_effect = TimeoutError()
-        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+        orchestrator = TwoPhaseOrchestrator(
+            mock_sm,
+            mock_producer,
+            message_converter=KafkaMessageConverter(),
+        )
 
         result = await orchestrator.handle_message(copy.deepcopy(valid_ongoing_msg))
 
@@ -364,7 +393,11 @@ class TestOrchestratorContractMatrix:
     ):
         """E-11：下游失败时返回 E1008，并以 1013 断开。"""
         mock_producer.send.side_effect = RuntimeError("broker down")
-        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+        orchestrator = TwoPhaseOrchestrator(
+            mock_sm,
+            mock_producer,
+            message_converter=KafkaMessageConverter(),
+        )
 
         result = await orchestrator.handle_message(copy.deepcopy(valid_ongoing_msg))
 
@@ -378,7 +411,11 @@ class TestOrchestratorContractMatrix:
     ):
         """E-12：编排层未捕获异常时返回 E1007，并以 1011 断开。"""
         mock_sm.prepare.side_effect = RuntimeError("unexpected")
-        orchestrator = TwoPhaseOrchestrator(mock_sm, mock_producer)
+        orchestrator = TwoPhaseOrchestrator(
+            mock_sm,
+            mock_producer,
+            message_converter=KafkaMessageConverter(),
+        )
 
         result = await orchestrator.handle_message(copy.deepcopy(valid_ongoing_msg))
 

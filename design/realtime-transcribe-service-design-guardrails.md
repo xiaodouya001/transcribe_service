@@ -38,7 +38,9 @@
 
 ### 2.3 两阶段提交与无损重试
 
-- 正常路径必须遵循：`prepare -> Kafka send -> commit -> ACK`。
+- 正常路径必须遵循：`prepare -> Kafka outbound 组装（converter）-> Kafka send -> commit -> ACK`。
+- Kafka 出站契约为 `metaData + payload + enrich`，且 `enrich.eventProduceTimestamp` 必须在每次 `producer.send` 前重新生成。
+- producer 必须保持 transport-only：只负责投递，不得修改 payload；Kafka enrich 只能在 converter 层完成。
 - Kafka 超时/失败时，必须“不 commit、返回错误、允许上游重试同一 seq”。
 - 这条“下游失败后无损重试”是架构的核心承诺之一。
 

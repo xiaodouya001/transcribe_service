@@ -7,6 +7,7 @@ from realtime_transcribe_service.schemas.request import (
     MetaData,
     Payload,
 )
+from realtime_transcribe_service.schemas.kafka_outbound import KafkaEnrich, KafkaOutboundMessage
 from realtime_transcribe_service.schemas.response import (
     EolAckResponse,
     ErrorResponse,
@@ -15,6 +16,7 @@ from realtime_transcribe_service.schemas.response import (
     build_error,
     build_transcript_ack,
 )
+from realtime_transcribe_service.utils.timestamp import format_utc_timestamp, utc_now_timestamp
 
 __all__ = [
     "ErrorCode",
@@ -25,6 +27,8 @@ __all__ = [
     "InboundMessage",
     "MetaData",
     "Payload",
+    "KafkaEnrich",
+    "KafkaOutboundMessage",
     "Speaker",
     "EolAckResponse",
     "ErrorResponse",
@@ -32,5 +36,7 @@ __all__ = [
     "build_eol_ack",
     "build_error",
     "build_transcript_ack",
+    "format_utc_timestamp",
+    "utc_now_timestamp",
 ]
 

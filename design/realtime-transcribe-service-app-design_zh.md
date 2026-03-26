@@ -324,6 +324,8 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `main.py` | 应用生命周期与依赖注入入口 | - 初始化 Redis/Kafka 组件；<br />- 组装应用；<br />- 执行优雅停机 | 不编写业务判断逻辑或 JSON 解析代码 |
 | `schemas/` | 协议契约与数据校验层 | - 校验字段、类型、时间戳与业务规则；<br />- 构造标准响应 | 不做网络 I/O 或数据库调用 |
+| `converter/` | Kafka 出站转换层 | 由已校验的 `InboundMessage` 组装 `KafkaOutboundMessage`，在 `producer.send` 前写入 `enrich.eventProduceTimestamp` 并校验出站契约 | 不做网络 I/O，且不得修改调用方输入 |
+| `utils/` | 通用工具层 | 提供跨层可复用的纯函数 helper（如 UTC 时间戳格式化） | 不做业务编排与外部 I/O |
 | `transport/` | WebSocket 接入层 | 握手准入、连接保活、协议一致性校验、错误映射 | 不做业务编排、状态推进或下游投递 |
 | `redis/ownership_guard.py` | 会话发送所有权守卫 | claim、refresh、release 会话发送所有权 | 不承担序列推进、字段校验或消息投递 |
 | `redis/sequence_state_machine.py` | 序列状态机 | - Lua 原子预检与状态推进；<br />- 维护 active/final TTL | 不感知 Kafka 或下游业务逻辑 |
@@ -420,7 +422,7 @@ sequenceDiagram
 系统不使用分布式事务，而是通过“状态滞后推进”实现一致性：
 
 1. **Prepare**: Fano Assist 发送 `seq=5`。Realtime Transcribe Service 调用 Lua 预检。
-2. **Persistence**: 写入 Kafka。设置 `acks=all`。
+2. **Persistence**：converter 组装 Kafka 值（`metaData + payload + enrich`）后写入 Kafka，设置 `acks=all`。
 3. **Commit**: 收到 Kafka Ack。调用 Redis `INCR` 脚本将期望值推至 6。
 4. **Ack**: 回复对应成功 ACK（普通 transcript 为 `TRANSCRIPT_ACK`，结束帧为 `EOL_ACK`）。
 5. **异常处理**：若 Kafka 写入失败，不执行第 3 步。上游超时后重发 `seq=5`，Redis 此时存的仍是 5，预检依然通过，实现无损重试。
@@ -429,7 +431,7 @@ sequenceDiagram
 | 阶段                      | 操作                                                         |
 | ------------------------- | ------------------------------------------------------------ |
 | **Prepare（预检）**       | Lua 预检Payload中`sequenceNumber` 和 `real-time-transcriber:transcript-checker:{conversationId}` 是否一致（不自增） |
-| **Persistence（持久化）** | 写入 Kafka，`conversationId` 为 Key，`acks=all`              |
+| **Persistence（持久化）** | 经 converter 组装后的 Kafka 值写入 Kafka，`conversationId` 为 Key，`acks=all` |
 | **Commit（提交）**        | Kafka Ack 后`real-time-transcriber:transcript-checker:{conversationId}` 值递增 |
 | **Ack**                   | 发送对应event(SESSION_ONGOING/SESSION_COMPLETE) 消息处理成功的ACK（`TRANSCRIPT_ACK` / `EOL_ACK`） |
 
