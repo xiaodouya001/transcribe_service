@@ -216,57 +216,50 @@ sequenceDiagram
     participant Kafka as Kafka
 
     Upstream->>Trans: Send message (SESSION_ONGOING or SESSION_COMPLETE)
+    Note over Trans,RedisOwnership: Handshake claim already passed; ownership refresh runs in the background while message processing continues
+    Trans->>Trans: Validate schema and orchestrate the request
 
     alt Unhandled exception at any processing stage (E1007)
         Trans->>Trans: Unexpected internal exception
         Trans-->>Upstream: Send ERROR frame (E1007)
         Trans->>Upstream: Close connection (Close Code 1011)
-    else Normal processing path
-        Trans->>Trans: Validate schema
-
-        alt Ownership refresh store unavailable
-            Trans->>RedisOwnership: refresh
-            RedisOwnership-->>Trans: Error
-            Trans-->>Upstream: Send ERROR frame (E1008)
-            Trans->>Upstream: Close connection (Close Code 1013)
-        else Ownership refresh detects conflict
-            Trans->>RedisOwnership: refresh
-            RedisOwnership-->>Trans: BUSY
-            Trans-->>Upstream: Send ERROR frame (E1009, only one sender connection is allowed)
-            Trans->>Upstream: Close connection (Close Code 1008)
-        else Ownership refresh healthy
-            Note over Trans,RedisOwnership: Handshake claim already passed; processing can continue
-        end
-
-        alt Schema or business-rule validation fails (E1002/E1003/E1004/E1005/E1009)
-            Trans-->>Upstream: Send ERROR frame (code, message, details)
-            Trans->>Upstream: Close connection (Close Code 1008)
-        else Schema passes and Redis pre-check starts
-            Trans->>RedisState: Phase 1 - atomic pre-check (Lua script)
-        end
-
-        alt Duplicate message (IDEMPOTENT)
-            RedisState-->>Trans: IDEMPOTENT
-            Trans-->>Upstream: Return the matching success ACK immediately
-        else Out-of-order sequence (E1006)
-            RedisState-->>Trans: OUT_OF_ORDER
-            Trans-->>Upstream: Send ERROR frame (E1006)
-            Trans->>Upstream: Close connection (Close Code 1008)
-        else Pre-check passes, send to Kafka
-            RedisState-->>Trans: PRE_CHECK_OK
-            Trans->>Kafka: Phase 2 - async send
-        end
-
-        alt Downstream unavailable or timed out (E1008 or E1011)
-            Kafka-->>Trans: Timeout or send failure
-            Trans-->>Upstream: Send ERROR frame (E1008 or E1011)
-            Trans->>Upstream: Close connection (Close Code 1013)
-        else Kafka send succeeds
-            Kafka-->>Trans: ACK
-            Trans->>RedisState: Phase 3 - commit
-            RedisState-->>Trans: State advanced
-            Trans-->>Upstream: Return the matching success ACK
-        end
+    else Ownership refresh store unavailable (E1008)
+        Trans->>RedisOwnership: refresh
+        RedisOwnership-->>Trans: Error
+        Trans-->>Upstream: Send ERROR frame (E1008)
+        Trans->>Upstream: Close connection (Close Code 1013)
+    else Ownership refresh detects conflict (E1009)
+        Trans->>RedisOwnership: refresh
+        RedisOwnership-->>Trans: BUSY
+        Trans-->>Upstream: Send ERROR frame (E1009, only one sender connection is allowed)
+        Trans->>Upstream: Close connection (Close Code 1008)
+    else Schema or business-rule validation fails (E1002/E1003/E1004/E1005/E1009)
+        Trans-->>Upstream: Send ERROR frame (code, message, details)
+        Trans->>Upstream: Close connection (Close Code 1008)
+    else Duplicate message (IDEMPOTENT)
+        Trans->>RedisState: Phase 1 - atomic pre-check (Lua script)
+        RedisState-->>Trans: IDEMPOTENT
+        Trans-->>Upstream: Return the matching success ACK immediately
+    else Out-of-order sequence (E1006)
+        Trans->>RedisState: Phase 1 - atomic pre-check (Lua script)
+        RedisState-->>Trans: OUT_OF_ORDER
+        Trans-->>Upstream: Send ERROR frame (E1006)
+        Trans->>Upstream: Close connection (Close Code 1008)
+    else Downstream unavailable or timed out (E1008 or E1011)
+        Trans->>RedisState: Phase 1 - atomic pre-check (Lua script)
+        RedisState-->>Trans: PRE_CHECK_OK
+        Trans->>Kafka: Phase 2 - async send
+        Kafka-->>Trans: Timeout or send failure
+        Trans-->>Upstream: Send ERROR frame (E1008 or E1011)
+        Trans->>Upstream: Close connection (Close Code 1013)
+    else Normal success path
+        Trans->>RedisState: Phase 1 - atomic pre-check (Lua script)
+        RedisState-->>Trans: PRE_CHECK_OK
+        Trans->>Kafka: Phase 2 - async send
+        Kafka-->>Trans: ACK
+        Trans->>RedisState: Phase 3 - commit
+        RedisState-->>Trans: State advanced
+        Trans-->>Upstream: Return the matching success ACK
     end
 ```
 

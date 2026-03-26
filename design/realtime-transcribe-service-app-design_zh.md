@@ -229,58 +229,51 @@ sequenceDiagram
     participant RedisState as Redis (Sequence State Machine)
     participant Kafka as Kafka
     Upstream->>Trans: 推送消息 (SESSION_ONGOING / SESSION_COMPLETE)
+    Note over Trans,RedisOwnership: 握手阶段 claim 已通过；连接存活期间后台持续 refresh ownership，同时继续处理消息
+    Trans->>Trans: 内部动作: Schema 校验与编排
 
-        alt 处理过程中任意阶段发生未捕获异常 (E1007)
-            Trans->>Trans: 内部发生未预期异常 (非用户输入问题)
-            Trans-->>Upstream: 发送 ERROR 帧 (E1007)
-            Trans->>Upstream: 关闭连接 (Close Code 1011)
-        else 正常处理流程
-            Trans->>Trans: 内部动作: Schema 校验
-
-            alt ownership guard 后台 refresh 存储不可用
-                Trans->>RedisOwnership: refresh
-                RedisOwnership-->>Trans: 异常
-                Trans-->>Upstream: 发送 ERROR 帧 (E1008)
-                Trans->>Upstream: 关闭连接 (Close Code 1013)
-            else ownership guard 后台 refresh 检测到冲突
-                Trans->>RedisOwnership: refresh
-                RedisOwnership-->>Trans: BUSY
-                Trans-->>Upstream: 发送 ERROR 帧 (E1009, Only one sender connection is allowed)
-                Trans->>Upstream: 关闭连接 (Close Code 1008)
-            else ownership guard 正常
-                Note over Trans,RedisOwnership: 握手阶段 claim 已通过，连接存活期间 refresh 正常，继续进入消息校验与编排
-            end
-
-            alt Schema / 业务规则校验失败 (E1002/E1003/E1004/E1005/E1009)
-                Trans-->>Upstream: 发送 ERROR 帧 (code, message, details)
-                Trans->>Upstream: 关闭连接 (Close Code 1008 策略违规)
-            else Schema 通过，进入 Redis 预检
-                Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
-            end
-
-            alt 重复包 (IDEMPOTENT)
-                RedisState-->>Trans: 返回 IDEMPOTENT
-                Trans-->>Upstream: 直接返回对应成功 ACK
-            else 序列号乱序 (E1006)
-                RedisState-->>Trans: 返回 OUT_OF_ORDER
-                Trans-->>Upstream: 发送 ERROR 帧 (E1006)
-                Trans->>Upstream: 关闭连接 (Close Code 1008)
-            else 预检通过，投递 Kafka
-                RedisState-->>Trans: 返回 PRE_CHECK_OK
-                Trans->>Kafka: 阶段二：异步投递
-            end
-
-            alt 下游不可用或超时 (E1008/E1011)
-                Kafka-->>Trans: 超时或连接失败
-                Trans-->>Upstream: 发送 ERROR 帧 (E1008 或 E1011)
-                Trans->>Upstream: 关闭连接 (Close Code 1013)
-            else Kafka 投递成功
-                Kafka-->>Trans: 返回 Ack
-                Trans->>RedisState: 阶段三：Commit (INCR)
-                RedisState-->>Trans: 状态更新成功
-                Trans-->>Upstream: 返回对应成功 ACK
-            end
-        end
+    alt 处理过程中任意阶段发生未捕获异常 (E1007)
+        Trans->>Trans: 内部发生未预期异常 (非用户输入问题)
+        Trans-->>Upstream: 发送 ERROR 帧 (E1007)
+        Trans->>Upstream: 关闭连接 (Close Code 1011)
+    else ownership guard 后台 refresh 存储不可用 (E1008)
+        Trans->>RedisOwnership: refresh
+        RedisOwnership-->>Trans: 异常
+        Trans-->>Upstream: 发送 ERROR 帧 (E1008)
+        Trans->>Upstream: 关闭连接 (Close Code 1013)
+    else ownership guard 后台 refresh 检测到冲突 (E1009)
+        Trans->>RedisOwnership: refresh
+        RedisOwnership-->>Trans: BUSY
+        Trans-->>Upstream: 发送 ERROR 帧 (E1009, Only one sender connection is allowed)
+        Trans->>Upstream: 关闭连接 (Close Code 1008)
+    else Schema / 业务规则校验失败 (E1002/E1003/E1004/E1005/E1009)
+        Trans-->>Upstream: 发送 ERROR 帧 (code, message, details)
+        Trans->>Upstream: 关闭连接 (Close Code 1008 策略违规)
+    else 重复包 (IDEMPOTENT)
+        Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
+        RedisState-->>Trans: 返回 IDEMPOTENT
+        Trans-->>Upstream: 直接返回对应成功 ACK
+    else 序列号乱序 (E1006)
+        Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
+        RedisState-->>Trans: 返回 OUT_OF_ORDER
+        Trans-->>Upstream: 发送 ERROR 帧 (E1006)
+        Trans->>Upstream: 关闭连接 (Close Code 1008)
+    else 下游不可用或超时 (E1008/E1011)
+        Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
+        RedisState-->>Trans: 返回 PRE_CHECK_OK
+        Trans->>Kafka: 阶段二：异步投递
+        Kafka-->>Trans: 超时或连接失败
+        Trans-->>Upstream: 发送 ERROR 帧 (E1008 或 E1011)
+        Trans->>Upstream: 关闭连接 (Close Code 1013)
+    else 正常成功路径
+        Trans->>RedisState: 阶段一：原子预检 (Lua 脚本)
+        RedisState-->>Trans: 返回 PRE_CHECK_OK
+        Trans->>Kafka: 阶段二：异步投递
+        Kafka-->>Trans: 返回 Ack
+        Trans->>RedisState: 阶段三：Commit (INCR)
+        RedisState-->>Trans: 状态更新成功
+        Trans-->>Upstream: 返回对应成功 ACK
+    end
 ```
 
 
