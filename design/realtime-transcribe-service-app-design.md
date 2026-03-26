@@ -336,7 +336,7 @@ The handshake query parameter `conversationId` is the connection-level session i
 | **Liveness during the session** | After the connection is established, a background task keeps refreshing the ownership TTL. If refresh detects a conflict or the backing store becomes unavailable, the service sends `ERROR` and closes the connection |
 | **Release timing** | Ownership is released on successful `SESSION_COMPLETE`, client disconnect, or server-side teardown after an abnormal end |
 | **Business events** | `SESSION_ONGOING` and `SESSION_COMPLETE` (the final EOL control event) |
-| **Protocol keepalive** | Ping/Pong every 20 seconds to stay within the ALB 60-second idle timeout |
+| **Protocol keepalive** | Server sends WebSocket Ping every `ping_interval` (default 20s; first Ping after connection uptime reaches that interval); client must Pong within `ping_timeout` (default 20s) per Ping—see API Contract §1.4. Keeps traffic below typical ALB 60-second idle timeout |
 
 ### 3.4 Redis as the Session Control Plane
 

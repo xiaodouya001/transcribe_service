@@ -360,7 +360,7 @@ sequenceDiagram
 | **连接存活期保活** | 连接建立后后台周期 `refresh` ownership guard TTL；若 refresh 发现冲突或存储不可用，则发送 `ERROR` 并关闭连接 |
 | **释放时机** | 正常 `SESSION_COMPLETE`、客户端断开、服务端异常收尾时，均在连接结束路径执行 `release(conversationId, ownershipToken)` |
 | **业务信号** | `SESSION_ONGOING`、`SESSION_COMPLETE`（最终 EOL 控制事件） |
-| **协议保活** | 每 20 秒 Ping/Pong（ALB 空闲超时 60 秒） |
+| **协议保活** | 服务端按 `ping_interval`（默认 20s）发 WebSocket Ping（首帧在连接建立后约 20s）；客户端须在 `ping_timeout`（默认 20s）内对每次 Ping 回 Pong，详见 API 契约 §1.4；用于避免 ALB 等 60s 空闲断开 |
 
 
 ### 3.4 状态机（乐观数据锁）

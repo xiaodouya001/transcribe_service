@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # --- WebSocket ---
     # 传入 Uvicorn `ws="websockets"`：服务端按间隔发 RFC Ping、依赖对端 Pong（见 main.py）
     ws_ping_interval: float = 20.0
-    ws_ping_timeout: float = 20.0
+    ws_ping_timeout: float = 10.0
     # ownership guard 续租周期（秒），仅用于连接存活期间后台 refresh
     ws_ownership_guard_refresh_interval_sec: float = 5.0
 

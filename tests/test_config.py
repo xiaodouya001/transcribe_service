@@ -14,6 +14,7 @@ class TestSettings:
         assert s.kafka_compression_type == "zstd"
         assert s.kafka_send_timeout_sec == 2.0
         assert s.ws_ping_interval == 20.0
+        assert s.ws_ping_timeout == 10.0
         assert s.stop_timeout == 120
         assert s.http_host == "0.0.0.0"
         assert s.http_port == 8080

@@ -45,8 +45,8 @@ cp .env.example .env
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `WS_PING_INTERVAL` | 20.0 | 秒；**Uvicorn `websockets` 后端**下为服务端发出 **WebSocket Ping** 的间隔，用于保活（如防 ALB 空闲断开） |
-| `WS_PING_TIMEOUT` | 20.0 | 秒；等待 **Pong** 的超时；超时会关闭连接（由 Uvicorn/websockets 库处理） |
+| `WS_PING_INTERVAL` | 20.0 | 秒；**Uvicorn `websockets` 后端**下，连接建立后**先**经过该间隔再发**首帧 Ping**，之后每间隔一次 **Ping**（保活，如防 ALB 空闲断开） |
+| `WS_PING_TIMEOUT` | 10.0 | 秒；**每次服务端发出 Ping 之后**，等待对端 **Pong** 的最长时间；超时则 **websockets** 会关闭连接（典型 WebSocket close code **1011**）。若从不响应 Pong，最早约在 `WS_PING_INTERVAL + WS_PING_TIMEOUT`（默认 30s）后断开 |
 | `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 5.0 | 秒；会话发送所有权守卫的后台续租周期 |
 | `WS_MAX_CONNECTIONS` | 0 | 最大同时在线 WebSocket；`0` 表示不限制；超限握手返回 429 |
 

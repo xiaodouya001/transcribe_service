@@ -8,6 +8,8 @@
 
 如本矩阵与 [API 契约](realtime-transcribe-service-api-contract.md) 存在冲突，以 API 契约为准。
 
+业务侧约束（握手与 body 的 `conversationId`、序号从 0 连续递增、单连接发送、失败重发同 seq 等）以 API 契约 **§2.3 Business Rules** 为准；本矩阵侧重「场景 → 错误码 / 关闭码」映射。
+
 ---
 
 ## 一、错误流程（统一视图）
@@ -25,7 +27,7 @@
 | E-08   | 时间格式无效                                                             | 握手后      | **E1005** | —            | **1008** (Policy Violation) | 是       | 见下文 E-08    |
 | E-09   | 序列号乱序                                                              | 握手后      | **E1006** | —            | **1008** (Policy Violation) | 是       | 见下文 E-09    |
 | E-10   | Kafka 超时                                                           | 握手后      | **E1011** | —            | **1013** (Try Again Later)  | 是       | 见下文 E-10    |
-| E-11   | Kafka 失败                                                           | 握手后      | **E1008** | —            | **1013** (Try Again Later)  | 是       | 见下文 E-11    |
+| E-11   | Kafka 失败或 Redis 等下游不可用（与契约 E1008「依赖不可用」一致）                       | 握手后      | **E1008** | —            | **1013** (Try Again Later)  | 是       | 见下文 E-11    |
 | E-12   | 编排层未捕获异常                                                           | 握手后      | **E1007** | —            | **1011** (Internal Error)   | 是       | 见下文 E-12    |
 | E-13   | 传输层未捕获异常                                                           | 握手后      | **E1007** | —            | **1011** (Internal Error)   | 是       | 见下文 E-13    |
 | E-14   | query 与 `metaData.conversationId` 不一致（均为字符串）                       | 握手后      | **E1009** | —            | **1008** (Policy Violation) | 是       | 见下文 E-14    |
@@ -51,6 +53,8 @@
 ---
 
 ## 三、正常流程 Response JSON 示例
+
+字段定义以 API 契约 **§3.1** 为准（含可选 `serverProcessingMs`）。
 
 ### N-01 SESSION_ONGOING 正常处理
 
@@ -243,7 +247,9 @@
 }
 ```
 
-### E-11 Kafka 失败（Close 1013）
+### E-11 Kafka 失败或下游不可用（Close 1013）
+
+典型为 Kafka 发送失败；Redis 等依赖不可用时亦可能映射为 **E1008** + **1013**（与契约 §4.3 `E1008` 一致）。
 
 ```json
 {
@@ -337,3 +343,9 @@
 
 - `E1009` 用于三类场景：传输层 query / body `conversationId` 字符串不一致、schema 通过后的业务规则校验失败、同一 `conversationId` 出现第二个并发发送连接。前两类是握手后 `ERROR + 1008`，最后一类是握手期 `HTTP 403`。
 - `E1010` 为鉴权失败保留错误码。本服务未包含鉴权流程，因此本矩阵不包含 `E1010` 的可执行场景。
+
+---
+
+## 六、WebSocket 控制层关闭（补充）
+
+与上表「应用层 JSON `ERROR` + 关闭码」不同：**RFC 6455 Ping/Pong 保活**失败时，连接可能在 **WebSocket 层**直接关闭（例如 Close **1011**），**不**经过 §3–§4 的 `ERROR` 帧语义。详见 API 契约 **§1.4**。

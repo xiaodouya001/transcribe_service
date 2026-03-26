@@ -27,7 +27,7 @@
 | `KAFKA_TOPIC_NUM_PARTITIONS` | 100            | 100           | 100            |
 | `LOG_LEVEL`                  | WARNING        | WARNING       | WARNING        |
 | `WS_PING_INTERVAL`           | 20.0           | 20.0          | 20.0           |
-| `WS_PING_TIMEOUT`            | 20.0           | 20.0          | 20.0           |
+| `WS_PING_TIMEOUT`            | 10.0           | 10.0          | 10.0           |
 | `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 5.0 | 5.0 | 5.0 |
 | `STOP_TIMEOUT`               | 120            | 120           | 120            |
 

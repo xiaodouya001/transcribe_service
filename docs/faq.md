@@ -42,6 +42,14 @@ Kafka 发送超时/失败 → 返回 ERROR 帧（E1008/E1011）→ 断连（Clos
 
 ---
 
+## Q7a：WebSocket Ping/Pong 多久没回应会断连？
+
+服务端使用 Uvicorn **`websockets`** 栈的 keepalive：**每次**服务端发出 **Ping** 后，若在 `WS_PING_TIMEOUT`（默认 **10s**）内未收到对应 **Pong**，会关闭连接（典型 close code **1011**）。
+
+首帧 Ping 在连接建立后约 `WS_PING_INTERVAL`（默认 **20s**）才发出，因此若客户端**完全不响应** Pong，最早约在 **约 30s**（20+10）后断开。详见 `design/realtime-transcribe-service-api-contract.md` §1.4。
+
+---
+
 ## Q7：客户端需要严格遵守哪些接入约束？
 
 为满足顺序性、幂等性与无损重试语义，客户端必须严格遵守以下要求：
