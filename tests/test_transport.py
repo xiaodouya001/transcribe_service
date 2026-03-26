@@ -14,6 +14,7 @@ from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 from unittest.mock import patch
 
+from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
 from realtime_transcribe_service.orchestrator.protocols import OrchestratorResult
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
@@ -282,7 +283,15 @@ class TestWebSocket:
         )
         producer = AsyncMock()
         producer.send = AsyncMock()
-        app = create_app(TwoPhaseOrchestrator(state_machine, producer), shutdown, registry)
+        app = create_app(
+            TwoPhaseOrchestrator(
+                state_machine,
+                producer,
+                message_converter=KafkaMessageConverter(),
+            ),
+            shutdown,
+            registry,
+        )
         client = TestClient(app)
 
         msg0 = copy.deepcopy(valid_ongoing_msg)
@@ -606,7 +615,11 @@ class TestWebSocket:
         sm.cleanup = AsyncMock()
         producer = AsyncMock()
         producer.send = AsyncMock()
-        app = create_app(TwoPhaseOrchestrator(sm, producer), shutdown, registry)
+        app = create_app(
+            TwoPhaseOrchestrator(sm, producer, message_converter=KafkaMessageConverter()),
+            shutdown,
+            registry,
+        )
         client = TestClient(app)
         msg = {
             "metaData": {
@@ -648,7 +661,11 @@ class TestWebSocket:
         sm.cleanup = AsyncMock()
         producer = AsyncMock()
         producer.send = AsyncMock()
-        app = create_app(TwoPhaseOrchestrator(sm, producer), shutdown, registry)
+        app = create_app(
+            TwoPhaseOrchestrator(sm, producer, message_converter=KafkaMessageConverter()),
+            shutdown,
+            registry,
+        )
         client = TestClient(app)
         msg = {
             "metaData": {
@@ -691,7 +708,11 @@ class TestWebSocket:
         sm.cleanup = AsyncMock()
         producer = AsyncMock()
         producer.send = AsyncMock()
-        app = create_app(TwoPhaseOrchestrator(sm, producer), shutdown, registry)
+        app = create_app(
+            TwoPhaseOrchestrator(sm, producer, message_converter=KafkaMessageConverter()),
+            shutdown,
+            registry,
+        )
         client = TestClient(app)
 
         with client.websocket_connect(

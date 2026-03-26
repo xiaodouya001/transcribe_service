@@ -18,7 +18,7 @@ class ProducerBackend(Protocol):
 
         Args:
             conversation_id: Partition Key（同一通话路由到同一分区）。
-            payload: 完整消息体（metaData + payload），由 orchestrator 组装。
+            payload: 完整消息体（由 orchestrator/converter 组装后传入）。
         """
         ...  # pragma: no cover
 

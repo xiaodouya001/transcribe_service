@@ -30,6 +30,8 @@ realtime_transcribe_service/
 │   ├── schemas/                     # 契约层：Pydantic 请求/响应模型
 │   ├── transport/                   # 接入层：WebSocket 服务端
 │   ├── redis/                       # Redis 基础设施：序列状态机 + 会话发送所有权守卫
+│   ├── converter/                   # Kafka 出站转换层：增加enrich节点并校验出站契约
+│   ├── utils/                       # 通用工具层：时间格式等跨层可复用 helper
 │   ├── producer/                    # 投递层：Kafka 生产者
 │   ├── orchestrator/                # 调度层：两阶段提交编排
 │   └── shutdown/                    # 优雅停机

@@ -10,6 +10,7 @@ import pytest
 
 from unittest.mock import MagicMock
 
+from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
 from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
@@ -33,15 +34,28 @@ def mock_producer():
 
 
 @pytest.fixture
-def orchestrator(mock_sm, mock_producer) -> TwoPhaseOrchestrator:
-    return TwoPhaseOrchestrator(state_machine=mock_sm, producer=mock_producer)
+def mock_converter():
+    converter = MagicMock()
+    converter.to_kafka_payload = MagicMock(
+        side_effect=lambda _msg, raw: {**raw, "enrich": {"eventProduceTimestamp": "2026-03-27T10:00:00.000Z"}}
+    )
+    return converter
+
+
+@pytest.fixture
+def orchestrator(mock_sm, mock_producer, mock_converter) -> TwoPhaseOrchestrator:
+    return TwoPhaseOrchestrator(
+        state_machine=mock_sm,
+        producer=mock_producer,
+        message_converter=mock_converter,
+    )
 
 
 class TestScenarioA:
     """A. 请求合法 + PRE_CHECK_OK + Kafka 成功 (SESSION_ONGOING) → ACK, 不断连。"""
 
     async def test_normal_ongoing(
-        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_ongoing_msg
+        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, mock_converter, valid_ongoing_msg
     ):
         result = await orchestrator.handle_message(valid_ongoing_msg)
         assert result.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
@@ -50,7 +64,10 @@ class TestScenarioA:
         assert result.timings_ms is not None
         assert {"validate_ms", "prepare_ms", "kafka_send_ms", "commit_ms", "ack_build_ms", "orchestrator_ms"} <= set(result.timings_ms)
         mock_sm.prepare.assert_awaited_once()
+        mock_converter.to_kafka_payload.assert_called_once()
         mock_producer.send.assert_awaited_once()
+        sent_payload = mock_producer.send.await_args.args[1]
+        assert "enrich" in sent_payload
         mock_sm.commit.assert_awaited_once()
         mock_sm.cleanup.assert_not_awaited()
 
@@ -59,17 +76,18 @@ class TestScenarioB:
     """B. IDEMPOTENT → 返回对应 ACK。ONGOING 不断连，COMPLETE 正常 close 1000。"""
 
     async def test_idempotent(
-        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_ongoing_msg
+        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, mock_converter, valid_ongoing_msg
     ):
         mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.IDEMPOTENT)
         result = await orchestrator.handle_message(valid_ongoing_msg)
         assert result.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
         assert result.disconnect is False
         mock_producer.send.assert_not_awaited()
+        mock_converter.to_kafka_payload.assert_not_called()
         mock_sm.commit.assert_not_awaited()
 
     async def test_idempotent_complete_returns_eol_ack_and_close(
-        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_complete_msg
+        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, mock_converter, valid_complete_msg
     ):
         mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.IDEMPOTENT)
         result = await orchestrator.handle_message(valid_complete_msg)
@@ -78,6 +96,7 @@ class TestScenarioB:
         assert result.disconnect is True
         assert result.close_code == 1000
         mock_producer.send.assert_not_awaited()
+        mock_converter.to_kafka_payload.assert_not_called()
         mock_sm.commit.assert_not_awaited()
         mock_sm.cleanup.assert_not_awaited()
 
@@ -86,7 +105,7 @@ class TestScenarioC:
     """C. OUT_OF_ORDER → E1006, 断连 1008。"""
 
     async def test_out_of_order(
-        self, orchestrator: TwoPhaseOrchestrator, mock_sm, valid_ongoing_msg
+        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_converter, valid_ongoing_msg
     ):
         mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.OUT_OF_ORDER)
         result = await orchestrator.handle_message(valid_ongoing_msg)
@@ -94,6 +113,7 @@ class TestScenarioC:
         assert result.response["error"]["code"] == "E1006"
         assert result.disconnect is True
         assert result.close_code == 1008
+        mock_converter.to_kafka_payload.assert_not_called()
 
     async def test_out_of_order_warning_includes_error_and_close_code(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, valid_ongoing_msg
@@ -122,7 +142,9 @@ class TestScenarioC:
 class TestScenarioD:
     """D. Schema 校验失败 → ERROR, 断连 1008 (或 1007)。"""
 
-    async def test_missing_field(self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg):
+    async def test_missing_field(
+        self, orchestrator: TwoPhaseOrchestrator, mock_converter, valid_ongoing_msg
+    ):
         del valid_ongoing_msg["metaData"]["conversationId"]
         result = await orchestrator.handle_message(valid_ongoing_msg)
         assert result.response["metaData"]["eventType"] == "ERROR"
@@ -130,6 +152,7 @@ class TestScenarioD:
         assert result.close_code == 1008
         assert result.timings_ms is not None
         assert {"validate_ms", "orchestrator_ms"} <= set(result.timings_ms)
+        mock_converter.to_kafka_payload.assert_not_called()
 
     async def test_missing_field_uses_fallback_conversation_id(
         self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
@@ -214,23 +237,25 @@ class TestScenarioE:
     """E. Kafka 失败/超时 → E1008/E1011, 不 commit, 断连 1013。"""
 
     async def test_kafka_timeout(
-        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_ongoing_msg
+        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, mock_converter, valid_ongoing_msg
     ):
         mock_producer.send.side_effect = asyncio.TimeoutError()
         result = await orchestrator.handle_message(valid_ongoing_msg)
         assert result.response["error"]["code"] == "E1011"
         assert result.disconnect is True
         assert result.close_code == 1013
+        mock_converter.to_kafka_payload.assert_called_once()
         mock_sm.commit.assert_not_awaited()
 
     async def test_kafka_failure(
-        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_ongoing_msg
+        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, mock_converter, valid_ongoing_msg
     ):
         mock_producer.send.side_effect = RuntimeError("broker down")
         result = await orchestrator.handle_message(valid_ongoing_msg)
         assert result.response["error"]["code"] == "E1008"
         assert result.disconnect is True
         assert result.close_code == 1013
+        mock_converter.to_kafka_payload.assert_called_once()
         mock_sm.commit.assert_not_awaited()
 
     async def test_retry_same_seq_after_kafka_failure_is_lossless(self, valid_ongoing_msg):
@@ -244,28 +269,42 @@ class TestScenarioE:
         )
         producer = AsyncMock()
         producer.send = AsyncMock(side_effect=[RuntimeError("broker down"), None])
-        orchestrator = TwoPhaseOrchestrator(state_machine=state_machine, producer=producer)
+        converter = KafkaMessageConverter()
+        orchestrator = TwoPhaseOrchestrator(
+            state_machine=state_machine,
+            producer=producer,
+            message_converter=converter,
+        )
 
+        ts = ["2020-01-01T00:00:00.001Z", "2020-01-01T00:00:00.002Z"]
         try:
-            first = await orchestrator.handle_message(valid_ongoing_msg)
-            assert first.response["error"]["code"] == "E1008"
-            assert first.disconnect is True
-            assert first.close_code == 1013
+            with patch(
+                "realtime_transcribe_service.converter.kafka_message_converter.utc_now_timestamp",
+                side_effect=ts,
+            ):
+                first = await orchestrator.handle_message(valid_ongoing_msg)
+                assert first.response["error"]["code"] == "E1008"
+                assert first.disconnect is True
+                assert first.close_code == 1013
 
-            cid = valid_ongoing_msg["metaData"]["conversationId"]
-            key = f"real-time-transcriber:transcript-checker:{cid}"
-            assert await client.get(key) == "0"
+                cid = valid_ongoing_msg["metaData"]["conversationId"]
+                key = f"real-time-transcriber:transcript-checker:{cid}"
+                assert await client.get(key) == "0"
 
-            second = await orchestrator.handle_message(valid_ongoing_msg)
-            assert second.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
-            assert second.disconnect is False
-            assert await client.get(key) == "1"
+                second = await orchestrator.handle_message(valid_ongoing_msg)
+                assert second.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+                assert second.disconnect is False
+                assert await client.get(key) == "1"
 
-            third = await orchestrator.handle_message(valid_ongoing_msg)
-            assert third.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
-            assert third.disconnect is False
-            assert await client.get(key) == "1"
-            assert producer.send.await_count == 2
+                third = await orchestrator.handle_message(valid_ongoing_msg)
+                assert third.response["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+                assert third.disconnect is False
+                assert await client.get(key) == "1"
+                assert producer.send.await_count == 2
+                first_payload = producer.send.await_args_list[0].args[1]
+                second_payload = producer.send.await_args_list[1].args[1]
+                assert first_payload["enrich"]["eventProduceTimestamp"] == ts[0]
+                assert second_payload["enrich"]["eventProduceTimestamp"] == ts[1]
         finally:
             await state_machine.close()
 
@@ -354,7 +393,7 @@ class TestScenarioG:
     """G. SESSION_COMPLETE → EOL_ACK, cleanup, 断连 1000。"""
 
     async def test_session_complete(
-        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_complete_msg
+        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, mock_converter, valid_complete_msg
     ):
         result = await orchestrator.handle_message(valid_complete_msg)
         assert result.response["metaData"]["eventType"] == "EOL_ACK"
@@ -363,9 +402,10 @@ class TestScenarioG:
         assert result.close_code == 1000
         mock_sm.commit.assert_awaited_once()
         mock_sm.cleanup.assert_awaited_once()
+        mock_converter.to_kafka_payload.assert_called_once()
 
     async def test_session_complete_cleanup_failure_degrades_to_ack(
-        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, valid_complete_msg
+        self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, mock_converter, valid_complete_msg
     ):
         mock_sm.cleanup.side_effect = RuntimeError("cleanup boom")
 
@@ -380,4 +420,5 @@ class TestScenarioG:
         mock_producer.send.assert_awaited_once()
         mock_sm.commit.assert_awaited_once()
         mock_sm.cleanup.assert_awaited_once()
+        mock_converter.to_kafka_payload.assert_called_once()
 

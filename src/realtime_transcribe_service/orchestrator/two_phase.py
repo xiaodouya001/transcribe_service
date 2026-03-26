@@ -11,6 +11,7 @@ import time
 import structlog
 from pydantic import ValidationError
 
+from realtime_transcribe_service.converter.protocols import KafkaMessageConverterBackend
 from realtime_transcribe_service.constants import MAX_ERROR_DETAILS_LEN, MAX_ERROR_MESSAGE_LEN
 from realtime_transcribe_service.orchestrator.protocols import OrchestratorResult
 from realtime_transcribe_service.producer.protocols import ProducerBackend
@@ -34,9 +35,11 @@ class TwoPhaseOrchestrator:
         self,
         state_machine: SequenceStateMachineBackend,
         producer: ProducerBackend,
+        message_converter: KafkaMessageConverterBackend,
     ) -> None:
         self._sm = state_machine
         self._producer = producer
+        self._message_converter = message_converter
 
     @staticmethod
     def _build_success_ack(conversation_id: str, sequence_number: int, event_type: EventType) -> dict:
@@ -187,7 +190,8 @@ class TwoPhaseOrchestrator:
         # ------------------------------------------------------------------
         # 3. Persistence — 写入 Kafka (场景 A / E / G)
         # ------------------------------------------------------------------
-        kafka_payload = raw_json if isinstance(raw_json, dict) else msg.model_dump(mode="json")
+        assert isinstance(raw_json, dict)
+        kafka_payload = self._message_converter.to_kafka_payload(msg, raw_json)
         kafka_send_started_at = time.perf_counter()
         try:
             await self._producer.send(cid, kafka_payload)

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 import uvicorn
 
+from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
 from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
@@ -44,7 +45,7 @@ async def live_ws_url(unused_tcp_port: int) -> str:
     producer.send = AsyncMock()
 
     app = create_app(
-        TwoPhaseOrchestrator(sm, producer),
+        TwoPhaseOrchestrator(sm, producer, message_converter=KafkaMessageConverter()),
         GracefulShutdown(),
         ConnectionRegistry(),
     )

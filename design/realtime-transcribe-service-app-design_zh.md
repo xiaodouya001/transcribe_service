@@ -324,6 +324,8 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | `main.py` | 应用生命周期与依赖注入入口 | - 初始化 Redis/Kafka 组件；<br />- 组装应用；<br />- 执行优雅停机 | 不编写业务判断逻辑或 JSON 解析代码 |
 | `schemas/` | 协议契约与数据校验层 | - 校验字段、类型、时间戳与业务规则；<br />- 构造标准响应 | 不做网络 I/O 或数据库调用 |
+| `converter/` | Kafka 出站转换层 | 对校验通过的请求做深拷贝、补充 `enrich.eventProduceTimestamp` 并校验出站契约 | 不做网络 I/O，且不得修改调用方输入 |
+| `utils/` | 通用工具层 | 提供跨层可复用的纯函数 helper（如 UTC 时间戳格式化） | 不做业务编排与外部 I/O |
 | `transport/` | WebSocket 接入层 | 握手准入、连接保活、协议一致性校验、错误映射 | 不做业务编排、状态推进或下游投递 |
 | `redis/ownership_guard.py` | 会话发送所有权守卫 | claim、refresh、release 会话发送所有权 | 不承担序列推进、字段校验或消息投递 |
 | `redis/sequence_state_machine.py` | 序列状态机 | - Lua 原子预检与状态推进；<br />- 维护 active/final TTL | 不感知 Kafka 或下游业务逻辑 |
