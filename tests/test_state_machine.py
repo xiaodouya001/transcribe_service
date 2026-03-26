@@ -5,7 +5,7 @@ import fakeredis.aioredis
 from redis.exceptions import NoScriptError
 from unittest.mock import AsyncMock, MagicMock
 
-from realtime_transcribe_service.redis.protocols import PrepareResult
+from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
 from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
 
 
@@ -26,41 +26,41 @@ async def sm():
 class TestPrepare:
     async def test_first_message_seq_0_ok(self, sm: RedisSequenceStateMachine):
         result = await sm.prepare("conv-1", 0)
-        assert result == PrepareResult.PRE_CHECK_OK
+        assert result == PrepareOutcome(PrepareResult.PRE_CHECK_OK, expected_sequence=0)
 
     async def test_first_message_seq_nonzero_out_of_order(self, sm: RedisSequenceStateMachine):
         result = await sm.prepare("conv-1", 5)
-        assert result == PrepareResult.OUT_OF_ORDER
+        assert result == PrepareOutcome(PrepareResult.OUT_OF_ORDER, expected_sequence=0)
 
     async def test_sequential_messages(self, sm: RedisSequenceStateMachine):
         r0 = await sm.prepare("conv-1", 0)
-        assert r0 == PrepareResult.PRE_CHECK_OK
+        assert r0 == PrepareOutcome(PrepareResult.PRE_CHECK_OK, expected_sequence=0)
         await sm.commit("conv-1", 0)
 
         r1 = await sm.prepare("conv-1", 1)
-        assert r1 == PrepareResult.PRE_CHECK_OK
+        assert r1 == PrepareOutcome(PrepareResult.PRE_CHECK_OK, expected_sequence=1)
 
     async def test_duplicate_message_idempotent(self, sm: RedisSequenceStateMachine):
         await sm.prepare("conv-1", 0)
         await sm.commit("conv-1", 0)
 
         result = await sm.prepare("conv-1", 0)
-        assert result == PrepareResult.IDEMPOTENT
+        assert result == PrepareOutcome(PrepareResult.IDEMPOTENT, expected_sequence=1)
 
     async def test_out_of_order_skip(self, sm: RedisSequenceStateMachine):
         await sm.prepare("conv-1", 0)
         await sm.commit("conv-1", 0)
 
         result = await sm.prepare("conv-1", 5)
-        assert result == PrepareResult.OUT_OF_ORDER
+        assert result == PrepareOutcome(PrepareResult.OUT_OF_ORDER, expected_sequence=1)
 
     async def test_no_incr_on_prepare(self, sm: RedisSequenceStateMachine):
         """PRE_CHECK_OK 后不 INCR，重复 prepare 同一 seq 应仍为 PRE_CHECK_OK。"""
         r1 = await sm.prepare("conv-1", 0)
-        assert r1 == PrepareResult.PRE_CHECK_OK
+        assert r1 == PrepareOutcome(PrepareResult.PRE_CHECK_OK, expected_sequence=0)
 
         r2 = await sm.prepare("conv-1", 0)
-        assert r2 == PrepareResult.PRE_CHECK_OK
+        assert r2 == PrepareOutcome(PrepareResult.PRE_CHECK_OK, expected_sequence=0)
 
 
 class TestCommit:
@@ -69,7 +69,7 @@ class TestCommit:
         await sm.commit("conv-1", 0)
 
         r = await sm.prepare("conv-1", 1)
-        assert r == PrepareResult.PRE_CHECK_OK
+        assert r == PrepareOutcome(PrepareResult.PRE_CHECK_OK, expected_sequence=1)
 
     async def test_commit_then_old_seq_idempotent(self, sm: RedisSequenceStateMachine):
         await sm.prepare("conv-1", 0)
@@ -79,7 +79,7 @@ class TestCommit:
         await sm.commit("conv-1", 1)
 
         r = await sm.prepare("conv-1", 0)
-        assert r == PrepareResult.IDEMPOTENT
+        assert r == PrepareOutcome(PrepareResult.IDEMPOTENT, expected_sequence=2)
 
     async def test_commit_reload_script_after_noscript(self):
         client = MagicMock()
@@ -139,8 +139,8 @@ class TestIsolation:
         await sm.commit("conv-A", 0)
 
         r = await sm.prepare("conv-B", 0)
-        assert r == PrepareResult.PRE_CHECK_OK
+        assert r == PrepareOutcome(PrepareResult.PRE_CHECK_OK, expected_sequence=0)
 
         r = await sm.prepare("conv-A", 1)
-        assert r == PrepareResult.PRE_CHECK_OK
+        assert r == PrepareOutcome(PrepareResult.PRE_CHECK_OK, expected_sequence=1)
 

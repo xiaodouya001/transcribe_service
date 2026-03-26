@@ -571,6 +571,31 @@ class TestWebSocket:
                 ws.receive_text()
             assert ei.value.code == 1008
 
+    def test_ws_conversation_id_mismatch_warning_includes_error_and_close_code(
+        self, app, mock_orchestrator
+    ):
+        client = TestClient(app)
+        with patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ) as ws:
+                ws.send_text('{"metaData":{"conversationId":"conv-2"}}')
+                resp = orjson.loads(ws.receive_text())
+                assert resp["error"]["code"] == "E1009"
+                with pytest.raises(WebSocketDisconnect) as ei:
+                    ws.receive_text()
+                assert ei.value.code == 1008
+
+        warn_mock.assert_any_call(
+            "Transport: metaData.conversationId 与握手 query 不一致",
+            conversation_id="conv-1",
+            handshake_conversation_id="conv-1",
+            metadata_conversation_id="conv-2",
+            error_code="E1009",
+            close_code=1008,
+        )
+        mock_orchestrator.handle_message.assert_not_awaited()
+
     def test_ws_meta_conversation_id_missing_still_invokes_orchestrator(
         self, shutdown, registry
     ):
@@ -606,6 +631,7 @@ class TestWebSocket:
             ws.send_text(orjson.dumps(msg).decode())
             resp = orjson.loads(ws.receive_text())
             assert resp["error"]["code"] == "E1003"
+            assert resp["metaData"]["conversationId"] == "conv-1"
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_text()
             assert ei.value.code == 1008
@@ -648,9 +674,37 @@ class TestWebSocket:
             ws.send_text(orjson.dumps(msg).decode())
             resp = orjson.loads(ws.receive_text())
             assert resp["error"]["code"] == "E1004"
+            assert resp["metaData"]["conversationId"] == "conv-1"
             with pytest.raises(WebSocketDisconnect) as ei:
                 ws.receive_text()
             assert ei.value.code == 1008
+        sm.prepare.assert_not_awaited()
+        producer.send.assert_not_awaited()
+
+    def test_ws_non_object_json_returns_e1004_with_handshake_conversation_id(
+        self, shutdown, registry
+    ):
+        """顶层 JSON 非对象时应返回客户端类型错误，而不是 E1007。"""
+        sm = AsyncMock()
+        sm.prepare = AsyncMock()
+        sm.commit = AsyncMock()
+        sm.cleanup = AsyncMock()
+        producer = AsyncMock()
+        producer.send = AsyncMock()
+        app = create_app(TwoPhaseOrchestrator(sm, producer), shutdown, registry)
+        client = TestClient(app)
+
+        with client.websocket_connect(
+            "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+        ) as ws:
+            ws.send_text("[]")
+            resp = orjson.loads(ws.receive_text())
+            assert resp["error"]["code"] == "E1004"
+            assert resp["metaData"]["conversationId"] == "conv-1"
+            with pytest.raises(WebSocketDisconnect) as ei:
+                ws.receive_text()
+            assert ei.value.code == 1008
+
         sm.prepare.assert_not_awaited()
         producer.send.assert_not_awaited()
 
@@ -676,6 +730,27 @@ class TestWebSocket:
             ws.send_text("not json at all")
             resp = orjson.loads(ws.receive_text())
             assert resp["error"]["code"] == "E1001"
+
+    def test_ws_invalid_json_warning_includes_error_and_close_code(self, app):
+        client = TestClient(app)
+        with patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ) as ws:
+                ws.send_text("not json at all")
+                resp = orjson.loads(ws.receive_text())
+                assert resp["error"]["code"] == "E1001"
+                with pytest.raises(WebSocketDisconnect) as ei:
+                    ws.receive_text()
+                assert ei.value.code == 1007
+
+        warn_mock.assert_any_call(
+            "Transport: JSON 解析失败",
+            conversation_id="conv-1",
+            error=ANY,
+            error_code="E1001",
+            close_code=1007,
+        )
 
     def test_ws_missing_conversation_id(self, app):
         client = TestClient(app)
@@ -783,7 +858,7 @@ class TestWebSocket:
     def test_ws_logs_slow_message_breakdown_when_threshold_exceeded(
         self, mock_orchestrator, shutdown, registry
     ):
-        async def slow_handle(_raw_json):
+        async def slow_handle(_raw_json, _conversation_id=""):
             return OrchestratorResult(
                 response=build_transcript_ack("conv-1", 0),
                 disconnect=False,
@@ -848,7 +923,7 @@ class TestWebSocket:
     def test_ws_does_not_log_slow_message_when_threshold_disabled(
         self, mock_orchestrator, shutdown, registry
     ):
-        async def slow_handle(_raw_json):
+        async def slow_handle(_raw_json, _conversation_id=""):
             return OrchestratorResult(
                 response=build_transcript_ack("conv-1", 0),
                 disconnect=False,

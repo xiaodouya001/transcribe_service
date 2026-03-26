@@ -62,6 +62,7 @@ def test_group_identity():
     assert "service" not in out
     assert "version" not in out
     assert "conversation_id" not in out
+    assert list(out.keys())[-1] == "identity"
 
 
 def test_group_identity_without_fixed_fields_returns_original():
@@ -151,6 +152,7 @@ def test_configure_logging_structlog_json_includes_conversation_id(monkeypatch, 
     assert payload["event"] == "ready"
     assert "service" not in payload
     assert "conversation_id" not in payload
+    assert list(payload.keys())[-1] == "identity"
 
 
 def test_configure_logging_auto_tty_json(monkeypatch):

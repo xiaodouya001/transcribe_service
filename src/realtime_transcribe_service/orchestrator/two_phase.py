@@ -58,14 +58,20 @@ class TwoPhaseOrchestrator:
         finalized["orchestrator_ms"] = cls._elapsed_ms(started_at)
         return finalized
 
-    async def handle_message(self, raw_json: dict) -> OrchestratorResult:
+    async def handle_message(
+        self,
+        raw_json: object,
+        conversation_id: str = "",
+    ) -> OrchestratorResult:
         """处理一条上行消息。"""
-        conversation_id = ""
         started_at = time.perf_counter()
         try:
-            raw_conversation_id = (raw_json.get("metaData") or {}).get("conversationId", "")
-            if isinstance(raw_conversation_id, str):
-                conversation_id = raw_conversation_id
+            if isinstance(raw_json, dict):
+                meta = raw_json.get("metaData")
+                if isinstance(meta, dict) and "conversationId" in meta:
+                    raw_conversation_id = meta.get("conversationId")
+                    if isinstance(raw_conversation_id, str):
+                        conversation_id = raw_conversation_id
             return await self._process(raw_json, conversation_id)
         except Exception as exc:
             # 场景 F: 未捕获异常 → E1007 + 断连 1011
@@ -86,7 +92,7 @@ class TwoPhaseOrchestrator:
                 timings_ms={"orchestrator_ms": self._elapsed_ms(started_at)},
             )
 
-    async def _process(self, raw_json: dict, conversation_id: str) -> OrchestratorResult:
+    async def _process(self, raw_json: object, conversation_id: str) -> OrchestratorResult:
         """内部处理逻辑，按场景分支。"""
         process_started_at = time.perf_counter()
         timings: dict[str, float] = {}
@@ -104,6 +110,7 @@ class TwoPhaseOrchestrator:
                 "Orchestrator: Schema 校验失败",
                 conversation_id=conversation_id,
                 error_code=error_code.value,
+                close_code=int(close_code),
                 errors=str(e),
             )
             return OrchestratorResult(
@@ -127,11 +134,11 @@ class TwoPhaseOrchestrator:
         # 2. Prepare — Lua 原子预检
         # ------------------------------------------------------------------
         prepare_started_at = time.perf_counter()
-        result = await self._sm.prepare(cid, seq)
+        prepare = await self._sm.prepare(cid, seq)
         timings["prepare_ms"] = self._elapsed_ms(prepare_started_at)
 
         # 场景 B: IDEMPOTENT → 直接 ACK，不写 Kafka，不推进 Redis
-        if result == PrepareResult.IDEMPOTENT:
+        if prepare.status == PrepareResult.IDEMPOTENT:
             should_disconnect = self._disconnect_after_success(event_type)
             log.info(
                 "Orchestrator: 幂等命中，直接 ACK",
@@ -155,11 +162,15 @@ class TwoPhaseOrchestrator:
             )
 
         # 场景 C: OUT_OF_ORDER → E1006 + 断连 1008
-        if result == PrepareResult.OUT_OF_ORDER:
+        if prepare.status == PrepareResult.OUT_OF_ORDER:
             log.warning(
                 "Orchestrator: 序列号乱序",
                 conversation_id=cid,
                 seq=seq,
+                actual_sequence=seq,
+                expected_sequence=prepare.expected_sequence,
+                error_code=ErrorCode.E1006.value,
+                close_code=int(WsCloseCode.POLICY_VIOLATION),
             )
             return OrchestratorResult(
                 response=build_error(
@@ -176,7 +187,7 @@ class TwoPhaseOrchestrator:
         # ------------------------------------------------------------------
         # 3. Persistence — 写入 Kafka (场景 A / E / G)
         # ------------------------------------------------------------------
-        kafka_payload = raw_json
+        kafka_payload = raw_json if isinstance(raw_json, dict) else msg.model_dump(mode="json")
         kafka_send_started_at = time.perf_counter()
         try:
             await self._producer.send(cid, kafka_payload)

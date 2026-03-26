@@ -616,6 +616,8 @@ async def _message_loop(
                 "Transport: JSON 解析失败",
                 conversation_id=conversation_id,
                 error=str(e),
+                error_code=ErrorCode.E1001.value,
+                close_code=int(WsCloseCode.INVALID_PAYLOAD),
             )
             error_response = build_error(
                 conversation_id,
@@ -663,7 +665,10 @@ async def _message_loop(
                     log.warning(
                         "Transport: metaData.conversationId 与握手 query 不一致",
                         conversation_id=conversation_id,
-                        body_conversation_id=body_cid,
+                        handshake_conversation_id=conversation_id,
+                        metadata_conversation_id=body_cid,
+                        error_code=ErrorCode.E1009.value,
+                        close_code=int(WsCloseCode.POLICY_VIOLATION),
                     )
                     await _send_error_and_close(
                         ws,
@@ -686,7 +691,7 @@ async def _message_loop(
                     )
                     return
 
-        result = await orchestrator.handle_message(raw_json)
+        result = await orchestrator.handle_message(raw_json, conversation_id)
         server_processing_ms = _elapsed_ms(t0)
         resp = result.response
         if (

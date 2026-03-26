@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import random
 import time
 import uuid
@@ -182,29 +183,23 @@ class Stats:
     def snapshot(self) -> dict[str, Any]:
         finished_at = self.end_time if self.end_time is not None else time.monotonic()
         elapsed = max(finished_at - self.start_time, 0.001)
-        sorted_lat = sorted(self.latencies) if self.latencies else [0]
-        sorted_srv_lat = sorted(self.server_latencies) if self.server_latencies else [0]
-        def _pct(p: float) -> float:
-            idx = int(len(sorted_lat) * p)
-            idx = min(idx, len(sorted_lat) - 1)
-            return round(sorted_lat[idx] * 1000, 2)
-        def _srv_pct(p: float) -> float:
-            idx = int(len(sorted_srv_lat) * p)
-            idx = min(idx, len(sorted_srv_lat) - 1)
-            return round(sorted_srv_lat[idx] * 1000, 2)
+        send_tps = round(self.sent / elapsed, 1) if self.sent > 0 else 0.0
+        ack_tps = round(self.ack / elapsed, 1) if self.ack > 0 else 0.0
         return {
             "load_running": self.load_running,
             "sent": self.sent,
             "ack": self.ack,
             "error": self.error,
             "active_connections": self.active_connections,
-            "tps": round(self.sent / elapsed, 1) if self.sent > 0 else 0.0,
-            "p50_ms": _pct(0.5),
-            "p95_ms": _pct(0.95),
-            "p99_ms": _pct(0.99),
-            "server_p50_ms": _srv_pct(0.5),
-            "server_p95_ms": _srv_pct(0.95),
-            "server_p99_ms": _srv_pct(0.99),
+            "tps": ack_tps,
+            "send_tps": send_tps,
+            "ack_tps": ack_tps,
+            "p50_ms": _percentile_ms(self.latencies, 0.50),
+            "p95_ms": _percentile_ms(self.latencies, 0.95),
+            "p99_ms": _percentile_ms(self.latencies, 0.99),
+            "server_p50_ms": _percentile_ms(self.server_latencies, 0.50),
+            "server_p95_ms": _percentile_ms(self.server_latencies, 0.95),
+            "server_p99_ms": _percentile_ms(self.server_latencies, 0.99),
             "elapsed_sec": round(elapsed, 1),
             "recent_errors": list(self.recent_errors),
         }
@@ -312,15 +307,39 @@ async def _open_ws(
 async def _send_and_recv(
     ws: websockets.WebSocketClientProtocol,
     msg: dict | str,
+    *,
+    on_sent: Callable[[], None] | None = None,
 ) -> dict | None:
     """发送消息并接收一条响应。如果连接已关闭返回 None。"""
     text = msg if isinstance(msg, str) else json.dumps(msg, ensure_ascii=False)
     await ws.send(text)
+    if on_sent is not None:
+        on_sent()
     try:
         resp = await asyncio.wait_for(ws.recv(), timeout=10)
         return json.loads(resp)
     except (websockets.exceptions.ConnectionClosed, asyncio.TimeoutError):
         return None
+
+
+def _percentile_ms(samples_sec: list[float], percentile: float) -> float:
+    """Linear-interpolated percentile in milliseconds for end-to-end / server timings."""
+    if not samples_sec:
+        return 0.0
+
+    ordered = sorted(samples_sec)
+    if len(ordered) == 1:
+        return round(ordered[0] * 1000, 2)
+
+    position = (len(ordered) - 1) * percentile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return round(ordered[lower] * 1000, 2)
+
+    weight = position - lower
+    value = ordered[lower] + (ordered[upper] - ordered[lower]) * weight
+    return round(value * 1000, 2)
 
 
 async def _send_expect_error_and_close(
@@ -330,6 +349,7 @@ async def _send_expect_error_and_close(
     action: str,
     expected_code: str,
     expected_close: int,
+    expected_conversation_id: str | None = None,
     result: ScenarioResult,
     emit: EventCallback,
 ) -> None:
@@ -339,9 +359,19 @@ async def _send_expect_error_and_close(
     if resp and resp.get("metaData", {}).get("eventType") == "ERROR":
         err_code = resp.get("error", {}).get("code")
         step["error_code"] = err_code
+        step["conversation_id"] = resp.get("metaData", {}).get("conversationId")
         if err_code != expected_code:
             result.passed = False
             step["error"] = f"期望 {expected_code}，实际={err_code}"
+        elif (
+            expected_conversation_id is not None
+            and step.get("conversation_id") != expected_conversation_id
+        ):
+            result.passed = False
+            step["error"] = (
+                f"期望 conversationId={expected_conversation_id}，"
+                f"实际={step.get('conversation_id')}"
+            )
     else:
         result.passed = False
         step["error"] = "期望 ERROR 帧"
@@ -706,28 +736,16 @@ async def scenario_d2_schema_error(ws_url: str, emit: EventCallback) -> Scenario
 
     try:
         bad_msg = {"metaData": {"eventType": "SESSION_ONGOING"}, "payload": {}}
-        resp = await _send_and_recv(ws, bad_msg)
-        step = {"action": "send_bad_schema", "resp_type": resp.get("metaData", {}).get("eventType") if resp else None}
-        if resp and resp.get("metaData", {}).get("eventType") == "ERROR":
-            step["error_code"] = resp.get("error", {}).get("code")
-        else:
-            result.passed = False
-            step["error"] = "期望 ERROR 帧"
-        result.steps.append(step)
-        await emit("scenario_step", {"scenario": result.name, "step": step})
-
-        try:
-            await asyncio.wait_for(ws.wait_closed(), timeout=5)
-            close_code = ws.close_code
-            step_c = {"action": "verify_close", "close_code": close_code}
-            if close_code != 1008:
-                result.passed = False
-                step_c["error"] = f"期望 close_code=1008，实际={close_code}"
-            result.steps.append(step_c)
-            await emit("scenario_step", {"scenario": result.name, "step": step_c})
-        except asyncio.TimeoutError:
-            result.passed = False
-            result.steps.append({"action": "verify_close", "error": "等待关闭超时"})
+        await _send_expect_error_and_close(
+            ws,
+            bad_msg,
+            action="send_bad_schema",
+            expected_code="E1003",
+            expected_close=1008,
+            expected_conversation_id=cid,
+            result=result,
+            emit=emit,
+        )
     finally:
         try:
             await ws.close()
@@ -775,38 +793,44 @@ async def scenario_e05_invalid_enum(ws_url: str, emit: EventCallback) -> Scenari
 
 
 async def scenario_e07_wrong_type(ws_url: str, emit: EventCallback) -> ScenarioResult:
-    """E-07：字段类型不符，期望 E1004 + 断连 1008。"""
+    """E-07：字段类型不符，覆盖顶层 JSON 非对象与字段类型错误。"""
     result = ScenarioResult(name="E-07", passed=True)
     cid = f"mock-E07-{_random_hex(6)}"
     start_ts = _utc_now_iso()
     meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
     await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
 
-    try:
-        ws = await _open_ws(ws_url, cid)
-    except Exception as e:
-        result.passed = False
-        result.steps.append({"action": "connect", "error": str(e)})
-        await emit("scenario_step", {"scenario": result.name, "step": result.steps[-1]})
-        return result
-
-    try:
-        bad_msg = generate_message(cid, 0, event_type="SESSION_ONGOING", **meta_base)
-        bad_msg["metaData"]["conversationId"] = 123
-        await _send_expect_error_and_close(
-            ws,
-            bad_msg,
-            action="send_wrong_type",
-            expected_code="E1004",
-            expected_close=1008,
-            result=result,
-            emit=emit,
-        )
-    finally:
+    async def _run_subcase(msg: dict | str, *, action: str) -> None:
         try:
-            await ws.close()
-        except Exception:
-            pass
+            ws = await _open_ws(ws_url, cid)
+        except Exception as e:
+            result.passed = False
+            result.steps.append({"action": "connect", "error": str(e)})
+            await emit("scenario_step", {"scenario": result.name, "step": result.steps[-1]})
+            return
+
+        try:
+            await _send_expect_error_and_close(
+                ws,
+                msg,
+                action=action,
+                expected_code="E1004",
+                expected_close=1008,
+                expected_conversation_id=cid,
+                result=result,
+                emit=emit,
+            )
+        finally:
+            try:
+                await ws.close()
+            except Exception:
+                pass
+
+    await _run_subcase("[]", action="send_non_object_json")
+
+    bad_msg = generate_message(cid, 0, event_type="SESSION_ONGOING", **meta_base)
+    bad_msg["metaData"]["conversationId"] = 123
+    await _run_subcase(bad_msg, action="send_wrong_type_field")
 
     return result
 
@@ -846,6 +870,8 @@ async def scenario_e08_invalid_timestamp(ws_url: str, emit: EventCallback) -> Sc
             pass
 
     return result
+
+
 
 
 async def scenario_e14_conversation_id_mismatch(ws_url: str, emit: EventCallback) -> ScenarioResult:
@@ -1004,6 +1030,9 @@ async def _load_single_conversation(
     }
     interval = interval_ms / 1000.0
 
+    def mark_sent() -> None:
+        stats.sent += 1
+
     try:
         ws = await _open_ws(ws_url, cid)
     except Exception as e:
@@ -1019,9 +1048,8 @@ async def _load_single_conversation(
                 break
             msg = generate_message(cid, seq, event_type="SESSION_ONGOING", **meta_base)
             t0 = time.monotonic()
-            resp = await _send_and_recv(ws, msg)
+            resp = await _send_and_recv(ws, msg, on_sent=mark_sent)
             latency = time.monotonic() - t0
-            stats.sent += 1
             stats.latencies.append(latency)
             if resp and resp.get("metaData", {}).get("eventType") == "TRANSCRIPT_ACK":
                 stats.ack += 1
@@ -1057,9 +1085,8 @@ async def _load_single_conversation(
         # SESSION_COMPLETE
         msg = generate_message(cid, complete_seq, event_type="SESSION_COMPLETE", **meta_base)
         t0 = time.monotonic()
-        resp = await _send_and_recv(ws, msg)
+        resp = await _send_and_recv(ws, msg, on_sent=mark_sent)
         latency = time.monotonic() - t0
-        stats.sent += 1
         stats.latencies.append(latency)
         if resp and resp.get("metaData", {}).get("eventType") == "EOL_ACK":
             stats.ack += 1
