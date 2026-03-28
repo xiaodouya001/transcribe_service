@@ -24,10 +24,12 @@ class KafkaViewer:
         self,
         bootstrap_servers: str,
         topic: str,
+        conversation_id: str | None = None,
         on_error: Any = None,
     ) -> None:
         self._bootstrap = bootstrap_servers
         self._topic = topic
+        self._conversation_id = conversation_id.strip() if conversation_id else None
         self._consumer: AIOKafkaConsumer | None = None
         self._subscribers: dict[str, asyncio.Queue[dict[str, Any]]] = {}
         self._task: asyncio.Task | None = None
@@ -40,6 +42,10 @@ class KafkaViewer:
     @property
     def topic(self) -> str:
         return self._topic
+
+    @property
+    def conversation_id(self) -> str | None:
+        return self._conversation_id
 
     def subscribe(self) -> tuple[str, asyncio.Queue[dict[str, Any]]]:
         """Register one subscriber and return ``(subscriber_id, queue)``."""
@@ -69,6 +75,12 @@ class KafkaViewer:
         assert self._consumer is not None
         try:
             async for msg in self._consumer:
+                cid = None
+                if isinstance(msg.value, dict):
+                    cid = (msg.value.get("metaData") or {}).get("conversationId")
+                cid = cid or msg.key
+                if self._conversation_id and cid != self._conversation_id:
+                    continue
                 event = {
                     "topic": msg.topic,
                     "partition": msg.partition,
@@ -113,6 +125,99 @@ class KafkaViewer:
         if self._consumer:
             await self._consumer.stop()
             self._consumer = None
+
+
+async def scan_topic_conversations(
+    bootstrap_servers: str,
+    topic: str,
+    *,
+    poll_timeout_ms: int = 250,
+    max_records: int = 1000,
+) -> dict[str, Any]:
+    """Scan one topic from earliest to end and summarize unique conversationId values."""
+    admin_meta = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
+    await admin_meta.start()
+    try:
+        infos = await admin_meta.describe_topics([topic])
+    finally:
+        await admin_meta.close()
+
+    if not infos:
+        return {
+            "status": "error",
+            "error": f"Unable to fetch topic metadata (cluster unreachable or request rejected): {topic}",
+        }
+
+    meta = infos[0]
+    err_code = meta.get("error_code", 0)
+    if err_code:
+        try:
+            err_name = type(for_code(err_code)).__name__
+        except Exception:
+            err_name = f"error_code={err_code}"
+        return {
+            "status": "error",
+            "error": f"Topic unavailable ({err_name}): {topic}",
+        }
+
+    partitions = meta.get("partitions") or []
+    if not partitions:
+        return {
+            "status": "ok",
+            "topic": topic,
+            "conversation_count": 0,
+            "conversations": [],
+        }
+
+    tps = [TopicPartition(topic, p["partition"]) for p in partitions]
+    consumer = AIOKafkaConsumer(
+        bootstrap_servers=bootstrap_servers,
+        enable_auto_commit=False,
+        auto_offset_reset="earliest",
+        value_deserializer=lambda v: json.loads(v) if v else None,
+        key_deserializer=lambda k: k.decode("utf-8") if k else None,
+    )
+    await consumer.start()
+    try:
+        consumer.assign(tps)
+        end_map = await consumer.end_offsets(tps)
+        if all(end_map[tp] <= 0 for tp in tps):
+            return {
+                "status": "ok",
+                "topic": topic,
+                "conversation_count": 0,
+                "conversations": [],
+            }
+
+        counts: dict[str, int] = {}
+        while True:
+            batch = await consumer.getmany(*tps, timeout_ms=poll_timeout_ms, max_records=max_records)
+            for records in batch.values():
+                for msg in records:
+                    cid = None
+                    if isinstance(msg.value, dict):
+                        cid = (msg.value.get("metaData") or {}).get("conversationId")
+                    cid = cid or msg.key
+                    if cid and cid != "-":
+                        key = str(cid)
+                        counts[key] = counts.get(key, 0) + 1
+
+            positions = await asyncio.gather(*(consumer.position(tp) for tp in tps))
+            if all(pos >= end_map[tp] for tp, pos in zip(tps, positions)):
+                break
+    finally:
+        await consumer.stop()
+
+    conversations = [
+        {"conversation_id": cid, "message_count": counts[cid]}
+        for cid in sorted(counts)
+    ]
+    return {
+        "status": "ok",
+        "topic": topic,
+        "conversation_count": len(conversations),
+        "conversations": conversations,
+    }
 
 
 async def purge_topic_messages(

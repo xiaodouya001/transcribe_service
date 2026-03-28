@@ -1,6 +1,6 @@
 # Mock Client for Realtime Transcribe Service
 
-This tool simulates Fano Assist client behavior, sends transcript messages to Realtime Transcribe Service over WebSocket, verifies the client-triggerable scenarios in the protocol matrix, and supports concurrent load tests plus Kafka message replay.
+This tool simulates Fano Assist client behavior, sends transcript messages to Realtime Transcribe Service over WebSocket, verifies the client-triggerable scenarios in the protocol matrix, and supports concurrent load tests, Kafka message replay, and a CSV-driven Mock Live-Chat playback mode.
 
 ## Prerequisites
 
@@ -73,9 +73,9 @@ Then open **http://127.0.0.1:8088** in the browser.
 
 The page is split into:
 
-- a top control area with scenario and load-test controls
-- the scenario result panel on the left
-- the Kafka message panel on the right
+- a `Scenario Tests` tab for contract-path validation
+- a `Concurrent Load Test` tab for throughput and latency observation
+- a `Mock Live-Chat` tab for CSV-driven conversation playback and Kafka-confirmed chat rendering
 
 Real-time metrics such as sent count, ACK count, errors, active connections, TPS, and latency percentiles live inside the **Concurrent Load Test** card. Those counters are updated only by the load-test path, not by scenario tests. Each time you start a new load test, the dashboard resets and is repopulated from SSE `stats` events.
 
@@ -130,6 +130,26 @@ Message-list behavior:
 - The list keeps up to 200 visible entries and discards the oldest first
 - Clicking a message expands the full JSON body
 
+### 4. Mock Live-Chat
+
+`Mock Live-Chat` uploads one CSV, sends its rows to the WebSocket endpoint in order, and only renders transcript bubbles after the corresponding Kafka records for the same `conversationId` are consumed.
+
+A ready-to-use sample file is included at [samples/live_chat_sample.csv](/D:/sandbox/transcribe_service/mock_client/samples/live_chat_sample.csv).
+
+Supported CSV semantics:
+
+- speaker column aliases: `speaker`, `role`, `sender`, `Speaker Roles`
+- transcript column aliases: `transcript`, `Transcription`, `text`, `message`, `content`
+- optional delay column aliases: `delay_ms`, `pause_ms`, `wait_ms`, `typing_delay_ms`
+- speaker values can be plain `Agent` / `Customer`, or spreadsheet-style values such as `SPEAKER_1;AGENT` and `SPEAKER_2;CUSTOMER`
+
+Runtime behavior:
+
+- only one Live-Chat session can run at a time
+- after the CSV rows finish, the mock client automatically appends one `SESSION_COMPLETE`
+- Kafka consumption for Live-Chat is isolated from the normal Kafka viewer and uses `auto_offset_reset=latest`
+- the typing cadence is controlled by `chars per second` plus optional jitter, unless a row-level `delay_ms` is present
+
 ## Scenario Reference
 
 | Matrix ID | Internal name | Action | Expected result |
@@ -177,18 +197,38 @@ curl -X POST "http://127.0.0.1:8088/api/kafka/stop"
 
 # Purge committed Kafka records
 curl -X POST "http://127.0.0.1:8088/api/kafka/purge?bootstrap=127.0.0.1:9092&topic=AI_STAGING_TRANSCRIPTION"
+
+# Preview a Live-Chat CSV
+curl -X POST "http://127.0.0.1:8088/api/live/preview" \
+  -H "Content-Type: application/json" \
+  -d "{\"csv_text\":\"speaker,transcript\nAgent,hello\",\"csv_filename\":\"chat.csv\"}"
+
+# Start Mock Live-Chat
+curl -X POST "http://127.0.0.1:8088/api/live/start" \
+  -H "Content-Type: application/json" \
+  -d "{\"csv_text\":\"speaker,transcript\nAgent,hello\",\"csv_filename\":\"chat.csv\",\"ws_url\":\"ws://127.0.0.1:8080/ws/v1/realtime-transcriptions\",\"kafka_bootstrap\":\"127.0.0.1:9092\",\"kafka_topic\":\"AI_STAGING_TRANSCRIPTION\",\"conversation_id\":\"livechat-demo-1\",\"chars_per_second\":18,\"pace_jitter_pct\":0.15}"
+
+# Stop / clear / inspect Live-Chat state
+curl -X POST "http://127.0.0.1:8088/api/live/stop"
+curl -X POST "http://127.0.0.1:8088/api/live/clear"
+curl "http://127.0.0.1:8088/api/live/status"
 ```
 
 ## File Layout
 
 ```text
 mock_client/
+├── live_chat.py       # CSV parsing, pacing, Live-Chat state machine, Kafka filtering
 ├── server.py          # FastAPI backend: API endpoints, SSE, and static files
 ├── ws_driver.py       # Message generator, scenario engine, and load-test driver
 ├── kafka_viewer.py    # Kafka consumer and queue broadcaster
+├── samples/
+│   └── live_chat_sample.csv
 ├── tests/             # Mock-client-local tests (unit + integration)
 ├── static/
-│   └── index.html     # Single-page browser UI
+│   ├── index.html     # Thin HTML shell
+│   ├── mock-console.css
+│   └── mock-console.js
 └── README.md          # This document
 ```
 
