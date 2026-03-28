@@ -304,6 +304,7 @@ The application follows a dependency-inversion architecture. The orchestrator si
 | Module | Primary Responsibility | Allowed Core Actions | Architectural No-Go Zone |
 | --- | --- | --- | --- |
 | `main.py` | Application lifecycle and dependency assembly | Initialize Redis and Kafka components; wire the app; handle graceful shutdown | No business decisions and no JSON parsing |
+| `config/` | Environment-backed settings and logging bootstrap | Load and validate `Settings` (Pydantic Settings / `.env`); derive local defaults vs. deployed required keys; configure structlog and stdlib logging (`LOG_LEVEL`, `LOG_FORMAT`) | No WebSocket or protocol handling; no Redis, Kafka, or orchestration calls |
 | `schemas/` | Protocol contract and validation layer | Validate fields, types, timestamps, and business rules; build standard responses | No network I/O and no data-store calls |
 | `converter/` | Kafka outbound conversion layer | Build `KafkaOutboundMessage` from validated `InboundMessage`, set `enrich.eventProduceTimestamp` immediately before `producer.send`, and validate outbound schema | Must not perform network I/O or mutate caller input |
 | `utils/` | Shared utility helpers | Provide reusable pure helpers such as canonical UTC timestamp formatting | No business orchestration and no network/data-store I/O |
