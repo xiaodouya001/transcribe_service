@@ -16,14 +16,34 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from kafka_viewer import KafkaViewer, purge_topic_messages
-from logging_config import configure_logging
-from settings import get_settings
-from ws_driver import SCENARIOS, Stats, run_load_test
+try:
+    from .kafka_viewer import KafkaViewer, purge_topic_messages, scan_topic_conversations
+    from .live_chat import (
+        LiveChatConflictError,
+        LiveChatManager,
+        LiveChatPreviewRequest,
+        LiveChatStartRequest,
+        LiveChatValidationError,
+    )
+    from .logging_config import configure_logging
+    from .settings import get_settings
+    from .ws_driver import SCENARIOS, Stats, run_load_test
+except ImportError:  # pragma: no cover - direct script execution fallback
+    from kafka_viewer import KafkaViewer, purge_topic_messages, scan_topic_conversations
+    from live_chat import (
+        LiveChatConflictError,
+        LiveChatManager,
+        LiveChatPreviewRequest,
+        LiveChatStartRequest,
+        LiveChatValidationError,
+    )
+    from logging_config import configure_logging
+    from settings import get_settings
+    from ws_driver import SCENARIOS, Stats, run_load_test
 
 # ---------------------------------------------------------------------------
 # Global state
@@ -40,6 +60,7 @@ SETTINGS = get_settings()
 DEFAULT_WS_URL = SETTINGS.default_ws_url
 DEFAULT_KAFKA_BOOTSTRAP = SETTINGS.default_kafka_bootstrap
 DEFAULT_KAFKA_TOPIC = SETTINGS.default_kafka_topic
+_live_chat_manager = LiveChatManager(emit=lambda event_type, data: _emit(event_type, data))
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +113,7 @@ async def lifespan(app: FastAPI):
     if _kafka_viewer:
         await _kafka_viewer.stop()
         _kafka_viewer = None
+    await _live_chat_manager.shutdown()
 
     for q in _sse_queues:
         _sse_put_drop_oldest(q, "")
@@ -286,10 +308,47 @@ async def get_status():
     return stats.snapshot()
 
 
+@app.post("/api/live/preview")
+async def live_preview(request: LiveChatPreviewRequest):
+    try:
+        return _live_chat_manager.preview_csv(request)
+    except LiveChatValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/live/start")
+async def live_start(request: LiveChatStartRequest):
+    try:
+        return await _live_chat_manager.start(request)
+    except LiveChatValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LiveChatConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/live/stop")
+async def live_stop():
+    return await _live_chat_manager.stop()
+
+
+@app.post("/api/live/clear")
+async def live_clear():
+    try:
+        return await _live_chat_manager.clear()
+    except LiveChatConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/live/status")
+async def live_status():
+    return _live_chat_manager.snapshot()
+
+
 @app.post("/api/kafka/start")
 async def kafka_start(
     bootstrap: str = Query(DEFAULT_KAFKA_BOOTSTRAP),
     topic: str = Query(DEFAULT_KAFKA_TOPIC),
+    conversation_id: str = Query(..., min_length=1),
 ):
     """Start the Kafka consumer and forward messages through SSE."""
     global _kafka_viewer, _kafka_forward_task
@@ -303,7 +362,10 @@ async def kafka_start(
         _broadcast_sse("kafka_error", {"error": err})
 
     _kafka_viewer = KafkaViewer(
-        bootstrap_servers=bootstrap, topic=topic, on_error=_on_kafka_error,
+        bootstrap_servers=bootstrap,
+        topic=topic,
+        conversation_id=conversation_id,
+        on_error=_on_kafka_error,
     )
     sid, q = _kafka_viewer.subscribe()
 
@@ -322,8 +384,20 @@ async def kafka_start(
         return {"status": "kafka_consumer_failed", "error": str(e)}
 
     _kafka_forward_task = asyncio.create_task(_forward())
-    _broadcast_sse("kafka_status", {"connected": True, "topic": topic})
-    return {"status": "kafka_consumer_started", "topic": topic}
+    _broadcast_sse("kafka_status", {"connected": True, "topic": topic, "conversation_id": conversation_id})
+    return {"status": "kafka_consumer_started", "topic": topic, "conversation_id": conversation_id}
+
+
+@app.get("/api/kafka/conversations")
+async def kafka_conversations(
+    bootstrap: str = Query(DEFAULT_KAFKA_BOOTSTRAP),
+    topic: str = Query(DEFAULT_KAFKA_TOPIC),
+):
+    """Scan the topic once and return distinct conversationId values for selection."""
+    try:
+        return await scan_topic_conversations(bootstrap_servers=bootstrap, topic=topic)
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
 
 
 @app.post("/api/kafka/stop")
@@ -353,6 +427,7 @@ async def kafka_purge(
 
     resume_bs: str | None = None
     resume_topic: str | None = None
+    resume_conversation_id: str | None = None
     if (
         _kafka_viewer
         and restart_consumer
@@ -360,6 +435,7 @@ async def kafka_purge(
         and _kafka_viewer.topic == topic
     ):
         resume_bs, resume_topic = bootstrap, topic
+        resume_conversation_id = _kafka_viewer.conversation_id
 
     if _kafka_forward_task and not _kafka_forward_task.done():
         _kafka_forward_task.cancel()
@@ -379,8 +455,12 @@ async def kafka_purge(
 
     _broadcast_sse("kafka_purged", {"topic": topic, "detail": result})
 
-    if resume_bs and resume_topic:
-        started = await kafka_start(bootstrap=resume_bs, topic=resume_topic)
+    if resume_bs and resume_topic and resume_conversation_id:
+        started = await kafka_start(
+            bootstrap=resume_bs,
+            topic=resume_topic,
+            conversation_id=resume_conversation_id,
+        )
         return {"purge": result, **started}
 
     return {**result, "consumer": "stopped", "hint": "Click Start Consumer again to inspect the latest state"}
