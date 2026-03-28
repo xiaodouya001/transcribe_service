@@ -1,88 +1,84 @@
-# 部署指南
+# Deployment Guide
 
-本文档说明 Realtime Transcribe Service 的构建、部署与运行要求，覆盖 WebSocket 网关、Redis 序列状态机 + Redis 发送所有权守卫，以及 Kafka 投递架构。
+This document describes how to build, deploy, and operate Realtime Transcribe Service, including the WebSocket gateway, the Redis sequence state machine plus ownership guard, and Kafka delivery.
 
 ---
 
-## 1. 构建镜像
+## 1. Build the Image
 
 ```bash
 docker build -f docker/Dockerfile -t realtime-transcribe-service:latest .
 ```
 
-镜像基于 `python:3.12-slim`，多阶段构建，非 root 用户运行，入口为 `python -m realtime_transcribe_service.main`。
+The image is based on `python:3.12-slim`, uses a multi-stage build, runs as a non-root user, and starts with `python -m realtime_transcribe_service.main`.
 
 ---
 
-## 2. 目标环境
+## 2. Target Environment
 
-**AWS ECS Fargate**，需：
+The primary deployment target is **AWS ECS Fargate** with:
 
-- **VPC**：服务与 ElastiCache、MSK 同网段或可路由
-- **ElastiCache Redis**：提供 `REDIS_URL`，承载两类职责：
-  - Sequence State Machine（序列守卫 / 2PC 状态）
-  - Conversation Ownership Guard（同会话单连接发送所有权）
-- **MSK**：提供 `KAFKA_BOOTSTRAP_SERVERS`
-- **负载均衡**：上游 Fano Assist 通过 **WSS** 连接；通常使用 **ALB**（空闲超时需大于 WebSocket 心跳，见设计文档），目标组健康检查指向 HTTP 端点（见下文）
+- A **VPC** where the service can reach ElastiCache and MSK
+- **ElastiCache Redis** exposed through `REDIS_URL` and used for:
+  - the sequence state machine / 2PC state
+  - the conversation ownership guard that enforces single-sender semantics
+- **MSK** exposed through `KAFKA_BOOTSTRAP_SERVERS`
+- An upstream **load balancer**, typically **ALB**, terminating WSS for Fano Assist. Its idle timeout must exceed the WebSocket keepalive interval described in the design docs
 
-**协议说明**：本服务是 **WebSocket 服务端**，不再主动连接外部 STT；上游客户端连接：
+Protocol note: this service is a **WebSocket server**. It does not open outbound STT connections. Upstream clients connect to:
 
 `wss://<your-host>/ws/v1/realtime-transcriptions?conversationId=<id>`
 
-完整契约见 [design/realtime-transcribe-service-api-contract.md](../design/realtime-transcribe-service-api-contract.md)。
+See the full protocol definition in [design/realtime-transcribe-service-api-contract.md](../design/realtime-transcribe-service-api-contract.md).
 
 ---
 
-## 3. 环境变量
+## 3. Environment Variables
 
-生产最小配置项如下（完整列表见 [.env.example](../.env.example) 与 [configuration.md](configuration.md)）：
+The minimum production configuration is:
 
-| 变量 | 说明 |
+| Variable | Description |
 |------|------|
-| `REDIS_URL` | ElastiCache Redis 连接串 |
-| `KAFKA_BOOTSTRAP_SERVERS` | MSK broker 地址 |
-| `KAFKA_TOPIC` | 默认 `AI_STAGING_TRANSCRIPTION`（须与 Topic 实际名称一致） |
-| `KAFKA_TOPIC_NUM_PARTITIONS` | 仅当服务负责建 Topic 时有效；生产 Topic 通常由运维预建 |
-| `KAFKA_REPLICATION_FACTOR` | 生产环境通常取 ≥ 2（与 MSK 策略一致） |
-| `KAFKA_COMPRESSION_TYPE` | 默认 `zstd`；也可设为 `gzip` 等 |
-| `HTTP_HOST` / `HTTP_PORT` | 监听地址与端口（容器内多为 `0.0.0.0:8080`） |
-| `KAFKA_STARTUP_TIMEOUT_SEC` | 启动时 Kafka 连通性检查超时 |
-| `LOG_FORMAT` | 生产环境通常使用 `json` |
-| `LOG_LEVEL` | 如 `INFO` |
+| `REDIS_URL` | ElastiCache Redis connection string |
+| `KAFKA_BOOTSTRAP_SERVERS` | MSK broker endpoints |
+| `KAFKA_TOPIC` | Usually `AI_STAGING_TRANSCRIPTION`; must match the actual topic name |
+| `KAFKA_TOPIC_NUM_PARTITIONS` | Only relevant when the service is allowed to create the topic |
+| `KAFKA_REPLICATION_FACTOR` | Typically `>= 2` in production |
+| `KAFKA_COMPRESSION_TYPE` | Defaults to `zstd`, but other supported codecs can be used |
+| `HTTP_HOST` / `HTTP_PORT` | Bind address and port, typically `0.0.0.0:8080` inside the container |
+| `KAFKA_STARTUP_TIMEOUT_SEC` | Kafka startup connectivity timeout |
+| `LOG_FORMAT` | Usually `json` in production |
+| `LOG_LEVEL` | Typical values include `INFO` or `WARNING` |
 
-可通过 ECS Task Definition 的 `environment` 或 AWS Secrets Manager 注入。
+Inject them through the ECS task definition environment block or AWS Secrets Manager as appropriate.
 
-该部署形态中，上游通过 WebSocket 主动连接服务端，不使用 `STT_PROVIDER_URL` 一类外部转写上游配置项。
+This deployment mode assumes that upstream systems connect directly over WebSocket. Legacy client-side STT provider settings such as `STT_PROVIDER_URL` are not part of this service.
 
 ---
 
-## 4. 健康检查
+## 4. Health Checks
 
-服务提供 **HTTP** 探针（便于 ALB / ECS）：
+The service exposes HTTP probes suitable for ALB and ECS:
 
-| 路径 | 用途 |
+| Path | Purpose |
 |------|------|
-| `GET /health` | 存活（进程可用） |
-| `GET /ready` | 就绪（Redis + Kafka 可连通） |
-| `GET /metrics` | 运行指标（如活跃 WebSocket 数） |
+| `GET /health` | Liveness: process is up |
+| `GET /ready` | Readiness: Redis and Kafka are reachable |
+| `GET /metrics` | Runtime metrics, such as active WebSocket counts |
 
-启动时 `main` 会在监听前执行 `_check_redis`、`_check_kafka`，失败则进程退出。
-
----
-
-## 5. 扩缩容
-
-- 同一 **conversationId** 的会话在任一时刻只允许一个连接发送消息。服务端通过 Redis 会话发送所有权键（conversation ownership key）强制该约束；若另一个连接试图并发发送同一会话消息，将返回 `E1009 + 1008` 并断开。上游仍应尽量将同一会话持续路由到单一实例，以减少不必要的连接冲突与切换。
-- **跨实例一致性** 依赖 **Redis Lua 状态机**（期望序号与 2PC），而非基于单次去重键的实现。
-- Kafka 以 `conversationId` 为分区键，保证单路通话在分区内有序。
+Before listening for traffic, `main` runs `_check_redis` and `_check_kafka`. If either check fails, startup aborts.
 
 ---
 
-## 6. 相关文档
+## 5. Scaling Notes
 
-- [configuration.md](configuration.md) 环境变量完整说明
-- [design/realtime-transcribe-service-app-design_zh.md](../design/realtime-transcribe-service-app-design_zh.md) 架构与优雅停机
+- Only one active sender connection is allowed per `conversationId` at any moment. The server enforces this with the Redis ownership key. If a second connection attempts to send concurrently for the same conversation, it is rejected with `E1009`
+- Cross-instance consistency depends on the Redis Lua state machine, which stores the expected sequence and 2PC state; it is not implemented as a one-off deduplication key
+- Kafka uses `conversationId` as the partition key so each call remains ordered within a single partition
 
+---
 
+## 6. Related Documents
 
-
+- [configuration.md](configuration.md) for the full environment-variable reference
+- [design/realtime-transcribe-service-app-design.md](../design/realtime-transcribe-service-app-design.md) for architecture and graceful-shutdown flow

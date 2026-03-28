@@ -1,4 +1,4 @@
-"""Tests for state_machine 状态机层（使用 fakeredis）。"""
+"""Tests for the state-machine layer using fakeredis."""
 
 import pytest
 import fakeredis.aioredis
@@ -17,7 +17,7 @@ async def sm():
         client=client,
         active_ttl_sec=3600,
         final_ttl_sec=60,
-        key_prefix="real-time-transcriber:transcript-checker",
+        key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
     )
     yield machine
     await machine.close()
@@ -55,7 +55,7 @@ class TestPrepare:
         assert result == PrepareOutcome(PrepareResult.OUT_OF_ORDER, expected_sequence=1)
 
     async def test_no_incr_on_prepare(self, sm: RedisSequenceStateMachine):
-        """PRE_CHECK_OK 后不 INCR，重复 prepare 同一 seq 应仍为 PRE_CHECK_OK。"""
+        """After PRE_CHECK_OK, state should not increment yet; preparing the same seq again should still return PRE_CHECK_OK."""
         r1 = await sm.prepare("conv-1", 0)
         assert r1 == PrepareOutcome(PrepareResult.PRE_CHECK_OK, expected_sequence=0)
 
@@ -90,7 +90,7 @@ class TestCommit:
             client=client,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="real-time-transcriber:transcript-checker",
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
         )
         sm._sha_commit = "sha-commit-old"
         sm._ensure_scripts_loaded = AsyncMock()
@@ -109,7 +109,7 @@ class TestCleanup:
         await sm.cleanup("conv-1")
 
         client = await sm._get_client()
-        ttl = await client.ttl("real-time-transcriber:transcript-checker:conv-1")
+        ttl = await client.ttl("realtime-transcribe-service:expect-transcript-seq-num:conv-1")
         assert 0 < ttl <= 60
 
     async def test_cleanup_reload_script_after_noscript(self):
@@ -121,7 +121,7 @@ class TestCleanup:
             client=client,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="real-time-transcriber:transcript-checker",
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
         )
         sm._sha_cleanup = "sha-cleanup-old"
         sm._ensure_scripts_loaded = AsyncMock()

@@ -1,4 +1,4 @@
-"""WebSocket 连接驱动 — 消息生成、场景引擎、并发压测。"""
+"""WebSocket client driver - message generation, scenario engine, and concurrent load testing."""
 
 from __future__ import annotations
 
@@ -20,26 +20,26 @@ import websockets.exceptions
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# 消息生成器
+# Message generation
 # ---------------------------------------------------------------------------
 
 _TRANSCRIPTS_ZH = [
-    "你好，请问有什么可以帮到你？",
-    "我想查询一下我的账户余额。",
-    "好的，请稍等，我帮您查询一下。",
-    "您的账户余额是一千二百三十四元。",
-    "请问还有其他问题吗？",
-    "我还想了解一下信用卡的优惠活动。",
-    "目前我们有消费满一百减二十的活动。",
-    "这个活动的有效期是到月底。",
-    "好的，谢谢你的解答。",
-    "不客气，祝您生活愉快，再见。",
-    "我想投诉一下上次的服务体验。",
-    "非常抱歉给您带来不好的体验，请您描述一下具体情况。",
-    "上次打电话等了半小时才接通。",
-    "我们会改进排队系统，感谢您的反馈。",
-    "请问密码忘记了怎么办？",
-    "您可以通过手机验证码重置密码。",
+    "Hello, how can I assist you today?",
+    "I'd like to review the balance on my checking account.",
+    "No problem, let me pull that up for you.",
+    "Your available balance is one thousand two hundred thirty-four dollars.",
+    "Do you need help with anything else today?",
+    "I also want to understand the current credit-card promotions.",
+    "Right now we are offering twenty dollars back on one hundred dollars of spend.",
+    "That promotion runs through the end of the month.",
+    "Great, thanks for clarifying that.",
+    "You're welcome, and have a pleasant day.",
+    "I need to file a complaint about my last support experience.",
+    "I'm sorry about that. Could you walk me through what happened?",
+    "I waited on the phone for half an hour before someone answered.",
+    "Thank you for the feedback. We'll review the queueing flow.",
+    "What should I do if I forgot my password?",
+    "You can reset it with a verification code sent to your phone.",
 ]
 
 _TRANSCRIPTS_EN = [
@@ -84,7 +84,7 @@ def generate_message(
     customer_id: str | None = None,
     start_ts: str | None = None,
 ) -> dict[str, Any]:
-    """生成一条符合 InboundMessage schema 的消息。"""
+    """Generate one message that matches the InboundMessage schema."""
     now = _utc_now_iso()
     if event_type == "SESSION_COMPLETE":
         payload = {
@@ -125,11 +125,12 @@ def generate_message(
 
 
 def _session_message_split(total_messages: int) -> tuple[int, int]:
-    """将「会话内 WebSocket 业务消息总数」拆成 ONGOING 条数与 COMPLETE 的 seq。
+    """Split total session business messages into ONGOING count and COMPLETE seq.
 
-    ``total_messages`` 含最后一条 ``SESSION_COMPLETE``（至少为 1：仅发结束帧时 seq=0）。
+    ``total_messages`` includes the final ``SESSION_COMPLETE`` frame (minimum 1; if
+    only the end frame is sent, seq=0).
 
-    返回 ``(ongoing_count, complete_seq)``。
+    Returns ``(ongoing_count, complete_seq)``.
     """
     total = max(1, total_messages)
     ongoing_count = max(0, total - 1)
@@ -138,7 +139,7 @@ def _session_message_split(total_messages: int) -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------------------
-# 统计
+# Metrics
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -164,7 +165,7 @@ class Stats:
         event_type: str | None = None,
         server_resp: dict | None = None,
     ) -> None:
-        """压测路径专用：累加 error，并记入环形列表 + 打日志。"""
+        """Load-test path only: increment the error count, append to the ring buffer, and log it."""
         self.error += 1
         entry: dict[str, Any] = {
             "stage": stage,
@@ -178,7 +179,7 @@ class Stats:
         if server_resp is not None:
             entry["server_resp"] = server_resp
         self.recent_errors.append(entry)
-        log.warning("压测错误 %s", entry)
+        log.warning("Load test error %s", entry)
 
     def snapshot(self) -> dict[str, Any]:
         finished_at = self.end_time if self.end_time is not None else time.monotonic()
@@ -223,14 +224,14 @@ class Stats:
 
 
 # ---------------------------------------------------------------------------
-# SSE 事件广播
+# SSE event broadcasting
 # ---------------------------------------------------------------------------
 
 EventCallback = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
 
 # ---------------------------------------------------------------------------
-# 场景引擎
+# Scenario engine
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -241,7 +242,7 @@ class ScenarioResult:
 
 
 def _format_server_error(resp: dict | None) -> str:
-    """从服务端 ERROR 帧中提取可读错误信息。"""
+    """Extract a readable error message from a server ERROR frame."""
     if not resp:
         return ""
     err = resp.get("error") or {}
@@ -255,7 +256,7 @@ def _format_server_error(resp: dict | None) -> str:
 
 
 def _format_ws_connect_error(exc: BaseException) -> tuple[str, dict | None]:
-    """拼握手失败详情，返回 (可读摘要, 服务端 JSON 响应 or None)。"""
+    """Format handshake-failure details and return ``(summary, server_json_or_none)``."""
     resp = getattr(exc, "response", None)
     if resp is not None:
         sc = getattr(resp, "status_code", None) or getattr(resp, "status", None)
@@ -275,7 +276,7 @@ def _format_ws_connect_error(exc: BaseException) -> tuple[str, dict | None]:
                     body_text = body.decode("utf-8", errors="replace").strip()[:200]
                 except Exception:
                     body_text = repr(body)[:120]
-        status_map = {400: "请求无效", 429: "连接数超限", 503: "服务不可用"}
+        status_map = {400: "Bad request", 429: "Connection limit exceeded", 503: "Service unavailable"}
         reason = status_map.get(sc, str(exc))
         detail = f"HTTP {sc} — {reason}" + (f": {body_text}" if body_text else "")
         return detail, server_resp
@@ -310,7 +311,7 @@ async def _send_and_recv(
     *,
     on_sent: Callable[[], None] | None = None,
 ) -> dict | None:
-    """发送消息并接收一条响应。如果连接已关闭返回 None。"""
+    """Send one message and receive one response. Return ``None`` if the connection is already closed."""
     text = msg if isinstance(msg, str) else json.dumps(msg, ensure_ascii=False)
     await ws.send(text)
     if on_sent is not None:
@@ -353,7 +354,7 @@ async def _send_expect_error_and_close(
     result: ScenarioResult,
     emit: EventCallback,
 ) -> None:
-    """发送一条预期触发 ERROR + Close 的消息，并校验错误码与关闭码。"""
+    """Send a message expected to trigger ERROR + Close, then verify the error and close codes."""
     resp = await _send_and_recv(ws, msg)
     step = {"action": action, "resp_type": resp.get("metaData", {}).get("eventType") if resp else None}
     if resp and resp.get("metaData", {}).get("eventType") == "ERROR":
@@ -362,19 +363,19 @@ async def _send_expect_error_and_close(
         step["conversation_id"] = resp.get("metaData", {}).get("conversationId")
         if err_code != expected_code:
             result.passed = False
-            step["error"] = f"期望 {expected_code}，实际={err_code}"
+            step["error"] = f"Expected {expected_code}, got {err_code}"
         elif (
             expected_conversation_id is not None
             and step.get("conversation_id") != expected_conversation_id
         ):
             result.passed = False
             step["error"] = (
-                f"期望 conversationId={expected_conversation_id}，"
-                f"实际={step.get('conversation_id')}"
+                f"Expected conversationId={expected_conversation_id}, "
+                f"got {step.get('conversation_id')}"
             )
     else:
         result.passed = False
-        step["error"] = "期望 ERROR 帧"
+        step["error"] = "Expected an ERROR frame"
     result.steps.append(step)
     await emit("scenario_step", {"scenario": result.name, "step": step})
 
@@ -384,12 +385,12 @@ async def _send_expect_error_and_close(
         step_c = {"action": "verify_close", "close_code": close_code}
         if close_code != expected_close:
             result.passed = False
-            step_c["error"] = f"期望 close_code={expected_close}，实际={close_code}"
+            step_c["error"] = f"Expected close_code={expected_close}, got {close_code}"
         result.steps.append(step_c)
         await emit("scenario_step", {"scenario": result.name, "step": step_c})
     except asyncio.TimeoutError:
         result.passed = False
-        result.steps.append({"action": "verify_close", "error": "等待关闭超时"})
+        result.steps.append({"action": "verify_close", "error": "Timed out waiting for close"})
 
 
 async def _session_ongoing_plus_complete_and_close(
@@ -400,7 +401,7 @@ async def _session_ongoing_plus_complete_and_close(
     result: ScenarioResult,
     emit: EventCallback,
 ) -> None:
-    """按「会话消息总数」发送 ONGOING + SESSION_COMPLETE，并校验服务端 close 1000。"""
+    """Send ONGOING messages plus SESSION_COMPLETE based on the total session message count, then verify close 1000."""
     ongoing_count, complete_seq = _session_message_split(n_messages)
     for seq in range(ongoing_count):
         msg = generate_message(cid, seq, event_type="SESSION_ONGOING", **meta_base)
@@ -412,7 +413,7 @@ async def _session_ongoing_plus_complete_and_close(
         }
         if not resp or resp.get("metaData", {}).get("eventType") != "TRANSCRIPT_ACK":
             result.passed = False
-            step["error"] = "期望 TRANSCRIPT_ACK"
+            step["error"] = "Expected TRANSCRIPT_ACK"
         result.steps.append(step)
         await emit("scenario_step", {"scenario": result.name, "step": step})
 
@@ -425,7 +426,7 @@ async def _session_ongoing_plus_complete_and_close(
     }
     if not resp or resp.get("metaData", {}).get("eventType") != "EOL_ACK":
         result.passed = False
-        step["error"] = "期望 EOL_ACK"
+        step["error"] = "Expected EOL_ACK"
     result.steps.append(step)
     await emit("scenario_step", {"scenario": result.name, "step": step})
 
@@ -435,12 +436,12 @@ async def _session_ongoing_plus_complete_and_close(
         step = {"action": "verify_close", "close_code": close_code}
         if close_code != 1000:
             result.passed = False
-            step["error"] = f"期望 close_code=1000，实际={close_code}"
+            step["error"] = f"Expected close_code=1000, got {close_code}"
         result.steps.append(step)
         await emit("scenario_step", {"scenario": result.name, "step": step})
     except asyncio.TimeoutError:
         result.passed = False
-        result.steps.append({"action": "verify_close", "error": "等待关闭超时"})
+        result.steps.append({"action": "verify_close", "error": "Timed out waiting for close"})
 
 
 async def _session_ongoing_only(
@@ -451,7 +452,7 @@ async def _session_ongoing_only(
     result: ScenarioResult,
     emit: EventCallback,
 ) -> None:
-    """按 N-01 仅发送 SESSION_ONGOING，并校验每条都返回 TRANSCRIPT_ACK。"""
+    """For N-01, send only SESSION_ONGOING and verify every message returns TRANSCRIPT_ACK."""
     total = max(1, n_messages)
     for seq in range(total):
         msg = generate_message(cid, seq, event_type="SESSION_ONGOING", **meta_base)
@@ -463,7 +464,7 @@ async def _session_ongoing_only(
         }
         if not resp or resp.get("metaData", {}).get("eventType") != "TRANSCRIPT_ACK":
             result.passed = False
-            step["error"] = "期望 TRANSCRIPT_ACK"
+            step["error"] = "Expected TRANSCRIPT_ACK"
         result.steps.append(step)
         await emit("scenario_step", {"scenario": result.name, "step": step})
 
@@ -471,7 +472,7 @@ async def _session_ongoing_only(
 async def scenario_a_normal_flow(
     ws_url: str, emit: EventCallback, n_messages: int = 5,
 ) -> ScenarioResult:
-    """N-01：会话中正常处理，仅发送 ``SESSION_ONGOING``。"""
+    """N-01: normal in-session processing with ``SESSION_ONGOING`` only."""
     result = ScenarioResult(name="N-01", passed=True)
     cid = f"mock-N01-{_random_hex(6)}"
     start_ts = _utc_now_iso()
@@ -507,7 +508,7 @@ async def scenario_b_idempotent(
     emit: EventCallback,
     n_messages: int = 5,
 ) -> ScenarioResult:
-    """N-02：幂等重放，对每个 ``seq ∈ [0, n_messages)`` 先发 ``SESSION_ONGOING`` 再重放同一帧，两次都应 ACK。"""
+    """N-02: idempotent replay. For each ``seq`` in ``[0, n_messages)``, send ``SESSION_ONGOING`` once and then replay the same frame; both sends should ACK."""
     result = ScenarioResult(name="N-02", passed=True)
     cid = f"mock-N02-{_random_hex(6)}"
     start_ts = _utc_now_iso()
@@ -536,7 +537,7 @@ async def scenario_b_idempotent(
             }
             if not resp1 or resp1.get("metaData", {}).get("eventType") != "TRANSCRIPT_ACK":
                 result.passed = False
-                step1["error"] = "首次发送期望 ACK"
+                step1["error"] = "Expected ACK on first send"
             result.steps.append(step1)
             await emit("scenario_step", {"scenario": result.name, "step": step1})
 
@@ -548,7 +549,7 @@ async def scenario_b_idempotent(
             }
             if not resp2 or resp2.get("metaData", {}).get("eventType") != "TRANSCRIPT_ACK":
                 result.passed = False
-                step2["error"] = "重放期望 ACK（幂等）"
+                step2["error"] = "Expected ACK on replay (idempotent)"
             result.steps.append(step2)
             await emit("scenario_step", {"scenario": result.name, "step": step2})
     finally:
@@ -562,7 +563,7 @@ async def scenario_c_out_of_order(
     emit: EventCallback,
     n_messages: int = 5,
 ) -> ScenarioResult:
-    """E-09：序列号乱序，seq 0 → 跳到 seq ``jump``（``jump=max(2,n_messages)``）→ 期望 E1006 + 断连 1008。"""
+    """E-09: out-of-order sequence. Send seq 0, then jump to seq ``jump`` (``jump=max(2, n_messages)``), expecting E1006 + close 1008."""
     result = ScenarioResult(name="E-09", passed=True)
     jump_seq = max(2, n_messages)
     cid = f"mock-E09-{_random_hex(6)}"
@@ -582,14 +583,14 @@ async def scenario_c_out_of_order(
         return result
 
     try:
-        # seq 0 正常
+        # seq 0 is valid.
         msg0 = generate_message(cid, 0, event_type="SESSION_ONGOING", **meta_base)
         resp0 = await _send_and_recv(ws, msg0)
         step0 = {"action": "send_seq0", "resp_type": resp0.get("metaData", {}).get("eventType") if resp0 else None}
         result.steps.append(step0)
         await emit("scenario_step", {"scenario": result.name, "step": step0})
 
-        # 乱序：跳过中间 seq
+        # Out of order: skip the intermediate seq values.
         msg5 = generate_message(cid, jump_seq, event_type="SESSION_ONGOING", **meta_base)
         resp5 = await _send_and_recv(ws, msg5)
         step5 = {
@@ -601,26 +602,26 @@ async def scenario_c_out_of_order(
             step5["error_code"] = err_code
             if err_code != "E1006":
                 result.passed = False
-                step5["error"] = f"期望 E1006，实际={err_code}"
+                step5["error"] = f"Expected E1006, got {err_code}"
         else:
             result.passed = False
-            step5["error"] = "期望 ERROR 帧"
+            step5["error"] = "Expected an ERROR frame"
         result.steps.append(step5)
         await emit("scenario_step", {"scenario": result.name, "step": step5})
 
-        # 验证关闭码
+        # Verify the close code.
         try:
             await asyncio.wait_for(ws.wait_closed(), timeout=5)
             close_code = ws.close_code
             step_c = {"action": "verify_close", "close_code": close_code}
             if close_code != 1008:
                 result.passed = False
-                step_c["error"] = f"期望 close_code=1008，实际={close_code}"
+                step_c["error"] = f"Expected close_code=1008, got {close_code}"
             result.steps.append(step_c)
             await emit("scenario_step", {"scenario": result.name, "step": step_c})
         except asyncio.TimeoutError:
             result.passed = False
-            result.steps.append({"action": "verify_close", "error": "等待关闭超时"})
+            result.steps.append({"action": "verify_close", "error": "Timed out waiting for close"})
     finally:
         try:
             await ws.close()
@@ -631,7 +632,7 @@ async def scenario_c_out_of_order(
 
 
 async def scenario_d1_invalid_json(ws_url: str, emit: EventCallback) -> ScenarioResult:
-    """E-04：非法 JSON → E1001 + 断连 1007。"""
+    """E-04: invalid JSON -> E1001 + close 1007."""
     result = ScenarioResult(name="E-04", passed=True)
     cid = f"mock-E04-{_random_hex(6)}"
     await emit(
@@ -654,7 +655,7 @@ async def scenario_d1_invalid_json(ws_url: str, emit: EventCallback) -> Scenario
             step["error_code"] = "E1001"
         else:
             result.passed = False
-            step["error"] = "期望 E1001"
+            step["error"] = "Expected E1001"
         result.steps.append(step)
         await emit("scenario_step", {"scenario": result.name, "step": step})
 
@@ -664,12 +665,12 @@ async def scenario_d1_invalid_json(ws_url: str, emit: EventCallback) -> Scenario
             step_c = {"action": "verify_close", "close_code": close_code}
             if close_code != 1007:
                 result.passed = False
-                step_c["error"] = f"期望 close_code=1007，实际={close_code}"
+                step_c["error"] = f"Expected close_code=1007, got {close_code}"
             result.steps.append(step_c)
             await emit("scenario_step", {"scenario": result.name, "step": step_c})
         except asyncio.TimeoutError:
             result.passed = False
-            result.steps.append({"action": "verify_close", "error": "等待关闭超时"})
+            result.steps.append({"action": "verify_close", "error": "Timed out waiting for close"})
     finally:
         try:
             await ws.close()
@@ -683,7 +684,7 @@ async def scenario_e01_missing_query_conversation_id(
     ws_url: str,
     emit: EventCallback,
 ) -> ScenarioResult:
-    """E-01：握手时缺少 query conversationId，期望 HTTP 400 / E1003。"""
+    """E-01: missing query ``conversationId`` during the handshake should return HTTP 400 / E1003."""
     result = ScenarioResult(name="E-01", passed=True)
 
     try:
@@ -702,13 +703,13 @@ async def scenario_e01_missing_query_conversation_id(
         expected_code = "E1003"
         if status_code != 400 or step.get("error_code") != expected_code:
             result.passed = False
-            step["error"] = f"期望 HTTP 400 / {expected_code}，实际：{detail}"
+            step["error"] = f"Expected HTTP 400 / {expected_code}, got: {detail}"
         result.steps.append(step)
         await emit("scenario_step", {"scenario": result.name, "step": step})
         return result
 
     result.passed = False
-    result.steps.append({"action": "connect_without_query", "error": "握手意外成功，应返回 HTTP 400 / E1003"})
+    result.steps.append({"action": "connect_without_query", "error": "Handshake unexpectedly succeeded; expected HTTP 400 / E1003"})
     await emit("scenario_step", {"scenario": result.name, "step": result.steps[-1]})
     try:
         await ws.close()
@@ -718,7 +719,7 @@ async def scenario_e01_missing_query_conversation_id(
 
 
 async def scenario_d2_schema_error(ws_url: str, emit: EventCallback) -> ScenarioResult:
-    """E-06：缺少必填字段 → ERROR + 断连 1008。"""
+    """E-06: missing required fields -> ERROR + close 1008."""
     result = ScenarioResult(name="E-06", passed=True)
     cid = f"mock-E06-{_random_hex(6)}"
     await emit(
@@ -756,7 +757,7 @@ async def scenario_d2_schema_error(ws_url: str, emit: EventCallback) -> Scenario
 
 
 async def scenario_e05_invalid_enum(ws_url: str, emit: EventCallback) -> ScenarioResult:
-    """E-05：枚举值非法，期望 E1002 + 断连 1008。"""
+    """E-05: invalid enum value, expecting E1002 + close 1008."""
     result = ScenarioResult(name="E-05", passed=True)
     cid = f"mock-E05-{_random_hex(6)}"
     start_ts = _utc_now_iso()
@@ -793,7 +794,7 @@ async def scenario_e05_invalid_enum(ws_url: str, emit: EventCallback) -> Scenari
 
 
 async def scenario_e07_wrong_type(ws_url: str, emit: EventCallback) -> ScenarioResult:
-    """E-07：字段类型不符，覆盖顶层 JSON 非对象与字段类型错误。"""
+    """E-07: wrong field type, covering both non-object top-level JSON and field type mismatches."""
     result = ScenarioResult(name="E-07", passed=True)
     cid = f"mock-E07-{_random_hex(6)}"
     start_ts = _utc_now_iso()
@@ -836,7 +837,7 @@ async def scenario_e07_wrong_type(ws_url: str, emit: EventCallback) -> ScenarioR
 
 
 async def scenario_e08_invalid_timestamp(ws_url: str, emit: EventCallback) -> ScenarioResult:
-    """E-08：时间格式无效，期望 E1005 + 断连 1008。"""
+    """E-08: invalid timestamp format, expecting E1005 + close 1008."""
     result = ScenarioResult(name="E-08", passed=True)
     cid = f"mock-E08-{_random_hex(6)}"
     start_ts = _utc_now_iso()
@@ -875,7 +876,7 @@ async def scenario_e08_invalid_timestamp(ws_url: str, emit: EventCallback) -> Sc
 
 
 async def scenario_e14_conversation_id_mismatch(ws_url: str, emit: EventCallback) -> ScenarioResult:
-    """E-14：query/body conversationId 不一致，期望 E1009 + 断连 1008。"""
+    """E-14: query/body conversationId mismatch, expecting E1009 + close 1008."""
     result = ScenarioResult(name="E-14", passed=True)
     cid = f"mock-E14-{_random_hex(6)}"
     start_ts = _utc_now_iso()
@@ -912,7 +913,7 @@ async def scenario_e14_conversation_id_mismatch(ws_url: str, emit: EventCallback
 
 
 async def scenario_e15_business_rule_violation(ws_url: str, emit: EventCallback) -> ScenarioResult:
-    """E-15：业务规则校验失败，期望 E1009 + 断连 1008。"""
+    """E-15: business-rule validation failure, expecting E1009 + close 1008."""
     result = ScenarioResult(name="E-15", passed=True)
     cid = f"mock-E15-{_random_hex(6)}"
     start_ts = _utc_now_iso()
@@ -953,7 +954,7 @@ async def scenario_g_session_complete(
     emit: EventCallback,
     n_messages: int = 5,
 ) -> ScenarioResult:
-    """N-03：会话结束场景，``n_messages`` 会话总数含 COMPLETE，最终 ACK + 断连 1000。"""
+    """N-03: session-complete flow. ``n_messages`` is the total number of session messages including COMPLETE; the final outcome is ACK + close 1000."""
     result = ScenarioResult(name="N-03", passed=True)
     cid = f"mock-N03-{_random_hex(6)}"
     start_ts = _utc_now_iso()
@@ -1001,7 +1002,7 @@ SCENARIOS: dict[str, Any] = {
 
 
 # ---------------------------------------------------------------------------
-# 并发压测驱动
+# Concurrent load-test driver
 # ---------------------------------------------------------------------------
 
 async def _load_single_conversation(
@@ -1014,9 +1015,10 @@ async def _load_single_conversation(
     sse_register_cid: bool = False,
     stop_event: asyncio.Event | None = None,
 ) -> None:
-    """单条对话压测：共 ``n_messages`` 条业务消息（含 1 条 SESSION_COMPLETE）。
+    """Single-conversation load test with ``n_messages`` business messages, including one ``SESSION_COMPLETE``.
 
-    ``sse_register_cid``：是否向 UI 发 ``conversation_registered``。高压测会海量会话，默认关闭以免塞爆 SSE。
+    ``sse_register_cid`` controls whether to emit ``conversation_registered`` to the
+    UI. It defaults to ``False`` under high load to avoid flooding SSE.
     """
     ongoing_count, complete_seq = _session_message_split(n_messages)
     cid = f"load-{_random_hex(8)}"
@@ -1059,11 +1061,11 @@ async def _load_single_conversation(
             else:
                 et = resp.get("metaData", {}).get("eventType") if resp else None
                 if resp is None:
-                    detail = "无响应(10s 超时或连接已关闭)"
+                    detail = "No response (10s timeout or connection already closed)"
                 elif et == "ERROR":
-                    detail = f"服务端错误: {_format_server_error(resp)}"
+                    detail = f"Server error: {_format_server_error(resp)}"
                 else:
-                    detail = f"期望 TRANSCRIPT_ACK，实际 eventType={et!r}"
+                    detail = f"Expected TRANSCRIPT_ACK, got eventType={et!r}"
                 stats.record_load_error(
                     stage="ongoing",
                     cid=cid,
@@ -1096,11 +1098,11 @@ async def _load_single_conversation(
         else:
             et = resp.get("metaData", {}).get("eventType") if resp else None
             if resp is None:
-                detail = "无响应(10s 超时或连接已关闭)"
+                detail = "No response (10s timeout or connection already closed)"
             elif et == "ERROR":
-                detail = f"服务端错误: {_format_server_error(resp)}"
+                detail = f"Server error: {_format_server_error(resp)}"
             else:
-                detail = f"期望 EOL_ACK，实际 eventType={et!r}"
+                detail = f"Expected EOL_ACK, got eventType={et!r}"
             stats.record_load_error(
                 stage="complete",
                 cid=cid,
@@ -1140,13 +1142,14 @@ async def run_load_test(
     ramp_up_ms: float = 0,
     stop_event: asyncio.Event | None = None,
 ) -> None:
-    """并发压测：一轮 = **并发数** 路相互独立的会话（每路一条 WebSocket）。
+    """Concurrent load test: one round equals ``concurrency`` independent sessions, each on its own WebSocket.
 
-    创建 ``concurrency`` 个 asyncio 任务；信号量同为 ``concurrency``，
-    故这一批会话会**同时建连、同时在线**，直到各自发完消息后关闭。
+    Create ``concurrency`` asyncio tasks with a semaphore of the same size, so the
+    whole batch connects and stays online at the same time until each session finishes.
 
-    ``ramp_up_ms``: 若 > 0，在这段时间内均匀启动全部连接（线性爬坡），
-    避免瞬间洪峰把服务端 TCP backlog 打满。0 = 不限速（所有连接同时发起）。
+    If ``ramp_up_ms`` is greater than 0, start all connections evenly across that
+    interval (linear ramp-up) to avoid an instantaneous surge that saturates the
+    server TCP backlog. ``0`` means unlimited rate and all connections start immediately.
     """
     err_sse_cap = min(2000, max(100, concurrency + 200))
     err_sse_left = err_sse_cap

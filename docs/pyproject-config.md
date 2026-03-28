@@ -1,121 +1,118 @@
-# pyproject.toml 配置说明
+# `pyproject.toml` Reference
 
-本文档说明 `pyproject.toml` 各配置块的用途，以及本地开发、测试与生产部署场景下的使用方式。
+This document explains the purpose of each `pyproject.toml` section and how the project uses them in local development, testing, and production.
 
 ---
 
-## 1. 配置块说明
+## 1. Configuration Blocks
 
-### 1.1 [project]
+### 1.1 `[project]`
 
-PEP 621 标准项目元数据，供 pip、Poetry 等工具读取。
+This is the PEP 621 metadata block consumed by tooling such as pip and Poetry.
 
-| 字段 | 说明 |
+| Field | Description |
 |------|------|
-| `name` | 包名，`pip install` 时使用 |
-| `version` | 版本号 |
-| `description` | 项目描述 |
-| `requires-python` | Python 版本要求（>=3.11） |
-| `dependencies` | **运行时依赖**，生产环境必须安装 |
+| `name` | Package name used by `pip install` |
+| `version` | Package version |
+| `description` | Project description |
+| `requires-python` | Supported Python version, currently `>=3.11` |
+| `dependencies` | Runtime dependencies required in production |
 
-### 1.2 [project.optional-dependencies]
+### 1.2 `[project.optional-dependencies]`
 
-可选依赖组，按需安装。
+Optional dependency groups installed only when needed.
 
-| 组名 | 说明 | 包含（摘要） |
+| Group | Purpose | Notable packages |
 |------|------|--------------|
-| `dev` | 开发/测试 | pytest、pytest-asyncio、pytest-cov、`fakeredis[lua]`、httpx |
+| `dev` | Development and testing | `pytest`, `pytest-asyncio`, `pytest-cov`, `fakeredis[lua]`, `httpx` |
 
-- `fakeredis[lua]`：单元测试需执行与生产一致的 Redis Lua 脚本。
-- `httpx`：ASGI/HTTP 测试客户端（如 WebSocket 相关测试）。
+- `fakeredis[lua]` is required because unit tests execute the same Redis Lua logic used in production
+- `httpx` is used for ASGI and HTTP test flows
 
-安装：`pip install -e ".[dev]"` 或 `poetry install --with dev`。
+Install with `pip install -e ".[dev]"` or `poetry install --with dev`.
 
-### 1.3 [tool.pytest.ini_options]
+### 1.3 `[tool.pytest.ini_options]`
 
-pytest 配置，无需单独 `pytest.ini`。
+Pytest configuration lives directly in `pyproject.toml`, so a separate `pytest.ini` is not needed.
 
-| 选项 | 说明 |
+| Option | Description |
 |------|------|
-| `asyncio_mode = "auto"` | 自动识别 async 测试 |
-| `asyncio_default_fixture_loop_scope` | fixture 作用域 |
-| `addopts` | 默认带 `--cov=...`、缺失行报告与 `--cov-fail-under=100`；覆盖率低于阈值时测试失败 |
+| `asyncio_mode = "auto"` | Auto-detect async tests |
+| `asyncio_default_fixture_loop_scope` | Fixture loop scope |
+| `addopts` | Default coverage flags and `--cov-fail-under=100` |
 
-### 1.4 [tool.coverage.run]
+### 1.4 `[tool.coverage.run]`
 
-覆盖率收集范围，包括 `src` 与 `config`。
+Defines the coverage source roots: `src` and `config`.
 
-### 1.5 [build-system]
+### 1.5 `[build-system]`
 
-构建后端，`pip install -e .` 时使用。
+Declares the build backend used by `pip install -e .`.
 
-### 1.6 [tool.setuptools.packages.find]
+### 1.6 `[tool.setuptools.packages.find]`
 
-setuptools 包发现，包含 `config` 与 `realtime_transcribe_service`（`src/`）。
+Configures setuptools package discovery for both `config` and `realtime_transcribe_service` under `src/`.
 
-### 1.7 [tool.poetry]（可选）
+### 1.7 `[tool.poetry]` and `[tool.poetry.group.dev.dependencies]`
 
-Poetry 与 pip 可二选一。`[tool.poetry.group.dev.dependencies]` 与 `[project.optional-dependencies].dev` 保持相同用途：前者服务于 Poetry 安装路径，后者服务于标准 PEP 621 / pip 安装路径。
+Poetry support is optional. The Poetry development dependencies serve the same purpose as `[project.optional-dependencies].dev`, but through Poetry’s installation workflow.
 
 ---
 
-## 2. 环境使用指南
+## 2. Environment Usage
 
-### 2.1 Local（本地运行）
+### 2.1 Local runtime
 
-需 Redis + Kafka（`docker compose up -d`），再启动服务：
+Start Redis and Kafka with `docker compose up -d`, then run:
 
 ```bash
 pip install -e .
-# 或
+# or
 poetry install
 
 python -m realtime_transcribe_service.main
 ```
 
-- **依赖**：`[project].dependencies`
-- **配置**：`.env` 中 `REDIS_URL`、`KAFKA_BOOTSTRAP_SERVERS` 等，见 [.env.example](../.env.example)
+- Dependencies: `[project].dependencies`
+- Configuration: `.env` values such as `REDIS_URL` and `KAFKA_BOOTSTRAP_SERVERS`
 
-本服务以 **WebSocket 服务端** 形态运行，上游客户端通过 `ws://.../ws/v1/realtime-transcriptions?conversationId=...` 接入；无需配置 `STT_PROVIDER_URL` 或 `TRANSCRIBE_SERVICE_PROTOCOL` 等客户端侧历史兼容项。
+This service runs as a WebSocket server. Upstream systems connect to `ws://.../ws/v1/realtime-transcriptions?conversationId=...`. Legacy client-side settings such as `STT_PROVIDER_URL` are not part of this runtime model.
 
-### 2.2 Dev（开发 / 测试）
+### 2.2 Development and testing
 
 ```bash
 pip install -e ".[dev]"
-# 或
+# or
 poetry install --with dev
 
 pytest tests/ -v
-# 或
+# or
 poetry run pytest
 ```
 
-- **依赖**：运行时 + `[project.optional-dependencies].dev`
+- Dependencies: runtime plus `[project.optional-dependencies].dev`
 
-### 2.3 Production（生产部署）
+### 2.3 Production
 
 ```bash
 pip install .
-# 或
-poetry install --no-dev
+# or
+poetry install --without dev
 
 python -m realtime_transcribe_service.main
 ```
 
-- **依赖**：仅 `[project].dependencies`
-- **配置**：环境变量，见 [configuration.md](configuration.md)、[deployment.md](deployment.md)
+- Dependencies: runtime only
+- Configuration: environment variables described in [configuration.md](configuration.md) and [deployment.md](deployment.md)
 
 ---
 
-## 3. 依赖安装对照表
+## 3. Installation Matrix
 
-| 环境 | 命令 | 包含 |
+| Environment | Command | Includes |
 |------|------|------|
-| Local | `pip install -e .` | 运行时 |
-| Dev | `pip install -e ".[dev]"` | 运行时 + dev 组 |
-| Production | `pip install .` | 仅运行时 |
+| Local | `pip install -e .` | Runtime dependencies |
+| Dev | `pip install -e ".[dev]"` | Runtime + dev group |
+| Production | `pip install .` | Runtime only |
 
-也可使用项目根目录的 `requirements.txt` / `requirements-dev.txt`（与 `pyproject` 对齐时）配合 `pip install -r`。
-
-Poetry 示例：`poetry install`、`poetry install --with dev`、`poetry install --without dev`。
-
+If the repository also ships synchronized `requirements.txt` or `requirements-dev.txt`, those can be used with `pip install -r ...`, but `pyproject.toml` remains the primary source of truth.

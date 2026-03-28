@@ -1,12 +1,12 @@
-# 配置说明
+# Configuration
 
-本文档说明 Realtime Transcribe Service 的环境变量配置，与 [config/settings.py](../config/settings.py) 对应。
+This document describes the Realtime Transcribe Service environment variables and maps directly to [config/settings.py](../config/settings.py).
 
 ---
 
-## 1. 环境变量
+## 1. Environment Setup
 
-复制 `.env.example` 为 `.env` 并修改。**环境变量统一使用 UPPER_SNAKE_CASE**。
+Copy `.env.example` to `.env` and edit the values as needed. All environment variables use `UPPER_SNAKE_CASE`.
 
 ```bash
 cp .env.example .env
@@ -14,73 +14,73 @@ cp .env.example .env
 
 ---
 
-## 2. 配置项一览
+## 2. Configuration Reference
 
-### Redis（序列状态机 + 发送所有权守卫）
+### Redis: Sequence State Machine + Ownership Guard
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |------|--------|------|
-| `REDIS_URL` | redis://127.0.0.1:6379/0 | Redis 连接地址 |
-| `REDIS_MAX_CONNECTIONS` | 100 | 连接池大小；高并发 WebSocket（如约 1000 路）场景可提升至 256～1024 |
-| `REDIS_ACTIVE_TTL_SEC` | 3600 | 活跃会话 TTL（秒），每次写入自动续期 |
-| `REDIS_FINAL_TTL_SEC` | 60 | SESSION_COMPLETE 后残留 TTL（秒） |
-| `REDIS_OWNERSHIP_GUARD_TTL_SEC` | 30 | 单个 `conversationId` 会话发送所有权键（conversation ownership key）的 TTL（秒）；服务端在连接建立时 claim 所有权，并在连接存活期间周期 refresh，用于跨 pod 保证“同会话同一时刻仅一个连接发送消息” |
-| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | real-time-transcriber:transcript-checker | Redis Sequence State Machine 键前缀 |
-| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | real-time-transcriber:conversation-owner | Redis Ownership Guard 键前缀 |
+| `REDIS_URL` | redis://127.0.0.1:6379/0 | Redis connection string |
+| `REDIS_MAX_CONNECTIONS` | 100 | Connection-pool size. For high WebSocket concurrency, raise this to roughly 256-1024 as needed |
+| `REDIS_ACTIVE_TTL_SEC` | 3600 | TTL for active conversations in seconds; refreshed automatically on each write |
+| `REDIS_FINAL_TTL_SEC` | 60 | Residual TTL in seconds after `SESSION_COMPLETE` |
+| `REDIS_OWNERSHIP_GUARD_TTL_SEC` | 30 | TTL for the per-`conversationId` ownership key. The server claims ownership when a connection is established and refreshes it periodically while the connection stays alive, enforcing single-sender semantics across pods |
+| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | realtime-transcribe-service:transcript-checker | Key prefix for the Redis sequence state machine |
+| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | realtime-transcribe-service:conversation-owner | Key prefix for the Redis ownership guard |
 
 ### Kafka
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |------|--------|------|
-| `KAFKA_BOOTSTRAP_SERVERS` | 127.0.0.1:9092 | Kafka 集群地址 |
-| `KAFKA_TOPIC` | AI_STAGING_TRANSCRIPTION | Topic 名称 |
-| `KAFKA_TOPIC_NUM_PARTITIONS` | 50 | 新建 Topic 时的分区数 |
-| `KAFKA_REPLICATION_FACTOR` | 1 | 副本因子（生产环境≥2） |
-| `KAFKA_COMPRESSION_TYPE` | zstd | 压缩：`none`、`gzip`、`snappy`、`lz4`、`zstd` |
-| `KAFKA_SEND_TIMEOUT_SEC` | 2.0 | 发送超时（秒），用于快速失败；高负载下如出现误判，可结合 broker 能力适当调大 |
-| `KAFKA_LINGER_MS` | 1 | Producer 聚合等待时间（毫秒）；越小延迟越低，越大更利于批量吞吐 |
-| `KAFKA_BATCH_SIZE` | 32768 | Producer 批大小（bytes）；影响单批聚合上限与吞吐/延迟平衡 |
+| `KAFKA_BOOTSTRAP_SERVERS` | 127.0.0.1:9092 | Kafka bootstrap servers |
+| `KAFKA_TOPIC` | AI_STAGING_TRANSCRIPTION | Topic name |
+| `KAFKA_TOPIC_NUM_PARTITIONS` | 50 | Partition count when the service creates a new topic |
+| `KAFKA_REPLICATION_FACTOR` | 1 | Replication factor. Use `>= 2` in production |
+| `KAFKA_COMPRESSION_TYPE` | zstd | Compression codec: `none`, `gzip`, `snappy`, `lz4`, or `zstd` |
+| `KAFKA_SEND_TIMEOUT_SEC` | 2.0 | Kafka send timeout in seconds. This is intentionally short to fail fast; raise it carefully if high-load false positives appear |
+| `KAFKA_LINGER_MS` | 1 | Producer linger in milliseconds. Lower values reduce latency; higher values improve batching |
+| `KAFKA_BATCH_SIZE` | 32768 | Producer batch size in bytes; affects throughput/latency tradeoffs |
 
 ### WebSocket
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |------|--------|------|
-| `WS_PING_INTERVAL` | 20.0 | 秒；**Uvicorn `websockets` 后端**下，连接建立后**先**经过该间隔再发**首帧 Ping**，之后每间隔一次 **Ping**（保活，如防 ALB 空闲断开） |
-| `WS_PING_TIMEOUT` | 10.0 | 秒；**每次服务端发出 Ping 之后**，等待对端 **Pong** 的最长时间；超时则 **websockets** 会关闭连接（典型 WebSocket close code **1011**）。若从不响应 Pong，最早约在 `WS_PING_INTERVAL + WS_PING_TIMEOUT`（默认 30s）后断开 |
-| `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 5.0 | 秒；会话发送所有权守卫的后台续租周期 |
-| `WS_MAX_CONNECTIONS` | 0 | 最大同时在线 WebSocket；`0` 表示不限制；超限握手返回 429 |
+| `WS_PING_INTERVAL` | 20.0 | Seconds. With the Uvicorn `websockets` backend, the first Ping is sent after this interval, then one Ping per interval afterward |
+| `WS_PING_TIMEOUT` | 10.0 | Seconds. Maximum time to wait for the peer Pong after each Ping. On timeout, `websockets` closes the connection, typically with WebSocket close code `1011` |
+| `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 5.0 | Seconds between ownership-guard refreshes |
+| `WS_MAX_CONNECTIONS` | 0 | Maximum concurrent WebSocket connections. `0` means unlimited. Excess handshakes are rejected with HTTP 429 |
 
-> **说明**：本服务通过 `uvicorn.Config(ws="websockets", …)` 启用 WebSocket 运行时；`WS_PING_INTERVAL` 与 `WS_PING_TIMEOUT` 由 Uvicorn `websockets` backend 负责执行。
+> The service enables the WebSocket runtime with `uvicorn.Config(ws="websockets", ...)`. `WS_PING_INTERVAL` and `WS_PING_TIMEOUT` are enforced by the Uvicorn `websockets` backend rather than by application-level JSON messages.
 
 ### HTTP / Uvicorn
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |------|--------|------|
-| `HTTP_HOST` | 0.0.0.0 | 监听地址（容器内通常 0.0.0.0） |
-| `HTTP_PORT` | 8080 | 监听端口 |
-| `HTTP_BACKLOG` | 4096 | Uvicorn `listen(backlog)`；瞬时大量 WebSocket 握手时可减小对端「读 101 前被关」概率 |
+| `HTTP_HOST` | 0.0.0.0 | Bind address. Containers usually use `0.0.0.0` |
+| `HTTP_PORT` | 8080 | Listen port |
+| `HTTP_BACKLOG` | 4096 | Uvicorn `listen(backlog)` value. Increasing this helps reduce handshake drops during connection spikes |
 
-### 启动检查
+### Startup Checks
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |------|--------|------|
-| `KAFKA_STARTUP_TIMEOUT_SEC` | 30.0 | Kafka 启动连通性检查超时（秒） |
+| `KAFKA_STARTUP_TIMEOUT_SEC` | 30.0 | Timeout for Kafka connectivity checks during startup |
 
-### 其它
+### Other
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |------|--------|------|
-| `STOP_TIMEOUT` | 120 | 收到停机信号后的 graceful shutdown 总预算（秒）；覆盖 `close_all`、`flush` 与等待服务循环退出 |
-| `LOG_LEVEL` | INFO | 日志级别 |
-| `LOG_FORMAT` | auto | 日志格式：`json`、`console`、`auto` |
-| `LOG_WS_ERROR_FRAMES` | false | 是否打印服务端发出的完整 ERROR 响应 JSON；排障时可开启，压测场景通常保持关闭 |
-| `LOG_SLOW_MESSAGE_THRESHOLD_MS` | 0.0 | 慢消息分段耗时告警阈值（毫秒）；`0` 表示关闭。开启后，单条消息总耗时达到阈值时会限频输出 `WARNING`，包含 `decode/validate/prepare/kafka_send/commit/cleanup/ack_build/send/total` 等分段耗时，适合压测排障 |
+| `STOP_TIMEOUT` | 120 | Total graceful-shutdown budget in seconds, covering `close_all`, Kafka flush, and server-loop exit |
+| `LOG_LEVEL` | INFO | Log level |
+| `LOG_FORMAT` | auto | Log format: `json`, `console`, or `auto` |
+| `LOG_WS_ERROR_FRAMES` | false | Whether to log the full outbound `ERROR` response JSON. Useful for debugging, usually disabled during load tests |
+| `LOG_SLOW_MESSAGE_THRESHOLD_MS` | 0.0 | Slow-message warning threshold in milliseconds. `0` disables it. When enabled, warnings include stage timings such as `decode/validate/prepare/kafka_send/commit/cleanup/ack_build/send/total` |
 
 ---
 
-## 3. 配置示例
+## 3. Example Configurations
 
-**本地开发**：
+**Local development**
 
 ```env
 REDIS_URL=redis://127.0.0.1:6379/0
@@ -89,7 +89,7 @@ KAFKA_COMPRESSION_TYPE=zstd
 LOG_FORMAT=console
 ```
 
-**生产**：
+**Production**
 
 ```env
 REDIS_URL=redis://your-elasticache:6379/0
@@ -99,4 +99,3 @@ KAFKA_TOPIC_NUM_PARTITIONS=100
 KAFKA_REPLICATION_FACTOR=3
 LOG_FORMAT=json
 ```
-

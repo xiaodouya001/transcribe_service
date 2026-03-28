@@ -1,4 +1,4 @@
-"""Producer protocols — 禁止包含任何网络 I/O 实现。"""
+"""Producer protocols — this module must not contain any network I/O implementation."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any, Protocol
 
 
 class ProducerBackend(Protocol):
-    """可靠投递协议。"""
+    """Reliable delivery protocol."""
 
     async def send(
         self,
@@ -14,22 +14,22 @@ class ProducerBackend(Protocol):
         payload: dict[str, Any],
     ) -> None:
         """
-        将消息投递到 Kafka。
+        Deliver a message to Kafka.
 
         Args:
-            conversation_id: Partition Key（同一通话路由到同一分区）。
-            payload: 完整消息体（由 orchestrator/converter 组装后传入）。
+            conversation_id: Partition key so one call stays on one partition.
+            payload: Full outbound message assembled by the orchestrator and converter.
         """
         ...  # pragma: no cover
 
     async def ensure_ready(self) -> None:
-        """验证 Kafka 可达。启动时调用。"""
+        """Verify Kafka connectivity. Called during startup."""
         ...  # pragma: no cover
 
     async def flush(self) -> None:
-        """刷新生产者缓冲区。"""
+        """Flush producer buffers."""
         ...  # pragma: no cover
 
     async def close(self) -> None:
-        """关闭生产者。"""
+        """Close the producer."""
         ...  # pragma: no cover

@@ -1,74 +1,70 @@
 # Realtime Transcribe Service
 
-> 多云实时数据网关。Fano Assist 通过 WebSocket 主动连接本服务，Realtime Transcribe Service 执行两阶段提交（Redis Lua 保序 + Kafka 持久化），将转写文本可靠投递至 Kafka。
+> A multi-cloud real-time data gateway. Fano Assist connects to this service over WebSocket, and Realtime Transcribe Service runs a two-phase commit flow (Redis Lua for sequence ordering plus Kafka persistence) to deliver transcripts reliably into Kafka.
 
 ---
 
-## 快速开始
+## Quick Start
 
 ```bash
-# 1. 安装
+# 1. Install
 poetry install --with dev
 poetry shell
 
-# 2. 启动依赖
+# 2. Start dependencies
 docker compose up -d
 
-# 3. 运行
+# 3. Run
 python -m realtime_transcribe_service.main
 ```
 
 ---
 
-## 项目结构
+## Project Structure
 
 ```
 realtime_transcribe_service/
 ├── config/                          # Pydantic Settings
 ├── src/realtime_transcribe_service/
-│   ├── main.py                      # 主控入口（DI + 生命周期）
-│   ├── schemas/                     # 契约层：Pydantic 请求/响应模型
-│   ├── transport/                   # 接入层：WebSocket 服务端
-│   ├── redis/                       # Redis 基础设施：序列状态机 + 会话发送所有权守卫
-│   ├── converter/                   # Kafka 出站转换层：增加enrich节点并校验出站契约
-│   ├── utils/                       # 通用工具层：时间格式等跨层可复用 helper
-│   ├── producer/                    # 投递层：Kafka 生产者
-│   ├── orchestrator/                # 调度层：两阶段提交编排
-│   └── shutdown/                    # 优雅停机
+│   ├── main.py                      # Main entrypoint (DI + lifecycle wiring)
+│   ├── schemas/                     # Contract layer: Pydantic request/response models
+│   ├── transport/                   # Ingress layer: WebSocket server
+│   ├── redis/                       # Redis infrastructure: sequence state machine + sender ownership guard
+│   ├── converter/                   # Kafka outbound conversion layer: add enrich and validate the outbound contract
+│   ├── utils/                       # Shared utility layer: reusable helpers such as timestamp formatting
+│   ├── producer/                    # Delivery layer: Kafka producer
+│   ├── orchestrator/                # Orchestration layer: two-phase commit flow
+│   └── shutdown/                    # Graceful shutdown
 ├── tests/
-├── design/                          # 设计文档、护栏、场景矩阵与 API 契约
-├── docs/                            # 配置、部署、开发与排障
-├── tools/mock_client/               # 场景测试、压测与 Kafka 回显工具
+├── design/                          # Design docs, guardrails, scenario matrix, and API contract
+├── docs/                            # Configuration, deployment, development, and troubleshooting docs
+├── tools/mock_client/               # Scenario testing, load testing, and Kafka replay tools
 └── docker-compose.yml               # Redis + Kafka + Kafka UI
 ```
 
-## 文档入口
+## Documentation
 
-完整文档索引见 [docs/README.md](docs/README.md)。该目录页汇总 `design/`、`docs/` 和关键工具文档的主要入口。
+For the full documentation index, see [docs/README.md](docs/README.md). That page collects the main entry points across `design/`, `docs/`, and the key tool documents.
 
-常用入口：
+Common entry points:
 
 
-| 文档 | 说明 |
-|------|------|
-| [design/realtime-transcribe-service-app-design_zh.md](design/realtime-transcribe-service-app-design_zh.md) | 应用设计总览（中文） |
-| [design/realtime-transcribe-service-app-design.md](design/realtime-transcribe-service-app-design.md) | Application architecture overview (English) |
-| [design/realtime-transcribe-service-api-contract.md](design/realtime-transcribe-service-api-contract.md) | API contract (English) |
-| [design/realtime-transcribe-service-design-guardrails.md](design/realtime-transcribe-service-design-guardrails.md) | 长期维护护栏与变更约束 |
-| [design/realtime-transcribe-service-protocol-scenario-matrix.md](design/realtime-transcribe-service-protocol-scenario-matrix.md) | 协议场景矩阵 |
-| [tools/mock_client/README.md](tools/mock_client/README.md) | Mock Client、场景测试与压测说明 |
-| [docs/README.md](docs/README.md) | 文档总索引 |
+| Document                                                                                                                         | Description                                      |
+| -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| [design/realtime-transcribe-service-app-design.md](design/realtime-transcribe-service-app-design.md)                             | Application architecture overview                |
+| [design/realtime-transcribe-service-api-contract.md](design/realtime-transcribe-service-api-contract.md)                         | API contract                                     |
+| [design/realtime-transcribe-service-design-guardrails.md](design/realtime-transcribe-service-design-guardrails.md)               | Long-term guardrails and change constraints      |
+| [design/realtime-transcribe-service-protocol-scenario-matrix.md](design/realtime-transcribe-service-protocol-scenario-matrix.md) | Protocol scenario matrix                         |
+| [tools/mock_client/README.md](tools/mock_client/README.md)                                                                       | Mock Client, scenario tests, and load-test guide |
+| [docs/README.md](docs/README.md)                                                                                                 | Documentation index                              |
+
 
 ---
 
-## 部署
+## Deployment
 
 ```bash
 docker build -f docker/Dockerfile -t realtime-transcribe-service:latest .
 ```
 
-目标环境：AWS ECS Fargate。详见 [docs/deployment.md](docs/deployment.md)。
-
-
-
-
+Target environment: AWS ECS Fargate. See [docs/deployment.md](docs/deployment.md) for details.

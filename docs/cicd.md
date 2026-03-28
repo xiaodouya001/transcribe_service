@@ -1,45 +1,45 @@
 # CI/CD
 
-本文档说明 CI/CD 流程及 GitHub Actions 配置。
+This document summarizes the CI/CD flow and the GitHub Actions setup for the repository.
 
 ---
 
-## 1. CI 流程
+## 1. CI Flow
 
-| 步骤 | 说明 |
+| Step | Description |
 |------|------|
-| **Lint** | 如启用，可执行 ruff / black 代码格式检查 |
-| **UT** | `pytest` + 覆盖率报告（见 `pyproject.toml` 的 `[tool.pytest.ini_options].addopts`） |
-| **Docker 构建** | 验证 `docker build` 成功 |
+| **Lint** | Optional formatting and static checks such as `ruff` or `black` |
+| **UT** | `pytest` with coverage, using the default options from `pyproject.toml` |
+| **Docker build** | Verifies that `docker build` succeeds |
 
-UT 使用 `fakeredis[lua]`（Lua 与生产 Redis 脚本一致）和 `unittest.mock`，**不依赖真实 Redis/Kafka**，CI 环境无需启动中间件。
+Unit tests rely on `fakeredis[lua]` and `unittest.mock`, so CI does **not** require a live Redis or Kafka instance.
 
 ---
 
-## 2. GitHub Actions 配置
+## 2. GitHub Actions
 
-项目包含 [.github/workflows/ci.yml](../.github/workflows/ci.yml)，在 push / PR 到 `main` / `master` 时执行：
+The repository includes [.github/workflows/ci.yml](../.github/workflows/ci.yml). It runs on pushes and pull requests targeting `main` or `master`.
 
-- **test**：Python 3.12，`poetry install --with dev`，`poetry run pytest`
-- **docker**：`docker/build-push-action` 构建 `docker/Dockerfile`（不推送到 Registry）
+- **test** job: Python 3.12, `poetry install --with dev`, then `poetry run pytest`
+- **docker** job: builds `docker/Dockerfile` through `docker/build-push-action` without pushing to a registry
 
-### 2.1 环境变量
+### 2.1 Environment variables
 
-默认 UT 不依赖 Redis/Kafka。需要引入依赖真实中间件的集成测试时，可在 GitHub Secrets 中配置并在 workflow 的 `env` 中注入，例如：
+Default unit tests do not require Redis or Kafka. If you introduce integration tests backed by real middleware, inject the required values through GitHub Secrets and workflow `env`, for example:
 
 - `REDIS_URL`
 - `KAFKA_BOOTSTRAP_SERVERS`
 
 ---
 
-## 3. CD 说明
+## 3. CD Overview
 
-目标部署环境：**AWS ECS Fargate**，需 VPC、ElastiCache Redis、MSK。
+The target runtime is **AWS ECS Fargate** backed by a VPC, ElastiCache Redis, and MSK.
 
-CD 流程（由团队基础设施定义）：
+The exact CD pipeline is usually defined by the team’s infrastructure layer, but the common sequence is:
 
-1. 构建镜像并推送到 ECR
-2. 更新 ECS 服务或 Task Definition
-3. 环境变量通过 ECS Task Definition 或 Secrets Manager 注入
+1. Build the image and push it to ECR
+2. Update the ECS service or task definition
+3. Inject environment variables through the ECS task definition or Secrets Manager
 
-详见 [deployment.md](deployment.md)。
+See [deployment.md](deployment.md) for deployment details.

@@ -17,7 +17,7 @@ import structlog
 
 
 def _json_serializer(obj: Any, **kwargs: Any) -> str:
-    """JSON serialize with ensure_ascii=False for readable Chinese in logs."""
+    """Serialize JSON with ``ensure_ascii=False`` so Unicode stays readable in logs."""
     kwargs.setdefault("ensure_ascii", False)
     return json.dumps(obj, **kwargs)
 
@@ -197,8 +197,8 @@ def configure_logging(
         cache_logger_on_first_use=True,
     )
 
-    # aiokafka 连接失败时刷屏（Unable connect/Unable to update metadata），
-    # 设为 CRITICAL 抑制；Kafka 不可用时由 Buffer Consumer 输出明确日志
+    # aiokafka can spam repeated connection failures ("Unable connect" / "Unable to update metadata").
+    # Suppress that noise at CRITICAL; clearer Kafka-unavailable logs are emitted elsewhere.
     logging.getLogger("aiokafka").setLevel(logging.CRITICAL)
 
 

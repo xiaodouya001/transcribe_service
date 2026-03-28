@@ -1,28 +1,30 @@
-# 本地开发与测试
+# Local Development and Testing
 
 ---
 
-## 1. 环境要求
+## 1. Environment Requirements
 
-| 项目 | 要求 |
+| Item | Requirement |
 |------|------|
 | Python | 3.11+ |
-| 生产环境 | Redis (ElastiCache)、Kafka (MSK) |
-| 本地开发 | Redis、Kafka（`docker compose up -d`） |
+| Production dependencies | Redis (ElastiCache) and Kafka (MSK) |
+| Local development | Redis and Kafka via `docker compose up -d` |
 
 ---
 
-## 2. 安装
+## 2. Installation
 
-### 2.1 使用 Poetry（推荐）
+### 2.1 Poetry (recommended)
 
 ```bash
 poetry install
-poetry install --with dev   # 含 pytest、pytest-cov、fakeredis[lua]、httpx
+poetry install --with dev
 poetry shell
 ```
 
-### 2.2 使用 pip + venv
+The `dev` group includes `pytest`, `pytest-cov`, `fakeredis[lua]`, and `httpx`.
+
+### 2.2 pip + venv
 
 ```bash
 python -m venv .venv
@@ -31,7 +33,7 @@ source .venv/bin/activate      # Linux/Mac
 pip install -e ".[dev]"
 ```
 
-### 2.3 验证
+### 2.3 Verify the install
 
 ```bash
 python -c "import realtime_transcribe_service; print('OK')"
@@ -39,68 +41,66 @@ python -c "import realtime_transcribe_service; print('OK')"
 
 ---
 
-## 3. 本地运行
+## 3. Run Locally
 
-### 3.1 启动依赖
+### 3.1 Start dependencies
 
 ```bash
 docker compose up -d
 ```
 
-会启动 Redis、Kafka、Kafka UI。
+This starts Redis, Kafka, and Kafka UI.
 
-### 3.2 运行服务
+### 3.2 Start the service
 
 ```bash
 python -m realtime_transcribe_service.main
 ```
 
-服务启动后监听 `0.0.0.0:8080`，WebSocket 端点为 `/ws/v1/realtime-transcriptions?conversationId=xxx`。
+The service listens on `0.0.0.0:8080`, with the WebSocket endpoint at `/ws/v1/realtime-transcriptions?conversationId=xxx`.
 
-### 3.3 服务地址（docker compose）
+### 3.3 Local addresses
 
-| 服务 | 地址 |
+| Service | Address |
 |------|------|
 | Redis | 127.0.0.1:6379 |
 | Kafka | 127.0.0.1:9092 |
 | Kafka UI | http://127.0.0.1:8090 |
 
-Kafka UI 使用说明见 [kafka-ui-usage.md](kafka-ui-usage.md)。
+See [kafka-ui-usage.md](kafka-ui-usage.md) for Kafka UI details.
 
 ---
 
-## 4. 单元测试
+## 4. Unit Tests
 
-### 4.1 运行测试
+### 4.1 Run tests
 
 ```bash
 poetry run pytest tests/ -v
-# 或带覆盖率
 poetry run pytest
 ```
 
-### 4.2 Mock 策略
+### 4.2 Mocking strategy
 
-UT 不依赖真实 Kafka/Redis 环境：
+Unit tests do not require a live Kafka or Redis instance:
 
-| 组件 | Mock 方式 |
+| Component | Mock strategy |
 |------|-----------|
-| **Redis（状态机）** | [fakeredis[lua]](https://github.com/cunla/fakeredis-py) 模拟，支持 Lua 脚本 |
-| **Kafka** | `unittest.mock.AsyncMock` |
-| **WebSocket** | `starlette.testclient.TestClient` ASGI 测试 |
+| Redis state machine | [fakeredis[lua]](https://github.com/cunla/fakeredis-py) with Lua support |
+| Kafka | `unittest.mock.AsyncMock` |
+| WebSocket | `starlette.testclient.TestClient` for ASGI testing |
 
-### 4.3 覆盖率
+### 4.3 Coverage
 
-- 覆盖率由 `pytest-cov` 按 `pyproject.toml` 中的 `addopts` 收集。
-- 收集范围包括 `src/realtime_transcribe_service` 与 `config`。
-- 覆盖率阈值为 **100%**。
+- Coverage is collected by `pytest-cov` through the default `addopts` in `pyproject.toml`
+- Coverage includes both `src/realtime_transcribe_service` and `config`
+- The project currently enforces a **100%** coverage threshold
 
 ---
 
-## 5. 调试技巧
+## 5. Debugging Tips
 
-- **日志级别**：`LOG_LEVEL=DEBUG` 查看详细日志
-- **日志格式**：`LOG_FORMAT=console` 本地开发时使用可读格式
-- **Kafka 消息**：通过 Kafka UI (http://127.0.0.1:8090) 查看 Topic `AI_STAGING_TRANSCRIPTION`
-- **断点调试**：以 `python -m realtime_transcribe_service.main` 或 `python -m pytest` 启动
-
+- Set `LOG_LEVEL=DEBUG` for verbose diagnostics
+- Set `LOG_FORMAT=console` for more readable local logs
+- Inspect `AI_STAGING_TRANSCRIPTION` through Kafka UI at `http://127.0.0.1:8090`
+- Attach breakpoints to `python -m realtime_transcribe_service.main` or `python -m pytest`

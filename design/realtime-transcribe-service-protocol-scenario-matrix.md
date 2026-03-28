@@ -1,62 +1,58 @@
-# 协议场景矩阵
+# Protocol Scenario Matrix
 
-本文将 WebSocket 协议在“正常流、错误流、握手前拒绝、关闭码、典型 JSON 响应”上的关键场景集中到一处，作为：
+This document consolidates the key WebSocket protocol scenarios across normal flow, error flow, pre-handshake rejection, close codes, and representative JSON responses. It serves as:
 
-- [API 契约](realtime-transcribe-service-api-contract.md) 的补充视图
-- [设计护栏定稿](realtime-transcribe-service-design-guardrails.md) 中“契约级场景矩阵”的落地文档
-- [契约级矩阵测试](../tests/test_contract_matrix.py) 的文档对照版本
+- a companion view to the [API contract](realtime-transcribe-service-api-contract.md)
+- the concrete scenario-matrix document referenced by the long-term guardrails in [realtime-transcribe-service-design-guardrails.md](realtime-transcribe-service-design-guardrails.md)
+- the documentation-side counterpart of the contract-level matrix tests in [../tests/test_contract_matrix.py](../tests/test_contract_matrix.py)
 
-如本矩阵与 [API 契约](realtime-transcribe-service-api-contract.md) 存在冲突，以 API 契约为准。
+If this matrix conflicts with the [API contract](realtime-transcribe-service-api-contract.md), the API contract wins.
 
-业务侧约束（握手与 body 的 `conversationId`、序号从 0 连续递增、单连接发送、失败重发同 seq 等）以 API 契约 **§2.3 Business Rules** 为准；本矩阵侧重「场景 → 错误码 / 关闭码」映射。
+Business constraints such as handshake/body `conversationId` matching, continuous sequence numbers starting at `0`, single-sender semantics, and retrying the same failed sequence number are defined by **section 2.3 Business Rules** in the API contract. This matrix focuses on mapping **scenario -> error code / close code**.
 
 ---
 
-## 一、错误流程（统一视图）
+## 1. Error Flow Matrix
 
-
-| **ID** | **场景**                                                             | **握手阶段** | **错误码**   | **HTTP 状态码** | **WS Close Code**           | **断连?** | **JSON 示例** |
+| **ID** | **Scenario** | **Handshake stage** | **Error code** | **HTTP status** | **WS close code** | **Disconnected?** | **JSON example** |
 | ------ | ------------------------------------------------------------------ | -------- | --------- | ------------ | --------------------------- | ------- | ----------- |
-| E-01   | 缺少 `conversationId` 参数                                             | 握手前      | **E1003** | **400**      | —                           | 是（拒绝握手） | 见下文 E-01    |
-| E-02   | 服务正在停机 (draining)                                                  | 握手前      | **E1008** | **503**      | —                           | 是（拒绝握手） | 见下文 E-02    |
-| E-03   | 连接数超限 (`WS_MAX_CONNECTIONS`)                                       | 握手前      | **E1008** | **429**      | —                           | 是（拒绝握手） | 见下文 E-03    |
-| E-04   | JSON 解析失败                                                          | 握手后      | **E1001** | —            | **1007** (Invalid Payload)  | 是       | 见下文 E-04    |
-| E-05   | 枚举值非法 (如 eventType)                                                | 握手后      | **E1002** | —            | **1008** (Policy Violation) | 是       | 见下文 E-05    |
-| E-06   | 缺少必填字段                                                             | 握手后      | **E1003** | —            | **1008** (Policy Violation) | 是       | 见下文 E-06    |
-| E-07   | 字段类型不符                                                             | 握手后      | **E1004** | —            | **1008** (Policy Violation) | 是       | 见下文 E-07    |
-| E-08   | 时间格式无效                                                             | 握手后      | **E1005** | —            | **1008** (Policy Violation) | 是       | 见下文 E-08    |
-| E-09   | 序列号乱序                                                              | 握手后      | **E1006** | —            | **1008** (Policy Violation) | 是       | 见下文 E-09    |
-| E-10   | Kafka 超时                                                           | 握手后      | **E1011** | —            | **1013** (Try Again Later)  | 是       | 见下文 E-10    |
-| E-11   | Kafka 失败或 Redis 等下游不可用（与契约 E1008「依赖不可用」一致）                       | 握手后      | **E1008** | —            | **1013** (Try Again Later)  | 是       | 见下文 E-11    |
-| E-12   | 编排层未捕获异常                                                           | 握手后      | **E1007** | —            | **1011** (Internal Error)   | 是       | 见下文 E-12    |
-| E-13   | 传输层未捕获异常                                                           | 握手后      | **E1007** | —            | **1011** (Internal Error)   | 是       | 见下文 E-13    |
-| E-14   | query 与 `metaData.conversationId` 不一致（均为字符串）                       | 握手后      | **E1009** | —            | **1008** (Policy Violation) | 是       | 见下文 E-14    |
-| E-15   | 业务规则校验失败（如 `SESSION_ONGOING` 带 `callEndTimeStamp`、`isFinal=false`） | 握手后      | **E1009** | —            | **1008** (Policy Violation) | 是       | 见下文 E-15    |
-| E-16   | 第二个连接并发发送同一 `conversationId`                                       | 握手前      | **E1009** | **403**      | —                           | 是（拒绝握手） | 见下文 E-16    |
+| E-01   | Missing `conversationId` query parameter | Pre-handshake | **E1003** | **400** | - | Yes, handshake rejected | See E-01 below |
+| E-02   | Service is draining | Pre-handshake | **E1008** | **503** | - | Yes, handshake rejected | See E-02 below |
+| E-03   | Connection limit exceeded (`WS_MAX_CONNECTIONS`) | Pre-handshake | **E1008** | **429** | - | Yes, handshake rejected | See E-03 below |
+| E-04   | JSON decode failed | Post-handshake | **E1001** | - | **1007** (`Invalid Payload`) | Yes | See E-04 below |
+| E-05   | Invalid enum value, such as `eventType` | Post-handshake | **E1002** | - | **1008** (`Policy Violation`) | Yes | See E-05 below |
+| E-06   | Missing required field | Post-handshake | **E1003** | - | **1008** (`Policy Violation`) | Yes | See E-06 below |
+| E-07   | Field type mismatch | Post-handshake | **E1004** | - | **1008** (`Policy Violation`) | Yes | See E-07 below |
+| E-08   | Invalid timestamp format | Post-handshake | **E1005** | - | **1008** (`Policy Violation`) | Yes | See E-08 below |
+| E-09   | Sequence number out of order | Post-handshake | **E1006** | - | **1008** (`Policy Violation`) | Yes | See E-09 below |
+| E-10   | Kafka timeout | Post-handshake | **E1011** | - | **1013** (`Try Again Later`) | Yes | See E-10 below |
+| E-11   | Kafka failure or downstream unavailability such as Redis | Post-handshake | **E1008** | - | **1013** (`Try Again Later`) | Yes | See E-11 below |
+| E-12   | Unhandled exception in the orchestrator layer | Post-handshake | **E1007** | - | **1011** (`Internal Error`) | Yes | See E-12 below |
+| E-13   | Unhandled exception in the transport layer | Post-handshake | **E1007** | - | **1011** (`Internal Error`) | Yes | See E-13 below |
+| E-14   | Query `conversationId` does not match `metaData.conversationId` in the body | Post-handshake | **E1009** | - | **1008** (`Policy Violation`) | Yes | See E-14 below |
+| E-15   | Business-rule validation failed, for example `SESSION_ONGOING` with `callEndTimeStamp` or `isFinal=false` | Post-handshake | **E1009** | - | **1008** (`Policy Violation`) | Yes | See E-15 below |
+| E-16   | A second concurrent sender tries to use the same `conversationId` | Pre-handshake | **E1009** | **403** | - | Yes, handshake rejected | See E-16 below |
 
-
-> 握手前阶段 WebSocket 连接尚未建立，无法发送 WebSocket 文本帧；只能返回 HTTP + JSON body。握手后错误才会发送 WebSocket ERROR 帧并配合 Close Code 断连。
+> During pre-handshake rejection, the WebSocket connection has not been established yet, so the service cannot send a WebSocket text frame. Only HTTP + JSON is available. Post-handshake errors send a WebSocket `ERROR` frame and then close the connection with the mapped close code.
 
 ---
 
-## 二、正常流程（单独视图）
+## 2. Normal Flow Matrix
 
-
-| **ID**   | **场景**                | **握手阶段**  | **WS Close Code**     | **断连?** | **Response Json**                       |
+| **ID**   | **Scenario** | **Handshake stage** | **WS close code** | **Disconnected?** | **Response JSON** |
 | -------- | --------------------- | --------- | --------------------- | ------- | --------------------------------------- |
-| **N-01** | SESSION_ONGOING 正常处理  | 握手后       | —                     | 否       | 见下文 N-01                                |
-| **N-02** | 幂等命中（重复 seq）          | 握手后       | —                     | 否       | 见下文 N-02                                |
-| **N-03** | SESSION_COMPLETE 正常处理（EOL） | 握手后       | **1000** (Normal)     | 是       | 见下文 N-03                                |
-| **N-04** | 优雅停机 close_all        | 握手后（存量连接） | **1001** (Going Away) | 是       | *(无 JSON 响应，服务端直接发送 WebSocket close 帧)* |
-
+| **N-01** | `SESSION_ONGOING` processed successfully | Post-handshake | - | No | See N-01 below |
+| **N-02** | Idempotent replay hit | Post-handshake | - | No | See N-02 below |
+| **N-03** | `SESSION_COMPLETE` processed successfully | Post-handshake | **1000** (`Normal`) | Yes | See N-03 below |
+| **N-04** | Graceful shutdown `close_all` on existing connections | Post-handshake | **1001** (`Going Away`) | Yes | No JSON response; the server sends a WebSocket close frame directly |
 
 ---
 
-## 三、正常流程 Response JSON 示例
+## 3. Normal Response Examples
 
-字段定义以 API 契约 **§3.1** 为准（含可选 `serverProcessingMs`）。
+Field definitions follow **section 3.1** of the API contract, including optional `serverProcessingMs`.
 
-### N-01 SESSION_ONGOING 正常处理
+### N-01 `SESSION_ONGOING` succeeds
 
 ```json
 {
@@ -69,7 +65,7 @@
 }
 ```
 
-### N-02 幂等命中（重复 seq）
+### N-02 Idempotent replay hit
 
 ```json
 {
@@ -82,9 +78,9 @@
 }
 ```
 
-> 本示例使用 `SESSION_ONGOING` 的重复包；若重复的是 `SESSION_COMPLETE`，成功响应类型为 `EOL_ACK`。
+> This example uses a duplicated `SESSION_ONGOING` frame. If the replayed frame were `SESSION_COMPLETE`, the success response type would be `EOL_ACK`.
 
-### N-03 SESSION_COMPLETE 正常处理
+### N-03 `SESSION_COMPLETE` succeeds
 
 ```json
 {
@@ -97,17 +93,17 @@
 }
 ```
 
-> 该场景对应的请求帧是系统级 EOL 控制消息：`eventType=SESSION_COMPLETE`，`payload.speaker=System`。示例中 `payload.transcript` 写为 `"EOL"`；服务端不校验固定字面值。
+> The corresponding request frame is the system-level EOL control event: `eventType=SESSION_COMPLETE` with `payload.speaker=System`. In example data the transcript string is `"EOL"`, but the server does not validate that exact literal.
 
-### N-04 优雅停机 close_all
+### N-04 Graceful shutdown `close_all`
 
-该场景不发送业务 JSON 响应；服务端直接向存量连接发送 WebSocket close 帧，关闭码为 **1001**。
+This scenario does not produce a business JSON response. The server sends a WebSocket close frame with code **1001** to existing connections.
 
 ---
 
-## 四、错误场景 Response 实例
+## 4. Error Response Examples
 
-### E-01 缺少 `conversationId` 参数（HTTP 400）
+### E-01 Missing `conversationId` query parameter (HTTP 400)
 
 ```json
 {
@@ -121,7 +117,7 @@
 }
 ```
 
-### E-02 服务正在停机 (draining)（HTTP 503）
+### E-02 Service is draining (HTTP 503)
 
 ```json
 {
@@ -135,7 +131,7 @@
 }
 ```
 
-### E-03 连接数超限 (`WS_MAX_CONNECTIONS`)（HTTP 429）
+### E-03 Connection limit exceeded (HTTP 429)
 
 ```json
 {
@@ -149,7 +145,7 @@
 }
 ```
 
-### E-04 JSON 解析失败（Close 1007）
+### E-04 JSON decode failed (close 1007)
 
 ```json
 {
@@ -163,7 +159,7 @@
 }
 ```
 
-### E-05 枚举值非法（Close 1008）
+### E-05 Invalid enum value (close 1008)
 
 ```json
 {
@@ -177,7 +173,7 @@
 }
 ```
 
-### E-06 缺少必填字段（Close 1008）
+### E-06 Missing required field (close 1008)
 
 ```json
 {
@@ -191,7 +187,7 @@
 }
 ```
 
-### E-07 字段类型不符（Close 1008）
+### E-07 Field type mismatch (close 1008)
 
 ```json
 {
@@ -205,7 +201,7 @@
 }
 ```
 
-### E-08 时间格式无效（Close 1008）
+### E-08 Invalid timestamp format (close 1008)
 
 ```json
 {
@@ -219,7 +215,7 @@
 }
 ```
 
-### E-09 序列号乱序（Close 1008）
+### E-09 Sequence number out of order (close 1008)
 
 ```json
 {
@@ -233,7 +229,7 @@
 }
 ```
 
-### E-10 Kafka 超时（Close 1013）
+### E-10 Kafka timeout (close 1013)
 
 ```json
 {
@@ -247,9 +243,9 @@
 }
 ```
 
-### E-11 Kafka 失败或下游不可用（Close 1013）
+### E-11 Kafka failure or downstream unavailable (close 1013)
 
-典型为 Kafka 发送失败；Redis 等依赖不可用时亦可能映射为 **E1008** + **1013**（与契约 §4.3 `E1008` 一致）。
+Typical case: Kafka send failure. Redis or another dependency outage can also map to **E1008** + **1013**, which matches contract section 4.3 for `E1008`.
 
 ```json
 {
@@ -263,7 +259,7 @@
 }
 ```
 
-### E-12 编排层未捕获异常（Close 1011）
+### E-12 Unhandled orchestrator exception (close 1011)
 
 ```json
 {
@@ -277,7 +273,7 @@
 }
 ```
 
-### E-13 传输层未捕获异常（Close 1011）
+### E-13 Unhandled transport exception (close 1011)
 
 ```json
 {
@@ -291,9 +287,9 @@
 }
 ```
 
-### E-14 query 与 `metaData.conversationId` 不一致（Close 1008）
+### E-14 Query/body `conversationId` mismatch (close 1008)
 
-在 JSON 解析成功后、进入编排前校验：若 `metaData.conversationId` 为字符串且与握手 query 中的 `conversationId` 不同，则返回 **E1009** 并断开 **1008**；不调用编排器，不写入 Redis/Kafka。
+Validation happens after JSON decode succeeds but before orchestration. If `metaData.conversationId` is a string and differs from the handshake query `conversationId`, the service returns **E1009** and closes with **1008**. The orchestrator is not called, and no Redis or Kafka write is attempted.
 
 ```json
 {
@@ -307,7 +303,7 @@
 }
 ```
 
-### E-15 业务规则校验失败（Close 1008）
+### E-15 Business-rule validation failed (close 1008)
 
 ```json
 {
@@ -321,9 +317,9 @@
 }
 ```
 
-### E-16 同会话并发发送冲突（HTTP 403）
+### E-16 Concurrent sender conflict for the same conversation (HTTP 403)
 
-在握手阶段校验：若同一 `conversationId` 已被另一活跃发送连接持有，则直接拒绝握手，返回 **HTTP 403 + E1009**；不会建立 WebSocket 连接，不会进入 orchestrator，也不会发送 WebSocket close 帧。
+Validation happens during handshake. If another active sending connection already owns the same `conversationId`, the service rejects the handshake directly with **HTTP 403 + E1009**. No WebSocket session is established, the orchestrator is never entered, and no WebSocket close frame is sent.
 
 ```json
 {
@@ -339,13 +335,13 @@
 
 ---
 
-## 五、保留错误码说明
+## 5. Reserved Error-Code Notes
 
-- `E1009` 用于三类场景：传输层 query / body `conversationId` 字符串不一致、schema 通过后的业务规则校验失败、同一 `conversationId` 出现第二个并发发送连接。前两类是握手后 `ERROR + 1008`，最后一类是握手期 `HTTP 403`。
-- `E1010` 为鉴权失败保留错误码。本服务未包含鉴权流程，因此本矩阵不包含 `E1010` 的可执行场景。
+- `E1009` is intentionally reused for three categories: query/body `conversationId` mismatch, business-rule validation after schema validation passes, and concurrent-sender conflicts on the same `conversationId`. The first two are post-handshake `ERROR + 1008`; the last one is a handshake-time `HTTP 403`
+- `E1010` is reserved for authentication failure. This service does not implement authentication, so the matrix contains no executable `E1010` scenario
 
 ---
 
-## 六、WebSocket 控制层关闭（补充）
+## 6. WebSocket Control-Layer Closure
 
-与上表「应用层 JSON `ERROR` + 关闭码」不同：**RFC 6455 Ping/Pong 保活**失败时，连接可能在 **WebSocket 层**直接关闭（例如 Close **1011**），**不**经过 §3–§4 的 `ERROR` 帧语义。详见 API 契约 **§1.4**。
+This matrix describes application-level `ERROR` frames paired with close codes. That is different from WebSocket control-plane failures such as RFC 6455 Ping/Pong keepalive failure, where the connection may be closed directly at the WebSocket layer, typically with close code **1011**, without going through the `ERROR` frame semantics described above. See **section 1.4** of the API contract.

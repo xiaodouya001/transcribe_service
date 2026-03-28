@@ -1,5 +1,5 @@
-# pyproject.toml 配置说明
-# 各配置块用途及 Local/Dev/Production 使用方式见 docs/pyproject-config.md
+# `pyproject.toml` reference
+# See docs/pyproject-config.md for block-by-block details and Local/Dev/Production usage
 
 [project]
 name = "realtime-transcribe-service"
@@ -46,7 +46,7 @@ build-backend = "setuptools.build_meta"
 where = [".", "src"]
 include = ["config*", "realtime_transcribe_service*"]
 
-# Poetry 包管理（可选，与 pip/venv 二选一）
+# Optional Poetry workflow; use either Poetry or pip/venv
 [tool.poetry]
 name = "realtime-transcribe-service"
 version = "0.1.0"

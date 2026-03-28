@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     redis_active_ttl_sec: int = 3600
     redis_final_ttl_sec: int = 60
     redis_ownership_guard_ttl_sec: int = 30
-    redis_sequence_state_key_prefix: str = "real-time-transcriber:transcript-checker"
-    redis_ownership_guard_key_prefix: str = "real-time-transcriber:conversation-owner"
+    redis_sequence_state_key_prefix: str = "realtime-transcribe-service:expect-transcript-seq-num"
+    redis_ownership_guard_key_prefix: str = "realtime-transcribe-service:conversation-owner"
 
     # --- Kafka ---
     kafka_bootstrap_servers: str = "127.0.0.1:9092"
@@ -36,18 +36,21 @@ class Settings(BaseSettings):
     kafka_batch_size: int = 32768
 
     # --- WebSocket ---
-    # 传入 Uvicorn `ws="websockets"`：服务端按间隔发 RFC Ping、依赖对端 Pong（见 main.py）
+    # Passed to Uvicorn `ws="websockets"`: the server sends RFC Ping frames on an interval
+    # and relies on peer Pong frames in response (see main.py).
     ws_ping_interval: float = 20.0
     ws_ping_timeout: float = 10.0
-    # ownership guard 续租周期（秒），仅用于连接存活期间后台 refresh
+    # Background ownership-guard refresh interval in seconds, used only while the connection is alive.
     ws_ownership_guard_refresh_interval_sec: float = 5.0
 
     # --- HTTP / Uvicorn ---
     http_host: str = "0.0.0.0"
     http_port: int = 8080
-    # listen() backlog；瞬时大量建连时过小可能导致对端在读到 101 前被 RST（默认 2048）
+    # listen() backlog. If set too low, bursty connection spikes can cause peers to get reset
+    # before they read the 101 Switching Protocols response.
     http_backlog: int = 4096
-    # 最大同时在线 WebSocket 连接数；超出后新连接以 1013 拒绝。0 = 不限制
+    # Maximum concurrent WebSocket connections. New handshakes beyond the limit are rejected.
+    # 0 means unlimited.
     ws_max_connections: int = 0
 
     # --- Startup ---
@@ -59,9 +62,10 @@ class Settings(BaseSettings):
     # --- Logging ---
     log_level: str = "INFO"
     log_format: Literal["json", "console", "auto"] = "auto"
-    # 是否打印服务端发出的 ERROR 响应完整 JSON（默认关闭，避免压测日志过大）
+    # Whether to log the full JSON body of outgoing ERROR responses. Disabled by default to
+    # avoid oversized load-test logs.
     log_ws_error_frames: bool = False
-    # 慢消息分段耗时告警阈值（毫秒）；0 表示关闭
+    # Threshold in milliseconds for slow-message stage timing warnings. 0 disables it.
     log_slow_message_threshold_ms: float = 0.0
 
 

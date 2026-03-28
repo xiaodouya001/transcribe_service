@@ -1,4 +1,4 @@
-"""主控入口 — 依赖注入与应用生命周期，禁止编写任何业务逻辑。"""
+"""Application entrypoint — lifecycle wiring and dependency injection only."""
 
 import asyncio
 import sys
@@ -32,27 +32,27 @@ log = get_logger(__name__)
 
 
 async def _check_redis(redis_url: str) -> None:
-    """验证 Redis 可达。"""
+    """Verify Redis connectivity."""
     from redis.asyncio import Redis
 
     client = Redis.from_url(redis_url, decode_responses=True)
     try:
         await client.ping()
     except Exception as e:
-        log.error("启动失败: Redis 不可用", redis_url=redis_url, error=str(e))
-        raise RuntimeError(f"Redis 不可用: {redis_url} - {e}") from e
+        log.error("Startup failed: Redis unavailable", redis_url=redis_url, error=str(e))
+        raise RuntimeError(f"Redis unavailable: {redis_url} - {e}") from e
     finally:
         await client.aclose()
 
 
 async def _startup_phase_timed(phase: str, coro: Awaitable[Any]) -> None:
-    """执行单段启动检查并记录耗时（成功或失败都会记一次，便于排查「慢在哪」）。"""
+    """Run one startup check and always log its duration to pinpoint slow phases."""
     t0 = time.perf_counter()
     try:
         await coro
     finally:
         log.info(
-            "Startup: 阶段结束",
+            "Startup: Phase completed",
             phase=phase,
             elapsed_ms=round((time.perf_counter() - t0) * 1000, 2),
         )
@@ -64,7 +64,7 @@ async def _graceful_stop(
     registry: Any,
     producer: KafkaProducer,
 ) -> None:
-    """按固定顺序执行优雅停机主流程。"""
+    """Run the graceful shutdown main flow in the required order."""
     await registry.close_all(
         code=WsCloseCode.GOING_AWAY, reason=WS_CLOSE_REASON_GOING_AWAY
     )
@@ -74,30 +74,30 @@ async def _graceful_stop(
 
 
 async def _check_kafka(producer: KafkaProducer, timeout: float) -> None:
-    """验证 Kafka 可达。"""
+    """Verify Kafka connectivity."""
     try:
         await asyncio.wait_for(
             producer.ensure_ready(),
             timeout=timeout,
         )
     except asyncio.TimeoutError:
-        log.error("启动失败: Kafka 连接超时", timeout_sec=timeout)
+        log.error("Startup failed: Kafka connection timed out", timeout_sec=timeout)
         try:
             await producer.close()
         except Exception as close_exc:
-            log.warning("Kafka: 超时后关闭 producer 时出错", error=str(close_exc))
-        raise RuntimeError(f"Kafka 不可用: 连接超时 {timeout}s") from None
+            log.warning("Kafka: Failed to close producer after timeout", error=str(close_exc))
+        raise RuntimeError(f"Kafka unavailable: connection timed out after {timeout}s") from None
     except Exception as e:
-        log.error("启动失败: Kafka 不可用", error=str(e))
-        raise RuntimeError(f"Kafka 不可用: {e}") from e
+        log.error("Startup failed: Kafka unavailable", error=str(e))
+        raise RuntimeError(f"Kafka unavailable: {e}") from e
 
 
 async def run() -> None:
-    """启动 Realtime Transcribe Service。"""
+    """Start Realtime Transcribe Service."""
     settings = get_settings()
     configure_logging(level=settings.log_level, format=settings.log_format)
 
-    # --- 初始化组件 ---
+    # --- Initialize components ---
     sequence_state_machine = RedisSequenceStateMachine(
         redis_url=settings.redis_url,
         max_connections=settings.redis_max_connections,
@@ -130,7 +130,7 @@ async def run() -> None:
     shutdown.register_signal()
     registry = ConnectionRegistry()
 
-    # --- 启动前检查（Redis 与 Kafka 并行，减少冷启动耗时）---
+    # --- Pre-start checks (Redis and Kafka run in parallel to reduce cold-start latency) ---
     t_checks = time.perf_counter()
     await asyncio.gather(
         _startup_phase_timed("redis", _check_redis(settings.redis_url)),
@@ -140,11 +140,11 @@ async def run() -> None:
         ),
     )
     log.info(
-        "Startup: Redis+Kafka 检查结束（并行）",
+        "Startup: Redis+Kafka checks completed (parallel)",
         wall_ms=round((time.perf_counter() - t_checks) * 1000, 2),
     )
 
-    # --- 构建 FastAPI 应用 ---
+    # --- Build the FastAPI application ---
     app = create_app(
         orchestrator=orchestrator,
         shutdown=shutdown,
@@ -173,7 +173,7 @@ async def run() -> None:
     server = uvicorn.Server(config)
 
     log.info(
-        "Realtime Transcribe Service: 已启动",
+        "Realtime Transcribe Service: Started",
         ws_endpoint=WS_PATH,
         host=settings.http_host,
         port=settings.http_port,
@@ -183,7 +183,7 @@ async def run() -> None:
         try:
             await server.serve()
         except SystemExit as e:
-            raise RuntimeError(f"Uvicorn 启动失败 (exit code {e.code})") from e
+            raise RuntimeError(f"Uvicorn failed to start (exit code {e.code})") from e
 
     try:
         server_task = asyncio.create_task(_safe_serve())
@@ -198,8 +198,8 @@ async def run() -> None:
             shutdown_task.cancel()
             server_task.result()
 
-        # --- 优雅停机 ---
-        log.info("Shutdown: 开始优雅停机", timeout_sec=shutdown.stop_timeout)
+        # --- Graceful shutdown ---
+        log.info("Shutdown: Starting graceful shutdown", timeout_sec=shutdown.stop_timeout)
         try:
             await asyncio.wait_for(
                 _graceful_stop(server, server_task, registry, producer),
@@ -207,7 +207,7 @@ async def run() -> None:
             )
         except asyncio.TimeoutError:
             log.warning(
-                "Shutdown: 优雅停机超时，强制收尾",
+                "Shutdown: Graceful shutdown timed out, forcing final cleanup",
                 timeout_sec=shutdown.stop_timeout,
             )
             server.should_exit = True
@@ -218,22 +218,22 @@ async def run() -> None:
                 except asyncio.CancelledError:
                     pass
     except Exception as e:
-        log.exception("运行异常", error=str(e))
+        log.exception("Runtime failure", error=str(e))
         raise
     finally:
-        log.info("Shutdown: 释放资源")
+        log.info("Shutdown: Releasing resources")
         await producer.close()
         await sequence_state_machine.close()
         await ownership_guard.close()
-        log.info("Realtime Transcribe Service: 已安全退出")
+        log.info("Realtime Transcribe Service: Exited cleanly")
 
 
 def main() -> None:
-    """同步入口。"""
+    """Synchronous entrypoint."""
     try:
         asyncio.run(run())
     except RuntimeError as e:
-        log.error("启动失败", error=str(e))
+        log.error("Startup failed", error=str(e))
         sys.exit(1)
     except KeyboardInterrupt:
         pass

@@ -1,22 +1,22 @@
-# Kafka UI 使用说明
+# Kafka UI Guide
 
-Kafka UI 是开源 Web 界面，用于查看和管理 Kafka 集群；消息 Value 会以 UTF-8 文本显示（JSON 可读）。
+Kafka UI is an open-source web console for inspecting and managing Kafka clusters. Message values are displayed as UTF-8 text, which makes JSON payloads easy to inspect.
 
 ---
 
-## 1. 启动
+## 1. Start Kafka UI
 
-### 方式一：随 docker-compose 一起启动（推荐）
+### Option A: start it with `docker compose` (recommended)
 
 ```bash
 docker compose up -d
 ```
 
-会启动 Redis、Kafka 和 Kafka UI。Kafka UI 地址：**http://127.0.0.1:8090**（主机 8090 映射到容器 8080，避免与本服务 HTTP/WebSocket 监听 **8080** 冲突）。
+This starts Redis, Kafka, and Kafka UI together. Kafka UI is available at **http://127.0.0.1:8090**. The host uses port `8090` so it does not conflict with this service on port `8080`.
 
-### 方式二：单独启动 Kafka UI（Kafka 已运行）
+### Option B: run Kafka UI separately
 
-compose 内 Kafka 对宿主机暴露 **9092**，对同一 compose 网络内服务为 **broker:19092**。若 Kafka UI 在 compose 外单独起容器，bootstrap 通常填 `host.docker.internal:9092`（Windows/Mac）或宿主机 IP + `9092`。
+In the provided compose stack, Kafka is exposed to the host as `9092` and to other compose services as `broker:19092`. If Kafka UI runs outside the compose network, use `host.docker.internal:9092` on Windows or macOS, or the host IP plus `9092` on Linux.
 
 ```bash
 docker run -d -p 8090:8080 \
@@ -25,33 +25,35 @@ docker run -d -p 8090:8080 \
   provectuslabs/kafka-ui:latest
 ```
 
-**注意**：不要将 Kafka UI 映射到主机 **8080**，否则会与本服务默认端口冲突。
+Do not bind Kafka UI to host port `8080`, or it will collide with the service’s default HTTP/WebSocket port.
 
 ---
 
-## 2. 查看消息
+## 2. View Messages
 
-1. 浏览器打开 **http://127.0.0.1:8090**（随 compose 启动时）
-2. 左侧选择 **Topics** → 选择与 [.env.example](../.env.example) / `KAFKA_TOPIC` 一致的 Topic（默认 **`AI_STAGING_TRANSCRIPTION`**）
-3. 在 **Messages** 标签页查看消息
-4. Value 为 UTF-8 JSON，对应 API 契约中的上行结构（`metaData` + `payload` 等）
+1. Open **http://127.0.0.1:8090**
+2. Select **Topics** in the left navigation
+3. Choose the topic configured by `KAFKA_TOPIC`, which defaults to **`AI_STAGING_TRANSCRIPTION`**
+4. Open the **Messages** tab to inspect payloads
+
+Values are stored as UTF-8 JSON and typically mirror the contract structure from the API documentation, including `metaData` and `payload`.
 
 ---
 
-## 3. 常用功能
+## 3. Common Features
 
-| 功能 | 位置 |
+| Feature | Location |
 |------|------|
-| 查看 Topic 列表 | Topics |
-| 查看消息内容 | Topic → Messages |
-| 查看 Consumer Group | Consumers |
-| 搜索消息 | Messages 上方搜索框 |
-| 按 offset 跳转 | Messages 中指定 offset |
+| View topic list | `Topics` |
+| Inspect messages | `Topic -> Messages` |
+| Inspect consumer groups | `Consumers` |
+| Search messages | Search box above the message list |
+| Jump to an offset | Offset controls inside `Messages` |
 
 ---
 
-## 4. 与本项目的 Topic
+## 4. Topic Conventions in This Project
 
-- **Topic 名称**：默认 `AI_STAGING_TRANSCRIPTION`（由 `KAFKA_TOPIC` 配置）
-- **Partition Key**：`conversationId`（UTF-8），同一通话路由到同一分区
-- **Value**：JSON，与 [design/realtime-transcribe-service-api-contract.md](../design/realtime-transcribe-service-api-contract.md) 中 Client→Server 消息体一致（或按部署约定封装；生产以实际落盘格式为准）
+- **Topic name:** `AI_STAGING_TRANSCRIPTION` by default, controlled by `KAFKA_TOPIC`
+- **Partition key:** `conversationId`, so each conversation stays ordered in a single partition
+- **Value:** JSON matching the contract or the deployment-specific outbound wrapper used in your environment

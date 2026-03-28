@@ -12,8 +12,10 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    # 未指定 --maxclients 时沿用 redis:7-alpine 内置配置（一般为 10000，实际会受容器 ulimits/nofile 压缩）。
-    # 查看实值：docker compose exec redis redis-cli CONFIG GET maxclients
+    # If --maxclients is not specified, redis:7-alpine keeps its built-in default
+    # (typically 10000, subject to container ulimits / nofile settings).
+    # Inspect the effective value with:
+    # docker compose exec redis redis-cli CONFIG GET maxclients
     command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -30,7 +32,9 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT"
-      # PLAINTEXT_HOST 给宿主机上的客户端（如本机 Python）：用 127.0.0.1，避免 Windows 上 IPv6 / advertised 地址不一致导致 aiokafka 长时间卡住
+      # PLAINTEXT_HOST is for clients running on the host machine, such as local Python.
+      # Use 127.0.0.1 to avoid aiokafka stalls caused by IPv6 / advertised-listener
+      # mismatches on Windows.
       KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT_HOST://127.0.0.1:9092,PLAINTEXT://broker:19092"
       KAFKA_PROCESS_ROLES: "broker,controller"
       KAFKA_CONTROLLER_QUORUM_VOTERS: "1@broker:29093"
@@ -55,13 +59,25 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     ports:
-      - "8090:8080"  # 8090 避免与 Realtime Transcribe Service (8080) 冲突
+      - "8090:8080"  # Use 8090 to avoid colliding with Realtime Transcribe Service on 8080
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:19092
       KAFKA_CLUSTERS_0_ZOOKEEPER: ""
     depends_on:
       kafka:
+        condition: service_healthy
+
+  redis-commander:
+    image: ghcr.io/joeferner/redis-commander:latest
+    user: redis
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    depends_on:
+      redis:
         condition: service_healthy
 
 volumes:

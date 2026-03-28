@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -29,7 +29,7 @@
   --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
   --radius: 10px;
   --radius-sm: 7px;
-  /* 字号层级：正文 14 → 标题 16 → 区块 13 → 辅助 12 → 标签 11 */
+  /* Type scale: body 14 -> title 16 -> section 13 -> secondary 12 -> label 11 */
   --fs-body: 14px;
   --fs-title: 16px;
   --fs-heading: 13px;
@@ -44,7 +44,7 @@
   --fw-head: 600;
   --fw-overline: 600;
   --fw-label: 600;
-  /* 实心按钮上的文字（主按钮、危险/成功填充 hover） */
+  /* Text color on solid buttons (primary and filled danger/success hover states) */
   --btn-on-solid: #f8fafc;
 }
 [data-theme="night-blue"] {
@@ -1179,7 +1179,7 @@ select.cp-select:focus {
   border: 1px solid var(--border);
 }
 
-/* Stats（嵌在并发压测卡片内，场景/压测共用同一套 SSE 指标） */
+/* Stats (embedded inside the load-test card; scenarios and load tests share one SSE metric stream) */
 .cp-load-stats {
   margin-top: 14px;
   padding-top: 14px;
@@ -1502,79 +1502,79 @@ select.cp-select:focus {
     </select>
   </div>
   <nav class="tab-nav">
-    <button class="tab-btn active" onclick="switchTab('scenario')">场景测试</button>
-    <button class="tab-btn" onclick="switchTab('loadtest')">并发压测</button>
+    <button class="tab-btn active" onclick="switchTab('scenario')">Scenario Tests</button>
+    <button class="tab-btn" onclick="switchTab('loadtest')">Concurrent Load Test</button>
   </nav>
-  <span id="sse-status" style="margin-left:auto;font-size:12px;color:var(--text2);">SSE: 连接中...</span>
+  <span id="sse-status" style="margin-left:auto;font-size:12px;color:var(--text2);">SSE: Connecting...</span>
 </header>
 
-<!-- ====== Tab 1: 场景测试 ====== -->
+<!-- ====== Tab 1: Scenario Tests ====== -->
 <div class="tab-content active" id="tab-scenario">
 <div class="scenario-page" id="scenario-page">
-  <button type="button" class="scenario-toggle-btn" id="btn-control-toggle" title="收起场景配置" aria-label="收起场景配置"></button>
+  <button type="button" class="scenario-toggle-btn" id="btn-control-toggle" title="Collapse scenario controls" aria-label="Collapse scenario controls"></button>
   <div class="panel control-panel" id="control-panel">
     <div class="panel-header control-panel-header">
-      <span>场景配置</span>
+      <span>Scenario Controls</span>
     </div>
     <div class="panel-body control-strip" id="control-panel-body">
       <section class="cp-card scenario-endpoint-card">
-        <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>服务端点</h3>
+        <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>Service Endpoint</h3>
         <label class="cp-label" for="ws-url">WebSocket URL</label>
         <input type="text" id="ws-url" value="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions" autocomplete="off">
       </section>
 
       <section class="cp-card">
-        <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>场景测试</h3>
+        <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>Scenario Tests</h3>
         <div class="cp-scenario-toolbar">
           <div class="cp-scenario-subcard">
-            <div class="cp-scenario-subtitle">场景控制值（按场景解释）</div>
+            <div class="cp-scenario-subtitle">Scenario Control Value (meaning depends on the scenario)</div>
             <div class="cp-scenario-subhint">
-              <div><code>N-01</code>：表示发送多少条 <strong>SESSION_ONGOING</strong> 消息</div>
-              <div><code>N-02</code>：表示要测试的 <strong>seq 个数</strong>，每个 seq 发送两次</div>
-              <div><code>N-03</code>：表示每条通话的<strong>消息总数</strong>（含最后一条 COMPLETE）</div>
-              <div><code>E-09</code>：表示第二条乱序消息的目标 seq，实际取 <code>max(2, N)</code></div>
-              <div>其余错误场景：不读取这个控制值</div>
+              <div><code>N-01</code>: number of <strong>SESSION_ONGOING</strong> messages to send</div>
+              <div><code>N-02</code>: number of <strong>seq values</strong> to test; each seq is sent twice</div>
+              <div><code>N-03</code>: <strong>total messages</strong> in a conversation, including the final COMPLETE</div>
+              <div><code>E-09</code>: target seq for the second out-of-order message; the actual value is <code>max(2, N)</code></div>
+              <div>All other error scenarios ignore this control value</div>
             </div>
             <div class="cp-nmessages">
-              <label class="cp-label" for="scenario-messages">场景控制值</label>
-              <div class="cp-input-with-suffix" title="控制值的含义随场景变化，仅使用该参数的场景会传给后端">
+              <label class="cp-label" for="scenario-messages">Scenario Control Value</label>
+              <div class="cp-input-with-suffix" title="Its meaning changes by scenario; only scenarios that use it send this value to the backend">
                 <input type="number" id="scenario-messages" value="5" min="1" max="100">
                 <span class="cp-suffix"></span>
               </div>
             </div>
             <div class="cp-scenario-btns">
-              <button type="button" class="btn-scenario" onclick="runScenario('N-01')">N-01 会话中正常处理</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('N-02')">N-02 幂等命中</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('N-03')">N-03 会话结束</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('E-09')">E-09 序列号乱序</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('N-01')">N-01 Normal In-Session Processing</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('N-02')">N-02 Idempotent Replay Hit</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('N-03')">N-03 Session Complete</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-09')">E-09 Sequence Out of Order</button>
             </div>
           </div>
           <div class="cp-scenario-subcard cp-scenario-subcard--fixed">
-            <div class="cp-scenario-subtitle">固定错误场景（无需场景控制值）</div>
+            <div class="cp-scenario-subtitle">Fixed Error Scenarios (no control value needed)</div>
             <div class="cp-scenario-subhint">
-              <div>这些场景会直接构造固定的握手错误、协议错误或业务规则错误。</div>
-              <div>运行时不会读取上方的场景控制值。</div>
+              <div>These scenarios directly construct a fixed handshake, protocol, or business-rule failure.</div>
+              <div>They do not read the scenario control value above.</div>
             </div>
             <div class="cp-scenario-btns">
-              <button type="button" class="btn-scenario" onclick="runScenario('E-01')">E-01 缺少 query conversationId</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('E-04')">E-04 非法 JSON</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('E-05')">E-05 枚举值非法</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('E-06')">E-06 缺少必填字段</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('E-07')">E-07 字段类型不符</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('E-08')">E-08 时间格式无效</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('E-14')">E-14 query/body conversationId 不一致</button>
-              <button type="button" class="btn-scenario" onclick="runScenario('E-15')">E-15 业务规则校验失败</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-01')">E-01 Missing Query conversationId</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-04')">E-04 Invalid JSON</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-05')">E-05 Invalid Enum Value</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-06')">E-06 Missing Required Field</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-07')">E-07 Field Type Mismatch</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-08')">E-08 Invalid Timestamp Format</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-14')">E-14 Query/Body conversationId Mismatch</button>
+              <button type="button" class="btn-scenario" onclick="runScenario('E-15')">E-15 Business-Rule Validation Failed</button>
             </div>
           </div>
           <div class="cp-scenario-runall">
-            <button type="button" class="primary" onclick="runAllScenarios()" title="顺序 N-01 → N-02 → N-03 → E-01 → E-04 → E-05 → E-06 → E-07 → E-08 → E-09 → E-14 → E-15；仅 N-01、N-02、N-03、E-09 使用场景控制值">全部运行</button>
+            <button type="button" class="primary" onclick="runAllScenarios()" title="Runs N-01 -> N-02 -> N-03 -> E-01 -> E-04 -> E-05 -> E-06 -> E-07 -> E-08 -> E-09 -> E-14 -> E-15; only N-01, N-02, N-03, and E-09 use the scenario control value">Run All</button>
           </div>
           <div class="cp-scenario-subcard">
-            <div class="cp-scenario-subtitle">场景编排器（拖拽排序）</div>
-            <div class="cp-scenario-subhint">拖拽下方项调整顺序，然后按顺序一键执行。</div>
+            <div class="cp-scenario-subtitle">Scenario Playlist (drag to reorder)</div>
+            <div class="cp-scenario-subhint">Drag the items below to change the order, then run them in sequence.</div>
             <div id="scenario-playlist" class="scenario-playlist"></div>
             <div class="cp-scenario-runall">
-              <button type="button" class="primary" onclick="runScenarioPlaylist()" title="按左侧编排顺序依次执行场景">运行编排</button>
+              <button type="button" class="primary" onclick="runScenarioPlaylist()" title="Run scenarios in the playlist order shown on the left">Run Playlist</button>
             </div>
           </div>
         </div>
@@ -1582,27 +1582,27 @@ select.cp-select:focus {
     </div>
   </div>
   <div class="scenario-main" id="scenario-main">
-    <!-- 场景结果（可拖动下沿缩小，把空间让给 Kafka） -->
+    <!-- Scenario results (shrink the bottom edge to give more space to Kafka) -->
     <div class="panel content-panel scenario-main-split-top" id="scenario-main-top">
       <div class="panel-header scenario-results-header">
-        <span>场景结果</span>
-        <button type="button" class="panel-header-action" id="btn-scenario-clear" onclick="clearScenarioResults()" title="清空所有场景卡片">清空</button>
+        <span>Scenario Results</span>
+        <button type="button" class="panel-header-action" id="btn-scenario-clear" onclick="clearScenarioResults()" title="Clear all scenario cards">Clear</button>
       </div>
       <div class="panel-body" id="scenario-results">
-        <p class="scenario-empty-hint">点击左侧「场景配置」中的按钮运行场景...</p>
+        <p class="scenario-empty-hint">Use the buttons in "Scenario Controls" on the left to run a scenario...</p>
       </div>
     </div>
-    <button type="button" class="scenario-main-resizer" id="scenario-main-resizer" aria-label="拖动调整场景结果与 Kafka 区域高度" title="上下拖动调整场景结果与 Kafka 区域比例；双击恢复默认约 1:2"></button>
+    <button type="button" class="scenario-main-resizer" id="scenario-main-resizer" aria-label="Drag to resize the scenario-results and Kafka areas" title="Drag up or down to resize the Scenario Results and Kafka areas; double-click to restore the default roughly 1:2 split"></button>
 
-    <!-- Kafka 查看器 -->
+    <!-- Kafka viewer -->
     <div class="panel content-panel scenario-main-split-bottom" id="scenario-main-bottom">
       <div class="panel-header kafka-panel-banner">
-        <span>Kafka 消息</span>
+        <span>Kafka Messages</span>
         <div class="kafka-banner-actions">
-          <span id="kafka-count" class="kafka-count-pill" title="当前列表可见条数">0</span>
-          <button type="button" class="panel-header-action" id="btn-kafka-toggle-expand" onclick="toggleAllKafkaMessages()">展开全部</button>
-          <button type="button" class="panel-header-action" onclick="clearKafka()" title="清空消息列表与 conversationId 下拉缓存">清空列表</button>
-          <button type="button" class="panel-header-action panel-header-action--purge" onclick="purgeKafkaTopic()" title="删除当前 Bootstrap/Topic 上已提交的全部消息（Kafka DeleteRecords）；会先停止消费者，若正在消费本 Topic 则清空后自动恢复">清空 Topic</button>
+          <span id="kafka-count" class="kafka-count-pill" title="Visible rows in the current list">0</span>
+          <button type="button" class="panel-header-action" id="btn-kafka-toggle-expand" onclick="toggleAllKafkaMessages()">Expand All</button>
+          <button type="button" class="panel-header-action" onclick="clearKafka()" title="Clear the message list and the cached conversationId options">Clear List</button>
+          <button type="button" class="panel-header-action panel-header-action--purge" onclick="purgeKafkaTopic()" title="Delete all committed records from the current Bootstrap/Topic using Kafka DeleteRecords; the consumer is stopped first and restored automatically if it was already consuming this topic">Purge Topic</button>
         </div>
       </div>
       <div class="panel-body kafka-panel-body">
@@ -1616,35 +1616,35 @@ select.cp-select:focus {
             <input type="text" id="kafka-topic" value="AI_STAGING_TRANSCRIPTION">
           </div>
           <div class="form-group">
-            <label>Kafka 消费<span id="kafka-status" class="kafka-inline-status"></span></label>
+            <label>Kafka Consumer<span id="kafka-status" class="kafka-inline-status"></span></label>
             <div class="kafka-consume-controls">
-              <select id="kafka-cid-select" class="cp-select" title="按 conversationId 筛选下方消息列表；选项来自场景/压测与已消费消息" onchange="onKafkaCidSelectChange()">
-                <option value="">全部会话</option>
+              <select id="kafka-cid-select" class="cp-select" title="Filter the message list below by conversationId; options come from scenario/load-test activity and consumed messages" onchange="onKafkaCidSelectChange()">
+                <option value="">All Conversations</option>
               </select>
               <div class="btn-row" style="margin:0">
-                <button type="button" class="success" id="btn-kafka-start" onclick="startKafka()">开始消费</button>
-                <button type="button" class="danger" id="btn-kafka-stop" onclick="stopKafka()">停止</button>
+                <button type="button" class="success" id="btn-kafka-start" onclick="startKafka()">Start Consumer</button>
+                <button type="button" class="danger" id="btn-kafka-stop" onclick="stopKafka()">Stop</button>
               </div>
             </div>
           </div>
         </div>
         <div class="kafka-pager" id="kafka-pager">
           <div class="kafka-pager-info">
-            <span id="kafka-pager-summary">共 0 条</span>
+            <span id="kafka-pager-summary">Total 0 records</span>
           </div>
           <div class="kafka-pager-nav">
-            <label style="font-size:11px;color:var(--text2)">每页</label>
+            <label style="font-size:11px;color:var(--text2)">Per page</label>
             <select id="kafka-page-size" onchange="onKafkaPageSizeChange(this.value)">
               <option value="50" selected>50</option>
               <option value="100">100</option>
               <option value="200">200</option>
               <option value="500">500</option>
             </select>
-            <button type="button" onclick="kafkaPageGo('first')" title="首页">⏮</button>
-            <button type="button" onclick="kafkaPageGo('prev')" title="上一页">◀</button>
+            <button type="button" onclick="kafkaPageGo('first')" title="First page">⏮</button>
+            <button type="button" onclick="kafkaPageGo('prev')" title="Previous page">◀</button>
             <span id="kafka-pager-pos">1 / 1</span>
-            <button type="button" onclick="kafkaPageGo('next')" title="下一页">▶</button>
-            <button type="button" onclick="kafkaPageGo('last')" title="末页">⏭</button>
+            <button type="button" onclick="kafkaPageGo('next')" title="Next page">▶</button>
+            <button type="button" onclick="kafkaPageGo('last')" title="Last page">⏭</button>
           </div>
         </div>
         <div id="kafka-messages" class="kafka-messages-scroll"></div>
@@ -1654,83 +1654,83 @@ select.cp-select:focus {
 </div>
 </div>
 
-<!-- ====== Tab 2: 并发压测 ====== -->
+<!-- ====== Tab 2: Concurrent Load Test ====== -->
 <div class="tab-content" id="tab-loadtest">
 <div class="load-page">
   <div class="panel load-controls">
-    <div class="panel-header">压测配置</div>
+    <div class="panel-header">Load-Test Controls</div>
     <div class="panel-body">
       <section class="cp-card">
-        <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>服务端点</h3>
+        <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>Service Endpoint</h3>
         <label class="cp-label" for="load-ws-url">WebSocket URL</label>
         <input type="text" id="load-ws-url" value="ws://127.0.0.1:8080/ws/v1/realtime-transcriptions" autocomplete="off" style="width:100%">
       </section>
       <section class="cp-card">
-        <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>连接参数</h3>
+        <h3 class="cp-card-title"><span class="cp-card-dot" aria-hidden="true"></span>Connection Parameters</h3>
         <p class="cp-load-hint" style="margin-bottom:14px">
-          每条连接按 seq 连续发送 <code>SESSION_ONGOING</code>，最后一条 <code>SESSION_COMPLETE</code>。
-          点「启动」后所有连接一起建连、发消息、发完即关。
+          Each connection sends continuous <code>SESSION_ONGOING</code> messages by sequence number, followed by one final <code>SESSION_COMPLETE</code>.
+          After you click Start, all connections connect, send, and close in one run.
         </p>
         <div style="display:grid;gap:12px">
           <div>
-            <label class="cp-label" for="load-benchmark-preset">Benchmark 预设</label>
+            <label class="cp-label" for="load-benchmark-preset">Benchmark Preset</label>
             <select id="load-benchmark-preset" class="cp-select" onchange="applyLoadBenchmarkPreset(this.value)" style="width:100%">
-              <option value="custom" selected>自定义</option>
-              <option value="benchmark-300">300 并发 Benchmark</option>
-              <option value="benchmark-400">400 并发 Benchmark</option>
-              <option value="benchmark-500">500 并发 Benchmark</option>
+              <option value="custom" selected>Custom</option>
+              <option value="benchmark-300">300-Concurrency Benchmark</option>
+              <option value="benchmark-400">400-Concurrency Benchmark</option>
+              <option value="benchmark-500">500-Concurrency Benchmark</option>
             </select>
           </div>
           <div>
-            <label class="cp-label" for="load-concurrency">并发连接数</label>
+            <label class="cp-label" for="load-concurrency">Concurrent Connections</label>
             <input type="number" id="load-concurrency" value="10" min="1" max="10000" style="width:100%">
           </div>
           <div>
-            <label class="cp-label" for="load-messages">每连接消息总数</label>
+            <label class="cp-label" for="load-messages">Messages per Connection</label>
             <input type="number" id="load-messages" value="10" min="1" max="1000" style="width:100%">
           </div>
           <div>
-            <label class="cp-label" for="load-interval">消息间隔 (ms)</label>
+            <label class="cp-label" for="load-interval">Message Interval (ms)</label>
             <input type="number" id="load-interval" value="20" min="0" max="60000" style="width:100%">
           </div>
           <div>
-            <label class="cp-label" for="load-rampup">爬坡时间 (ms)</label>
-            <input type="number" id="load-rampup" value="0" min="0" max="300000" style="width:100%" title="连接启动的线性爬坡时间。0 = 全部同时发起。>0 时在此时段内均匀启动，避免瞬间洪峰">
+            <label class="cp-label" for="load-rampup">Ramp-up Window (ms)</label>
+            <input type="number" id="load-rampup" value="0" min="0" max="300000" style="width:100%" title="Linear connection-start ramp-up. 0 = start all at once. Values greater than 0 spread starts evenly across the interval to avoid a burst">
           </div>
         </div>
         <div class="cp-load-actions" style="margin-top:16px">
-          <button type="button" class="success" id="btn-load-start" onclick="startLoad()">启动压测</button>
-          <button type="button" class="danger" id="btn-load-stop" onclick="stopLoad()">停止压测</button>
+          <button type="button" class="success" id="btn-load-start" onclick="startLoad()">Start Load Test</button>
+          <button type="button" class="danger" id="btn-load-stop" onclick="stopLoad()">Stop Load Test</button>
         </div>
       </section>
     </div>
   </div>
   <div class="panel load-dashboard">
     <div class="panel-header">
-      <span>实时仪表盘</span>
+      <span>Realtime Dashboard</span>
     </div>
     <div class="load-dashboard-body">
       <div id="load-status" class="cp-load-status cp-load-status--idle" role="status" aria-live="polite" style="margin-bottom:20px">
-        当前空闲。启动后此处显示进行中与已用时间；整轮跑完后变为绿色「已完成」。
+        Idle. Once started, this panel shows run status and elapsed time. After the run finishes, it turns green and shows Completed.
       </div>
       <div class="metric-groups">
         <section class="metric-group">
-          <h4 class="metric-group-title">吞吐与连接</h4>
+          <h4 class="metric-group-title">Throughput &amp; Connections</h4>
           <div class="load-stats-grid">
-            <div class="load-stat-card"><div class="value" id="stat-sent">0</div><div class="label">已发送</div></div>
-            <div class="load-stat-card"><div class="value" id="stat-active">0</div><div class="label">活跃连接</div></div>
+            <div class="load-stat-card"><div class="value" id="stat-sent">0</div><div class="label">Sent</div></div>
+            <div class="load-stat-card"><div class="value" id="stat-active">0</div><div class="label">Active Connections</div></div>
             <div class="load-stat-card"><div class="value" id="stat-tps">0</div><div class="label">ACK TPS</div></div>
           </div>
         </section>
         <section class="metric-group">
-          <h4 class="metric-group-title">结果质量</h4>
+          <h4 class="metric-group-title">Result Quality</h4>
           <div class="load-stats-grid">
             <div class="load-stat-card green"><div class="value" id="stat-ack">0</div><div class="label">ACK</div></div>
-            <div class="load-stat-card red"><div class="value" id="stat-error">0</div><div class="label">错误事件</div></div>
+            <div class="load-stat-card red"><div class="value" id="stat-error">0</div><div class="label">Error Events</div></div>
           </div>
         </section>
         <section class="metric-group">
-          <h4 class="metric-group-title">端到端延迟</h4>
+          <h4 class="metric-group-title">End-to-End Latency</h4>
           <div class="load-stats-grid">
             <div class="load-stat-card orange"><div class="value" id="stat-p50">0</div><div class="label">P50 (ms)</div></div>
             <div class="load-stat-card orange"><div class="value" id="stat-p95">0</div><div class="label">P95 (ms)</div></div>
@@ -1738,7 +1738,7 @@ select.cp-select:focus {
           </div>
         </section>
         <section class="metric-group">
-          <h4 class="metric-group-title">服务端处理延迟（ACK 样本）</h4>
+          <h4 class="metric-group-title">Server Processing Latency (ACK Samples)</h4>
           <div class="load-stats-grid">
             <div class="load-stat-card"><div class="value" id="stat-server-p50">0</div><div class="label">P50 (ms)</div></div>
             <div class="load-stat-card"><div class="value" id="stat-server-p95">0</div><div class="label">P95 (ms)</div></div>
@@ -1752,16 +1752,16 @@ select.cp-select:focus {
           <div class="heatstrip" id="latency-heatstrip"></div>
         </section>
         <section class="insight-card">
-          <div class="insight-title">错误码排行榜</div>
+          <div class="insight-title">Top Error Codes</div>
           <ul class="error-rank-list" id="error-rank-list"></ul>
         </section>
         <section class="insight-card">
-          <div class="insight-title">连接生命周期时间线</div>
+          <div class="insight-title">Connection Lifecycle Timeline</div>
           <div class="lifecycle-line" id="lifecycle-line"></div>
         </section>
       </div>
       <div class="load-errors-section" id="load-errors-panel" style="display:none" aria-live="polite">
-        <div class="title">最近压测错误（保留约 100 条 · 可在终端看完整 WARNING）</div>
+        <div class="title">Recent Load-Test Errors (keeps about 100; check the terminal for full WARNING logs)</div>
         <pre id="load-errors-pre"></pre>
       </div>
     </div>
@@ -1779,18 +1779,18 @@ const LOAD_BENCHMARK_PRESETS = {
   'benchmark-500': { concurrency: 500, messages: 100, interval: 85, rampup: 37500 },
 };
 const SCENARIO_LABELS = {
-  'N-01': 'N-01 会话中正常处理',
-  'N-02': 'N-02 幂等命中',
-  'N-03': 'N-03 会话结束',
-  'E-01': 'E-01 缺少 query conversationId',
-  'E-04': 'E-04 非法 JSON',
-  'E-05': 'E-05 枚举值非法',
-  'E-06': 'E-06 缺少必填字段',
-  'E-07': 'E-07 字段类型不符',
-  'E-08': 'E-08 时间格式无效',
-  'E-09': 'E-09 序列号乱序',
-  'E-14': 'E-14 query/body conversationId 不一致',
-  'E-15': 'E-15 业务规则校验失败',
+  'N-01': 'N-01 Normal In-Session Processing',
+  'N-02': 'N-02 Idempotent Replay Hit',
+  'N-03': 'N-03 Session Complete',
+  'E-01': 'E-01 Missing Query conversationId',
+  'E-04': 'E-04 Invalid JSON',
+  'E-05': 'E-05 Invalid Enum Value',
+  'E-06': 'E-06 Missing Required Field',
+  'E-07': 'E-07 Field Type Mismatch',
+  'E-08': 'E-08 Invalid Timestamp Format',
+  'E-09': 'E-09 Sequence Out of Order',
+  'E-14': 'E-14 Query/Body conversationId Mismatch',
+  'E-15': 'E-15 Business-Rule Validation Failed',
 };
 let kafkaExpandAll = false;
 const _kafkaAllMessages = [];
@@ -1799,7 +1799,7 @@ let _kafkaPageSize = 50;
 const latencyHistory = [];
 let _loadUiRunning = false;
 
-/** 不再持久化压测结果；清除旧版本写入的存档，避免用户本地残留 */
+/** Do not persist load-test results anymore; clear local leftovers from older UI versions. */
 (function clearLegacyLoadPersist() {
   try {
     localStorage.removeItem('mockClient.lastLoadStats');
@@ -1807,7 +1807,7 @@ let _loadUiRunning = false;
   } catch (e) {}
 })();
 
-/** 场景编排列表；必须与 renderScenarioPlaylist 在首次 renderScenarioPlaylist() 调用之前定义，否则 const TDZ 会抛错、芯片不渲染 */
+/** Scenario playlist; define it before the first renderScenarioPlaylist() call or chip rendering breaks. */
 const scenarioPlaylist = [
   'N-01',
   'N-02',
@@ -1915,7 +1915,7 @@ function setTheme(themeName) {
 })();
 
 // ---------------------------------------------------------------------------
-// Tab 切换
+// Tab switching
 // ---------------------------------------------------------------------------
 function switchTab(name) {
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -1923,7 +1923,7 @@ function switchTab(name) {
   const target = document.getElementById('tab-' + name);
   if (target) target.classList.add('active');
   const btns = document.querySelectorAll('.tab-btn');
-  btns.forEach(b => { if (b.textContent.trim() === (name === 'scenario' ? '场景测试' : '并发压测')) b.classList.add('active'); });
+  btns.forEach(b => { if (b.textContent.trim() === (name === 'scenario' ? 'Scenario Tests' : 'Concurrent Load Test')) b.classList.add('active'); });
   try { localStorage.setItem('mockClient.activeTab', name); } catch (e) {}
 }
 (function restoreTab() {
@@ -1940,8 +1940,8 @@ function connectSSE() {
   const es = new EventSource(API + '/api/events');
   const statusEl = document.getElementById('sse-status');
 
-  es.onopen = () => { statusEl.textContent = 'SSE: 已连接'; statusEl.style.color = 'var(--green)'; };
-  es.onerror = () => { statusEl.textContent = 'SSE: 断开'; statusEl.style.color = 'var(--red)'; };
+  es.onopen = () => { statusEl.textContent = 'SSE: Connected'; statusEl.style.color = 'var(--green)'; };
+  es.onerror = () => { statusEl.textContent = 'SSE: Disconnected'; statusEl.style.color = 'var(--red)'; };
 
   es.addEventListener('scenario_step', e => {
     const d = JSON.parse(e.data);
@@ -1993,10 +1993,10 @@ function connectSSE() {
     const d = JSON.parse(e.data);
     const el = document.getElementById('kafka-status');
     if (d.connected) {
-      el.textContent = '● 已连接 ' + (d.topic || '');
+      el.textContent = '● Connected ' + (d.topic || '');
       el.style.color = 'var(--green)';
     } else {
-      el.textContent = '○ 未连接';
+      el.textContent = '○ Disconnected';
       el.style.color = 'var(--text2)';
     }
   });
@@ -2086,8 +2086,8 @@ syncLoadBenchmarkPresetSelection();
     panel.classList.toggle('collapsed', c);
     btn.textContent = c ? '▶' : '◀';
     btn.setAttribute('aria-expanded', String(!c));
-    btn.setAttribute('aria-label', c ? '展开场景配置' : '收起场景配置');
-    btn.title = c ? '展开场景配置' : '收起场景配置';
+    btn.setAttribute('aria-label', c ? 'Expand scenario controls' : 'Collapse scenario controls');
+    btn.title = c ? 'Expand scenario controls' : 'Collapse scenario controls';
     try { localStorage.setItem(LS, c ? '1' : '0'); } catch (e) {}
   }
   try {
@@ -2100,10 +2100,10 @@ syncLoadBenchmarkPresetSelection();
 })();
 
 // ---------------------------------------------------------------------------
-// 场景
+// Scenarios
 // ---------------------------------------------------------------------------
 const scenarioCards = {};
-/** conversation_registered 可能比卡片创建更早到达 */
+/** conversation_registered may arrive before the card is created. */
 const pendingScenarioCids = {};
 
 async function runScenarioPlaylist() {
@@ -2121,7 +2121,7 @@ function escapeScenarioTitle(name) {
 function clearScenarioResults() {
   const container = document.getElementById('scenario-results');
   if (!container) return;
-  container.innerHTML = '<p class="scenario-empty-hint">点击左侧「场景配置」中的按钮运行场景...</p>';
+  container.innerHTML = '<p class="scenario-empty-hint">Use the buttons in "Scenario Controls" on the left to run a scenario...</p>';
   Object.keys(scenarioCards).forEach((k) => {
     delete scenarioCards[k];
   });
@@ -2138,7 +2138,7 @@ function createScenarioCard(name) {
   if (card) {
     card.className = 'scenario-card running';
     card.querySelector('.badge').className = 'badge running';
-    card.querySelector('.badge').textContent = '运行中';
+    card.querySelector('.badge').textContent = 'Running';
     card.querySelector('.step-list').innerHTML = '';
     const cidEl = card.querySelector('.scenario-cid-inline');
     if (cidEl) {
@@ -2162,7 +2162,7 @@ function createScenarioCard(name) {
     <div class="title">
       <span class="scenario-name">${safeName}</span>
       <span class="scenario-cid-inline" style="display:none"></span>
-      <span class="badge running">运行中</span>
+      <span class="badge running">Running</span>
     </div>
     <div class="step-list"></div>
   `;
@@ -2192,13 +2192,13 @@ function setScenarioConversationId(scenarioName, cid) {
     else title.appendChild(el);
   }
   el.textContent = cid;
-  el.title = cid + '\n点击复制';
+  el.title = cid + '\nClick to copy';
   el.style.display = 'inline-block';
   el.onclick = (ev) => {
     ev.stopPropagation();
     navigator.clipboard.writeText(cid).then(() => {
       const prev = el.textContent;
-      el.textContent = '已复制';
+      el.textContent = 'Copied';
       setTimeout(() => { el.textContent = prev; }, 900);
     }).catch(() => {});
   };
@@ -2264,7 +2264,7 @@ async function runAllScenarios() {
 }
 
 // ---------------------------------------------------------------------------
-// 压测
+// Load test
 // ---------------------------------------------------------------------------
 let _loadElapsedTimer = null;
 let _loadRunStartedAt = null;
@@ -2308,16 +2308,16 @@ function setLoadUiRunning(meta) {
   const m = Number(meta.messages_per_conv);
   const n = meta.total_sessions != null ? Number(meta.total_sessions) : (Number.isFinite(c) ? c : 0);
   _loadStopRequested = false;
-  _loadStaticLine = `压测进行中：本轮 ${n} 路会话同时在线（约 ${c} 条连接），每路 ${m} 条消息。全部结束后此处将提示「已完成」。`;
+  _loadStaticLine = `Load test running: ${n} conversations are live in this run (about ${c} connections), ${m} messages per conversation. This banner switches to Completed when the run ends.`;
   el.className = 'cp-load-status cp-load-status--running';
-  el.textContent = _loadStaticLine + ' 已运行 0.0s';
+  el.textContent = _loadStaticLine + ' Elapsed 0.0s';
   _clearLoadElapsedTimer();
   _loadRunStartedAt = Date.now();
   _loadElapsedTimer = setInterval(() => {
     if (!_loadRunStartedAt || !el) return;
     const sec = ((Date.now() - _loadRunStartedAt) / 1000).toFixed(1);
-    const tail = _loadStopRequested ? '（已请求停止，收尾中）' : '';
-    el.textContent = _loadStaticLine + ` 已运行 ${sec}s ` + tail;
+    const tail = _loadStopRequested ? ' (stop requested, draining)' : '';
+    el.textContent = _loadStaticLine + ` Elapsed ${sec}s` + tail;
   }, 400);
   const start = document.getElementById('btn-load-start');
   if (start) start.disabled = true;
@@ -2331,8 +2331,8 @@ function setLoadUiDone(d) {
   if (!el) return;
   el.className = 'cp-load-status cp-load-status--done';
   const elapsed = d.elapsed_sec != null ? d.elapsed_sec : '?';
-  const cancelled = d.load_cancelled ? ' 本轮曾点击「停止」，未开始的新会话已不再排队。' : '';
-  el.textContent = '✓ 已完成：服务端统计历时 ' + elapsed + 's。' + cancelled + ' 可再次调整参数后启动下一轮。';
+  const cancelled = d.load_cancelled ? ' Stop was requested in this run; sessions that had not started were not queued.' : '';
+  el.textContent = '✓ Completed: server-side measured duration ' + elapsed + 's.' + cancelled + ' Adjust parameters and start the next run when ready.';
   const start = document.getElementById('btn-load-start');
   if (start) start.disabled = false;
 }
@@ -2361,11 +2361,11 @@ async function startLoad() {
 async function stopLoad() {
   _loadStopRequested = true;
   const btn = document.getElementById('btn-load-stop');
-  if (btn) { btn.disabled = true; btn.textContent = '正在停止…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Stopping...'; }
   try {
     await fetch(`${API}/api/load/stop`, { method: 'POST' });
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '停止压测'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Stop Load Test'; }
   }
 }
 
@@ -2394,7 +2394,7 @@ function rebuildKafkaCidSelect() {
 
   const o0 = document.createElement('option');
   o0.value = '';
-  o0.textContent = `全部会话 (${_kafkaAllMessages.length})`;
+  o0.textContent = `All Conversations (${_kafkaAllMessages.length})`;
   sel.appendChild(o0);
   [...knownConversationIds].sort().forEach(id => {
     const o = document.createElement('option');
@@ -2402,7 +2402,7 @@ function rebuildKafkaCidSelect() {
     const cnt = cidCounts.get(id) || 0;
     const shortLabel = id.length > 40 ? id.slice(0, 18) + '…' + id.slice(-12) : id;
     o.textContent = `${shortLabel} (${cnt})`;
-    o.title = `${id} — ${cnt} 条`;
+    o.title = `${id} - ${cnt} msgs`;
     sel.appendChild(o);
   });
   if (prev && knownConversationIds.has(prev)) sel.value = prev;
@@ -2428,8 +2428,8 @@ function _getKafkaFiltered() {
 function updateKafkaExpandButtonLabel() {
   const btn = document.getElementById('btn-kafka-toggle-expand');
   if (!btn) return;
-  btn.textContent = kafkaExpandAll ? '折叠全部' : '展开全部';
-  btn.title = kafkaExpandAll ? '折叠当前可见消息' : '展开当前可见消息';
+  btn.textContent = kafkaExpandAll ? 'Collapse All' : 'Expand All';
+  btn.title = kafkaExpandAll ? 'Collapse currently visible messages' : 'Expand currently visible messages';
 }
 
 function toggleAllKafkaMessages(forceExpanded) {
@@ -2453,9 +2453,9 @@ async function copySingleKafkaJson(btnEl) {
   try {
     const obj = JSON.parse(raw);
     await navigator.clipboard.writeText(JSON.stringify(obj, null, 2));
-    btnEl.textContent = '已复制';
+    btnEl.textContent = 'Copied';
   } catch (e) {
-    btnEl.textContent = '失败';
+    btnEl.textContent = 'Failed';
   }
   setTimeout(() => { btnEl.textContent = prev; }, 900);
 }
@@ -2477,7 +2477,7 @@ async function replayKafkaMessage(btnEl) {
   const url = `${wsUrl}?conversationId=${encodeURIComponent(cid)}`;
   btnEl.disabled = true;
   const prev = btnEl.textContent;
-  btnEl.textContent = '回放中…';
+  btnEl.textContent = 'Replaying...';
   try {
     const ws = new WebSocket(url);
     await new Promise((resolve, reject) => {
@@ -2494,9 +2494,9 @@ async function replayKafkaMessage(btnEl) {
         reject(new Error('ws'));
       };
     });
-    btnEl.textContent = '已回放';
+    btnEl.textContent = 'Replayed';
   } catch (e) {
-    btnEl.textContent = '失败';
+    btnEl.textContent = 'Failed';
   } finally {
     setTimeout(() => {
       btnEl.disabled = false;
@@ -2511,8 +2511,8 @@ async function startKafka() {
   const btn = document.getElementById('btn-kafka-start');
   const statusEl = document.getElementById('kafka-status');
   btn.disabled = true;
-  btn.textContent = '连接中...';
-  statusEl.textContent = '○ 连接中...';
+  btn.textContent = 'Connecting...';
+  statusEl.textContent = '○ Connecting...';
   statusEl.style.color = 'var(--yellow)';
   clearKafkaMessagesOnly();
   try {
@@ -2522,15 +2522,15 @@ async function startKafka() {
       statusEl.textContent = '✗ ' + data.error;
       statusEl.style.color = 'var(--red)';
     } else if (data.status === 'kafka_consumer_started') {
-      statusEl.textContent = '● 已连接 ' + (data.topic || topic);
+      statusEl.textContent = '● Connected ' + (data.topic || topic);
       statusEl.style.color = 'var(--green)';
     }
   } catch (e) {
-    statusEl.textContent = '✗ 请求失败';
+    statusEl.textContent = '✗ Request failed';
     statusEl.style.color = 'var(--red)';
   } finally {
     btn.disabled = false;
-    btn.textContent = '开始消费';
+    btn.textContent = 'Start Consumer';
   }
 }
 
@@ -2552,15 +2552,15 @@ async function purgeKafkaTopic() {
   const bs = document.getElementById('kafka-bootstrap').value.trim();
   const topic = document.getElementById('kafka-topic').value.trim();
   if (!bs || !topic) {
-    alert('请先填写 Bootstrap 与 Topic');
+    alert('Fill in both Bootstrap and Topic first');
     return;
   }
-  const msg = `确定删除 Kafka 上 topic「${topic}」中的全部已提交消息？\n\n` +
-    '后端会使用 DeleteRecords 截断各分区日志（开发/测试常用）。会先停止本页消费者；若清空前正在消费该 Topic，完成后会自动重新开始消费。\n\n此操作不可撤销。';
+  const msg = `Delete all committed records from Kafka topic "${topic}"?\n\n` +
+    'The backend uses DeleteRecords to truncate each partition log. This is intended for development and testing. The page consumer is stopped first; if it was already consuming this topic, it will be started again after the purge.\n\nThis action cannot be undone.';
   if (!confirm(msg)) return;
   const statusEl = document.getElementById('kafka-status');
   if (statusEl) {
-    statusEl.textContent = '○ 清空中...';
+    statusEl.textContent = '○ Purging...';
     statusEl.style.color = 'var(--yellow)';
   }
   try {
@@ -2571,26 +2571,26 @@ async function purgeKafkaTopic() {
     const data = await resp.json();
     if (data.error || data.status === 'error') {
       if (statusEl) {
-        statusEl.textContent = '✗ 清空失败';
+        statusEl.textContent = '✗ Purge failed';
         statusEl.style.color = 'var(--red)';
       }
-      alert('清空失败: ' + (data.error || JSON.stringify(data)));
+      alert('Purge failed: ' + (data.error || JSON.stringify(data)));
       return;
     }
     clearKafkaMessagesOnly();
     if (data.status === 'kafka_consumer_started' && statusEl) {
-      statusEl.textContent = '● 已连接 ' + (data.topic || topic);
+      statusEl.textContent = '● Connected ' + (data.topic || topic);
       statusEl.style.color = 'var(--green)';
     } else if (statusEl) {
-      statusEl.textContent = '○ 未连接（可点「开始消费」）';
+      statusEl.textContent = '○ Disconnected (click Start Consumer)';
       statusEl.style.color = 'var(--text2)';
     }
   } catch (e) {
     if (statusEl) {
-      statusEl.textContent = '✗ 请求失败';
+      statusEl.textContent = '✗ Request failed';
       statusEl.style.color = 'var(--red)';
     }
-    alert('请求失败: ' + e);
+    alert('Request failed: ' + e);
   }
 }
 
@@ -2645,8 +2645,8 @@ function _buildKafkaMsgEl(msg) {
       <span>P${msg.partition}:${msg.offset}</span>
       <span>${cidDisp}</span>
       <span>${new Date(msg.timestamp).toLocaleTimeString()}</span>
-      <button type="button" class="panel-header-action" onclick="event.stopPropagation(); replayKafkaMessage(this)" title="用当前「场景」WebSocket URL 回放本条 JSON">Replay</button>
-      <button type="button" class="panel-header-action" onclick="event.stopPropagation(); copySingleKafkaJson(this)" title="复制本条消息 JSON">复制</button>
+      <button type="button" class="panel-header-action" onclick="event.stopPropagation(); replayKafkaMessage(this)" title="Replay this JSON through the current Scenario WebSocket URL">Replay</button>
+      <button type="button" class="panel-header-action" onclick="event.stopPropagation(); copySingleKafkaJson(this)" title="Copy this message JSON">Copy</button>
     </div>
     <pre class="body"><code>${highlightedJson}</code></pre>
   `;
@@ -2686,9 +2686,9 @@ function _updateKafkaPager(filtered) {
   const summary = document.getElementById('kafka-pager-summary');
   if (summary) {
     if (hasFilter) {
-      summary.innerHTML = `筛选 <span class="kafka-pager-total">${fLen}</span> 条（共 ${total} 条）`;
+      summary.innerHTML = `Filtered <span class="kafka-pager-total">${fLen}</span> records (total ${total})`;
     } else {
-      summary.innerHTML = `共 <span class="kafka-pager-total">${total}</span> 条`;
+      summary.innerHTML = `Total <span class="kafka-pager-total">${total}</span> records`;
     }
   }
   document.getElementById('kafka-count').textContent = fLen;
@@ -2718,13 +2718,13 @@ function _syncKafkaCidCounts() {
   });
   for (const opt of sel.options) {
     if (opt.value === '') {
-      opt.textContent = `全部会话 (${_kafkaAllMessages.length})`;
+      opt.textContent = `All Conversations (${_kafkaAllMessages.length})`;
     } else {
       const cnt = cidCounts.get(opt.value) || 0;
       const id = opt.value;
       const shortLabel = id.length > 40 ? id.slice(0, 18) + '…' + id.slice(-12) : id;
       opt.textContent = `${shortLabel} (${cnt})`;
-      opt.title = `${id} — ${cnt} 条`;
+      opt.title = `${id} - ${cnt} msgs`;
     }
   }
 }
@@ -2770,7 +2770,7 @@ function renderHeatstrip() {
   el.innerHTML = '';
   const vals = latencyHistory.map((x) => Number(x.v)).filter((n) => Number.isFinite(n));
   if (vals.length === 0) {
-    el.innerHTML = '<span class="heatstrip-empty">等待压测中…</span>';
+    el.innerHTML = '<span class="heatstrip-empty">Waiting for load-test data...</span>';
     return;
   }
   const min = Math.min(...vals);
@@ -2802,7 +2802,7 @@ function renderErrorRank(errs) {
   const rows = Object.entries(rank).sort((a, b) => b[1] - a[1]).slice(0, 8);
   el.innerHTML = rows.length
     ? rows.map(([c, n]) => `<li><span>${c}</span><strong>${n}</strong></li>`).join('')
-    : '<li><span>暂无错误</span><strong>0</strong></li>';
+    : '<li><span>No errors</span><strong>0</strong></li>';
 }
 
 function renderLifecycle(d) {
@@ -2817,7 +2817,7 @@ function renderLifecycle(d) {
 }
 
 // ---------------------------------------------------------------------------
-// 统计
+// Stats
 // ---------------------------------------------------------------------------
 function updateStats(d) {
   const fmtInt = (v) => {
@@ -2836,7 +2836,7 @@ function updateStats(d) {
   document.getElementById('stat-server-p95').textContent = fmtInt(d.server_p95_ms);
   document.getElementById('stat-server-p99').textContent = fmtInt(d.server_p99_ms);
 
-  /* 仅在本轮压测 UI 为「进行中」时追加；勿用 d.load_running，否则服务端在 load_done 后仍可能短暂推送 load_running，导致 Heatstrip 停不下来 */
+  /* Only append while the current load-test UI is running. Do not key off d.load_running, because the server may briefly emit load_running after load_done and keep the heatstrip alive. */
   if (_loadUiRunning) {
     const e2e = Number(d.p95_ms || 0);
     const srv = Number(d.server_p95_ms || 0);
@@ -2862,7 +2862,7 @@ function updateStats(d) {
         const et = e.eventType != null ? ` eventType=${e.eventType}` : '';
         let lines = `[${e.stage}] ${e.cid}${seq}${et}\n  ${e.detail || ''}`;
         if (e.server_resp) {
-          lines += `\n  ┗ 服务端原始响应:\n  ${JSON.stringify(e.server_resp, null, 2).replace(/\n/g, '\n  ')}`;
+          lines += `\n  ┗ Server raw response:\n  ${JSON.stringify(e.server_resp, null, 2).replace(/\n/g, '\n  ')}`;
         }
         return lines;
       }).join('\n\n');

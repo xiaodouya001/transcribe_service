@@ -1,4 +1,4 @@
-"""响应契约 — Server → Client 消息结构，严格对齐 API Contract §3。"""
+"""Response contract — server-to-client message shape, aligned with API Contract §3."""
 
 from __future__ import annotations
 
@@ -82,14 +82,14 @@ def _build_success_response(
 
 
 def build_transcript_ack(conversation_id: str, sequence_number: int) -> dict:
-    """构建 TRANSCRIPT_ACK 响应字典（可直接 JSON 序列化）。"""
+    """Build a ``TRANSCRIPT_ACK`` response dictionary ready for JSON serialization."""
     return _build_success_response(
         conversation_id, sequence_number, ResponseEventType.TRANSCRIPT_ACK
     )
 
 
 def build_eol_ack(conversation_id: str, sequence_number: int) -> dict:
-    """构建 EOL_ACK 响应字典（可直接 JSON 序列化）。"""
+    """Build an ``EOL_ACK`` response dictionary ready for JSON serialization."""
     return _build_success_response(conversation_id, sequence_number, ResponseEventType.EOL_ACK)
 
 
@@ -99,7 +99,7 @@ def build_error(
     message: str,
     details: str | None = None,
 ) -> dict:
-    """构建 ERROR 响应字典（可直接 JSON 序列化）。"""
+    """Build an ``ERROR`` response dictionary ready for JSON serialization."""
     return {
         "metaData": {
             "conversationId": conversation_id,

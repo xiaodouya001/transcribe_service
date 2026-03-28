@@ -1,10 +1,11 @@
-"""契约级场景矩阵测试。
+"""Contract-level scenario-matrix tests.
 
-目标：将最关键的错误码 / 关闭码 / ACK 语义集中锁成一组测试，
-避免后续实现调整时悄悄偏离 API 契约与既有设计。
+Goal: lock the most important error-code, close-code, and ACK semantics into one
+test suite so later implementation changes cannot drift away from the API contract
+and established design.
 
-说明：`E1010` 在契约中已预留，但鉴权校验当前尚未实现，
-因此不纳入本文件的可执行场景矩阵。
+Note: `E1010` is reserved in the contract, but authentication is not implemented yet,
+so it is intentionally excluded from this executable matrix.
 """
 
 from __future__ import annotations
@@ -50,7 +51,7 @@ def _build_app(orchestrator):
 
 class TestTransportContractMatrix:
     def test_missing_query_conversation_id_returns_e1003_and_http_400(self):
-        """E-01：握手前缺少 query conversationId，返回 HTTP 400 / E1003。"""
+        """E-01: missing query ``conversationId`` before the handshake returns HTTP 400 / E1003."""
         orchestrator = AsyncMock()
         orchestrator.handle_message = AsyncMock()
         client = TestClient(_build_app(orchestrator))
@@ -66,7 +67,7 @@ class TestTransportContractMatrix:
         orchestrator.handle_message.assert_not_awaited()
 
     def test_draining_returns_e1008_and_http_503(self):
-        """E-02：服务处于 draining 状态时，握手前返回 HTTP 503 / E1008。"""
+        """E-02: when the service is draining, the handshake is rejected with HTTP 503 / E1008."""
         orchestrator = AsyncMock()
         orchestrator.handle_message = AsyncMock()
         shutdown = GracefulShutdown()
@@ -84,7 +85,7 @@ class TestTransportContractMatrix:
         orchestrator.handle_message.assert_not_awaited()
 
     def test_max_connections_returns_e1008_and_http_429(self):
-        """E-03：连接数超限时，握手前返回 HTTP 429 / E1008。"""
+        """E-03: exceeding the connection limit before the handshake returns HTTP 429 / E1008."""
         orchestrator = AsyncMock()
         orchestrator.handle_message = AsyncMock()
         registry = ConnectionRegistry()
@@ -109,7 +110,7 @@ class TestTransportContractMatrix:
         orchestrator.handle_message.assert_not_awaited()
 
     def test_invalid_json_returns_e1001_and_close_1007(self):
-        """E-04：JSON 解析失败时返回 E1001，并以 1007 断开。"""
+        """E-04: JSON parsing failure returns E1001 and closes with 1007."""
         orchestrator = AsyncMock()
         orchestrator.handle_message = AsyncMock(
             return_value=build_transcript_ack("conv-1", 0)  # pragma: no cover - should never be used
@@ -127,7 +128,7 @@ class TestTransportContractMatrix:
         orchestrator.handle_message.assert_not_awaited()
 
     def test_non_object_json_returns_e1004_and_close_1008(self, mock_sm, mock_producer):
-        """E-07：顶层 JSON 非对象时返回 E1004，并以 1008 断开。"""
+        """E-07: a non-object top-level JSON payload returns E1004 and closes with 1008."""
         orchestrator = TwoPhaseOrchestrator(
             mock_sm,
             mock_producer,
@@ -148,7 +149,7 @@ class TestTransportContractMatrix:
         mock_producer.send.assert_not_awaited()
 
     def test_transport_internal_exception_returns_e1007_and_close_1011(self):
-        """E-13：传输层未捕获异常时返回 E1007，并以 1011 断开。"""
+        """E-13: an uncaught transport-layer exception returns E1007 and closes with 1011."""
         orchestrator = AsyncMock()
         orchestrator.handle_message = AsyncMock()
         client = TestClient(_build_app(orchestrator))
@@ -170,7 +171,7 @@ class TestTransportContractMatrix:
         orchestrator.handle_message.assert_not_awaited()
 
     def test_conversation_id_mismatch_returns_e1009_and_close_1008(self):
-        """E-14：query 与 body conversationId 不一致时返回 E1009，并以 1008 断开。"""
+        """E-14: mismatched query/body conversationId returns E1009 and closes with 1008."""
         orchestrator = AsyncMock()
         orchestrator.handle_message = AsyncMock()
         client = TestClient(_build_app(orchestrator))
@@ -186,13 +187,13 @@ class TestTransportContractMatrix:
         orchestrator.handle_message.assert_not_awaited()
 
     def test_active_writer_conflict_returns_e1009_and_http_403(self):
-        """E-16：同一 conversationId 的第二个并发发送连接在握手期返回 HTTP 403 / E1009。"""
+        """E-16: a second concurrent sender for the same conversationId is rejected during the handshake with HTTP 403 / E1009."""
         orchestrator = AsyncMock()
         orchestrator.handle_message = AsyncMock()
         owner = RedisConversationOwnershipGuard(
             client=fakeredis.aioredis.FakeRedis(decode_responses=True),
             guard_ttl_sec=30,
-            key_prefix="real-time-transcriber:conversation-owner",
+            key_prefix="realtime-transcribe-service:conversation-owner",
         )
         client = TestClient(
             create_app(
@@ -275,7 +276,7 @@ class TestOrchestratorContractMatrix:
         expected_code,
         expected_close,
     ):
-        """E-05/E-06/E-07/E-08/E-15：schema 与业务规则校验矩阵。"""
+        """E-05/E-06/E-07/E-08/E-15: schema and business-rule validation matrix."""
         msg = copy.deepcopy(valid_ongoing_msg)
         mutator(msg)
         orchestrator = TwoPhaseOrchestrator(
@@ -295,7 +296,7 @@ class TestOrchestratorContractMatrix:
     async def test_duplicate_seq_returns_ack_and_no_disconnect(
         self, valid_ongoing_msg, mock_sm, mock_producer
     ):
-        """N-02：重复 seq 命中幂等 ACK，不断连且不重复写下游。"""
+        """N-02: a duplicate seq hits the idempotent ACK path, stays connected, and does not write downstream again."""
         mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.IDEMPOTENT)
         orchestrator = TwoPhaseOrchestrator(
             mock_sm,
@@ -313,7 +314,7 @@ class TestOrchestratorContractMatrix:
     async def test_duplicate_complete_returns_eol_ack_and_close_1000(
         self, valid_complete_msg, mock_sm, mock_producer
     ):
-        """N-02：重复 COMPLETE 命中幂等时返回 EOL_ACK，并正常 close 1000。"""
+        """N-02: a duplicate COMPLETE on the idempotent path returns EOL_ACK and closes normally with 1000."""
         mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.IDEMPOTENT)
         orchestrator = TwoPhaseOrchestrator(
             mock_sm,
@@ -334,7 +335,7 @@ class TestOrchestratorContractMatrix:
     async def test_complete_returns_eol_ack_and_close_1000(
         self, valid_complete_msg, mock_sm, mock_producer
     ):
-        """N-03：SESSION_COMPLETE 正常处理返回 EOL_ACK，并以 1000 断开。"""
+        """N-03: successful SESSION_COMPLETE returns EOL_ACK and closes with 1000."""
         orchestrator = TwoPhaseOrchestrator(
             mock_sm,
             mock_producer,
@@ -354,7 +355,7 @@ class TestOrchestratorContractMatrix:
     async def test_out_of_order_returns_e1006_and_close_1008(
         self, valid_ongoing_msg, mock_sm, mock_producer
     ):
-        """E-09：序列号乱序时返回 E1006，并以 1008 断开。"""
+        """E-09: out-of-order sequence numbers return E1006 and close with 1008."""
         mock_sm.prepare.return_value = PrepareOutcome(status=PrepareResult.OUT_OF_ORDER)
         orchestrator = TwoPhaseOrchestrator(
             mock_sm,
@@ -373,7 +374,7 @@ class TestOrchestratorContractMatrix:
     async def test_downstream_timeout_returns_e1011_and_close_1013(
         self, valid_ongoing_msg, mock_sm, mock_producer
     ):
-        """E-10：下游超时时返回 E1011，并以 1013 断开。"""
+        """E-10: downstream timeout returns E1011 and closes with 1013."""
         mock_producer.send.side_effect = TimeoutError()
         orchestrator = TwoPhaseOrchestrator(
             mock_sm,
@@ -391,7 +392,7 @@ class TestOrchestratorContractMatrix:
     async def test_downstream_failure_returns_e1008_and_close_1013(
         self, valid_ongoing_msg, mock_sm, mock_producer
     ):
-        """E-11：下游失败时返回 E1008，并以 1013 断开。"""
+        """E-11: downstream failure returns E1008 and closes with 1013."""
         mock_producer.send.side_effect = RuntimeError("broker down")
         orchestrator = TwoPhaseOrchestrator(
             mock_sm,
@@ -409,7 +410,7 @@ class TestOrchestratorContractMatrix:
     async def test_orchestrator_internal_exception_returns_e1007_and_close_1011(
         self, valid_ongoing_msg, mock_sm, mock_producer
     ):
-        """E-12：编排层未捕获异常时返回 E1007，并以 1011 断开。"""
+        """E-12: an uncaught orchestrator exception returns E1007 and closes with 1011."""
         mock_sm.prepare.side_effect = RuntimeError("unexpected")
         orchestrator = TwoPhaseOrchestrator(
             mock_sm,

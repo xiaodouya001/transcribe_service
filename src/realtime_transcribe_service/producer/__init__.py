@@ -1,4 +1,4 @@
-"""Producer 投递层 — 可靠的 Kafka 搬运工。"""
+"""Producer delivery layer — the reliable Kafka publisher boundary."""
 
 from realtime_transcribe_service.producer.protocols import ProducerBackend
 

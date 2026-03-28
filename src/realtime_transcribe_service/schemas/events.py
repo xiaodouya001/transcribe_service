@@ -1,17 +1,17 @@
-"""协议枚举 — 请求事件、响应事件与说话人角色。"""
+"""Protocol enums for request events, response events, and speaker roles."""
 
 from enum import Enum
 
 
 class EventType(str, Enum):
-    """上行事件类型。"""
+    """Inbound event types."""
 
     SESSION_ONGOING = "SESSION_ONGOING"
     SESSION_COMPLETE = "SESSION_COMPLETE"
 
 
 class ResponseEventType(str, Enum):
-    """下行事件类型。"""
+    """Outbound event types."""
 
     TRANSCRIPT_ACK = "TRANSCRIPT_ACK"
     EOL_ACK = "EOL_ACK"
@@ -19,7 +19,7 @@ class ResponseEventType(str, Enum):
 
 
 class Speaker(str, Enum):
-    """说话人角色。"""
+    """Speaker roles."""
 
     AGENT = "Agent"
     CUSTOMER = "Customer"

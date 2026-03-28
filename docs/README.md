@@ -1,46 +1,44 @@
-# 文档索引
+# Documentation Index
 
-Realtime Transcribe Service 项目文档导航，汇总 `design/`、`docs/` 和关键工具文档入口。
-
----
-
-## 核心设计
-
-| 文档 | 说明 |
-|------|------|
-| [realtime-transcribe-service-app-design_zh.md](../design/realtime-transcribe-service-app-design_zh.md) | 应用设计总览（中文） |
-| [realtime-transcribe-service-app-design.md](../design/realtime-transcribe-service-app-design.md) | Application architecture overview (English) |
-| [realtime-transcribe-service-api-contract.md](../design/realtime-transcribe-service-api-contract.md) | API contract (English) |
-| [realtime-transcribe-service-design-guardrails.md](../design/realtime-transcribe-service-design-guardrails.md) | 设计护栏、测试策略与变更约束 |
-| [realtime-transcribe-service-protocol-scenario-matrix.md](../design/realtime-transcribe-service-protocol-scenario-matrix.md) | 协议场景矩阵：错误码、关闭码、正常/异常流统一视图 |
+This page collects the main documentation entry points for the Realtime Transcribe Service repository across `design/`, `docs/`, and the supporting tooling guides.
 
 ---
 
-## 配置、容量与部署
+## Core Design
 
-| 文档 | 说明 |
+| Document | Description |
 |------|------|
-| [configuration.md](configuration.md) | 环境变量配置说明 |
-| [deployment.md](deployment.md) | 构建与部署指南 |
-| [pyproject-config.md](pyproject-config.md) | pyproject.toml 配置说明 |
+| [realtime-transcribe-service-app-design.md](../design/realtime-transcribe-service-app-design.md) | Application architecture overview |
+| [realtime-transcribe-service-api-contract.md](../design/realtime-transcribe-service-api-contract.md) | API contract and protocol semantics |
+| [realtime-transcribe-service-design-guardrails.md](../design/realtime-transcribe-service-design-guardrails.md) | Long-term guardrails, testing strategy, and change constraints |
+| [realtime-transcribe-service-protocol-scenario-matrix.md](../design/realtime-transcribe-service-protocol-scenario-matrix.md) | Unified scenario matrix for normal flow, errors, close codes, and example payloads |
 
 ---
 
-## 开发、测试与运维
+## Configuration, Capacity, and Deployment
 
-| 文档 | 说明 |
+| Document | Description |
 |------|------|
-| [development.md](development.md) | 本地开发、UT、调试 |
-| [cicd.md](cicd.md) | CI/CD 流程与 GitHub Actions |
-| [troubleshooting.md](troubleshooting.md) | 故障排查 |
-| [faq.md](faq.md) | 常见问题 |
-| [kafka-ui-usage.md](kafka-ui-usage.md) | Kafka UI 使用说明 |
+| [configuration.md](configuration.md) | Environment variable reference |
+| [deployment.md](deployment.md) | Build and deployment guide |
+| [pyproject-config.md](pyproject-config.md) | `pyproject.toml` reference |
 
 ---
 
-## 工具文档
+## Development, Testing, and Operations
 
-| 文档 | 说明 |
+| Document | Description |
 |------|------|
-| [tools/mock_client/README.md](../tools/mock_client/README.md) | Mock Client、场景测试、压测与 Kafka 消息回显 |
+| [development.md](development.md) | Local development, unit tests, and debugging |
+| [cicd.md](cicd.md) | CI/CD flow and GitHub Actions |
+| [troubleshooting.md](troubleshooting.md) | Operational troubleshooting guide |
+| [faq.md](faq.md) | Frequently asked questions |
+| [kafka-ui-usage.md](kafka-ui-usage.md) | Kafka UI usage guide |
 
+---
+
+## Tooling Guides
+
+| Document | Description |
+|------|------|
+| [tools/mock_client/README.md](../tools/mock_client/README.md) | Mock Client guide for scenario tests, load tests, and Kafka replay |

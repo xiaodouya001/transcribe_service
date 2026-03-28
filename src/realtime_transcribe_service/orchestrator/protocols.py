@@ -1,4 +1,4 @@
-"""Orchestrator protocols — 禁止 import 任何 impl/ 下的具体实现。"""
+"""Orchestrator protocols — do not import concrete implementations from ``impl/``."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from typing import Protocol
 
 @dataclass
 class OrchestratorResult:
-    """调度层返回给 transport 的统一结果。
+    """Unified transport-facing result returned by the orchestrator.
 
     Attributes:
-        response: 发送给客户端的 JSON dict（ACK 或 ERROR）。
-        disconnect: 是否应断开 WebSocket。
-        close_code: 断开时使用的 WebSocket Close Code。
-        timings_ms: 仅用于排障的分段耗时（毫秒）。
+        response: JSON dictionary sent to the client (ACK or ERROR).
+        disconnect: Whether the WebSocket should be closed.
+        close_code: WebSocket close code to use when disconnecting.
+        timings_ms: Stage timings in milliseconds, used only for troubleshooting.
     """
 
     response: dict
@@ -24,7 +24,7 @@ class OrchestratorResult:
 
 
 class OrchestratorBackend(Protocol):
-    """业务编排协议。"""
+    """Business orchestration protocol."""
 
     async def handle_message(
         self,
@@ -32,9 +32,10 @@ class OrchestratorBackend(Protocol):
         conversation_id: str = "",
     ) -> OrchestratorResult:
         """
-        处理一条上行消息，执行完整的 2PC 流程。
+        Handle one inbound message and execute the full 2PC flow.
 
         Returns:
-            OrchestratorResult 包含响应帧、是否断连、Close Code。
+            An ``OrchestratorResult`` containing the response frame, disconnect flag,
+            and close code.
         """
         ...  # pragma: no cover

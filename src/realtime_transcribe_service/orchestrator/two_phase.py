@@ -1,6 +1,6 @@
-"""两阶段提交编排器 — 调用 state_machine + producer，覆盖 7 种场景。
+"""Two-phase-commit orchestrator — coordinates the state machine and producer across seven scenarios.
 
-架构红线：只依赖 base 抽象接口，禁止 import 任何 impl 类。
+Architectural boundary: depend only on abstract interfaces and never import concrete implementations.
 """
 
 from __future__ import annotations
@@ -25,10 +25,10 @@ log = structlog.get_logger(__name__)
 
 
 class TwoPhaseOrchestrator:
-    """两阶段提交编排器。
+    """Two-phase-commit orchestrator.
 
-    场景 A-G 严格按 plan §2.5 执行，每种场景的返回帧、Kafka/Redis 动作、
-    是否断连、Close Code 均已明确定义。
+    Scenarios A-G follow the design plan exactly, with response frames, Kafka/Redis
+    side effects, disconnect behavior, and close codes explicitly defined for each path.
     """
 
     def __init__(
@@ -66,7 +66,7 @@ class TwoPhaseOrchestrator:
         raw_json: object,
         conversation_id: str = "",
     ) -> OrchestratorResult:
-        """处理一条上行消息。"""
+        """Handle one inbound message."""
         started_at = time.perf_counter()
         try:
             if isinstance(raw_json, dict):
@@ -77,9 +77,9 @@ class TwoPhaseOrchestrator:
                         conversation_id = raw_conversation_id
             return await self._process(raw_json, conversation_id)
         except Exception as exc:
-            # 场景 F: 未捕获异常 → E1007 + 断连 1011
+            # Scenario F: unhandled exception -> E1007 + disconnect 1011
             log.exception(
-                "Orchestrator: 未捕获异常",
+                "Orchestrator: Unhandled exception",
                 conversation_id=conversation_id,
                 error=str(exc),
             )
@@ -96,12 +96,12 @@ class TwoPhaseOrchestrator:
             )
 
     async def _process(self, raw_json: object, conversation_id: str) -> OrchestratorResult:
-        """内部处理逻辑，按场景分支。"""
+        """Internal processing flow split by scenario."""
         process_started_at = time.perf_counter()
         timings: dict[str, float] = {}
 
         # ------------------------------------------------------------------
-        # 1. Schema 校验 (场景 D)
+        # 1. Schema validation (Scenario D)
         # ------------------------------------------------------------------
         validate_started_at = time.perf_counter()
         try:
@@ -110,7 +110,7 @@ class TwoPhaseOrchestrator:
             timings["validate_ms"] = self._elapsed_ms(validate_started_at)
             error_code, close_code = self._classify_validation_error(e)
             log.warning(
-                "Orchestrator: Schema 校验失败",
+                "Orchestrator: Schema validation failed",
                 conversation_id=conversation_id,
                 error_code=error_code.value,
                 close_code=int(close_code),
@@ -134,17 +134,17 @@ class TwoPhaseOrchestrator:
         event_type = msg.metaData.eventType
 
         # ------------------------------------------------------------------
-        # 2. Prepare — Lua 原子预检
+        # 2. Prepare — atomic Lua pre-check
         # ------------------------------------------------------------------
         prepare_started_at = time.perf_counter()
         prepare = await self._sm.prepare(cid, seq)
         timings["prepare_ms"] = self._elapsed_ms(prepare_started_at)
 
-        # 场景 B: IDEMPOTENT → 直接 ACK，不写 Kafka，不推进 Redis
+        # Scenario B: IDEMPOTENT -> return ACK directly, do not write Kafka, do not advance Redis
         if prepare.status == PrepareResult.IDEMPOTENT:
             should_disconnect = self._disconnect_after_success(event_type)
             log.info(
-                "Orchestrator: 幂等命中，直接 ACK",
+                "Orchestrator: Idempotent replay hit, returning ACK directly",
                 conversation_id=cid,
                 seq=seq,
             )
@@ -164,10 +164,10 @@ class TwoPhaseOrchestrator:
                 timings_ms=self._finalize_timings(timings, process_started_at),
             )
 
-        # 场景 C: OUT_OF_ORDER → E1006 + 断连 1008
+        # Scenario C: OUT_OF_ORDER -> E1006 + disconnect 1008
         if prepare.status == PrepareResult.OUT_OF_ORDER:
             log.warning(
-                "Orchestrator: 序列号乱序",
+                "Orchestrator: Sequence number out of order",
                 conversation_id=cid,
                 seq=seq,
                 actual_sequence=seq,
@@ -188,7 +188,7 @@ class TwoPhaseOrchestrator:
             )
 
         # ------------------------------------------------------------------
-        # 3. Persistence — 写入 Kafka (场景 A / E / G)
+        # 3. Persistence — send to Kafka (Scenarios A / E / G)
         # ------------------------------------------------------------------
         assert isinstance(raw_json, dict)
         kafka_payload = self._message_converter.to_kafka_payload(msg, raw_json)
@@ -197,9 +197,9 @@ class TwoPhaseOrchestrator:
             await self._producer.send(cid, kafka_payload)
         except asyncio.TimeoutError:
             timings["kafka_send_ms"] = self._elapsed_ms(kafka_send_started_at)
-            # 场景 E: Kafka 超时 → E1011 + 不 commit + 断连 1013
+            # Scenario E: Kafka timeout -> E1011 + no commit + disconnect 1013
             log.error(
-                "Orchestrator: Kafka 超时",
+                "Orchestrator: Kafka timed out",
                 conversation_id=cid,
                 seq=seq,
             )
@@ -216,9 +216,9 @@ class TwoPhaseOrchestrator:
             )
         except Exception as e:
             timings["kafka_send_ms"] = self._elapsed_ms(kafka_send_started_at)
-            # 场景 E: Kafka 失败 → E1008 + 不 commit + 断连 1013
+            # Scenario E: Kafka failure -> E1008 + no commit + disconnect 1013
             log.error(
-                "Orchestrator: Kafka 失败",
+                "Orchestrator: Kafka send failed",
                 conversation_id=cid,
                 seq=seq,
                 error=str(e),
@@ -237,14 +237,14 @@ class TwoPhaseOrchestrator:
         timings["kafka_send_ms"] = self._elapsed_ms(kafka_send_started_at)
 
         # ------------------------------------------------------------------
-        # 4. Commit — 推进 Redis 状态
+        # 4. Commit — advance Redis state
         # ------------------------------------------------------------------
         commit_started_at = time.perf_counter()
         await self._sm.commit(cid, seq)
         timings["commit_ms"] = self._elapsed_ms(commit_started_at)
 
         # ------------------------------------------------------------------
-        # 5. SESSION_COMPLETE → cleanup + 主动断连 1000 (场景 G)
+        # 5. SESSION_COMPLETE -> cleanup + proactive disconnect 1000 (Scenario G)
         # ------------------------------------------------------------------
         if event_type == EventType.SESSION_COMPLETE:
             cleanup_started_at = time.perf_counter()
@@ -252,9 +252,10 @@ class TwoPhaseOrchestrator:
                 await self._sm.cleanup(cid)
             except Exception as e:
                 timings["cleanup_ms"] = self._elapsed_ms(cleanup_started_at)
-                # Kafka 与 commit 已完成；cleanup 仅用于缩短 TTL，失败时不应把整次完成语义翻转为 E1007
+                # Kafka send and commit have already completed. cleanup only shortens TTL,
+                # so a cleanup failure must not flip the successful completion semantics into E1007.
                 log.warning(
-                    "Orchestrator: SESSION_COMPLETE cleanup 失败，降级为 ACK",
+                    "Orchestrator: SESSION_COMPLETE cleanup failed, downgrading to ACK",
                     conversation_id=cid,
                     seq=seq,
                     error=str(e),
@@ -262,7 +263,7 @@ class TwoPhaseOrchestrator:
             else:
                 timings["cleanup_ms"] = self._elapsed_ms(cleanup_started_at)
             log.info(
-                "Orchestrator: SESSION_COMPLETE 处理完成",
+                "Orchestrator: SESSION_COMPLETE completed",
                 conversation_id=cid,
                 seq=seq,
             )
@@ -277,7 +278,7 @@ class TwoPhaseOrchestrator:
             )
 
         # ------------------------------------------------------------------
-        # 场景 A: 正常 SESSION_ONGOING → ACK，不断连
+        # Scenario A: successful SESSION_ONGOING -> ACK without disconnect
         # ------------------------------------------------------------------
         ack_started_at = time.perf_counter()
         ack = self._build_success_ack(cid, seq, event_type)
@@ -290,7 +291,7 @@ class TwoPhaseOrchestrator:
 
     @staticmethod
     def _classify_validation_error(e: ValidationError) -> tuple[ErrorCode, WsCloseCode]:
-        """将 Pydantic ValidationError 映射为 (应用错误码, WS Close Code)。"""
+        """Map a Pydantic ``ValidationError`` to ``(application_error_code, ws_close_code)``."""
         for err in e.errors():
             err_type = err.get("type", "")
             if "datetime" in err_type or "time" in err_type or "iso" in err_type:

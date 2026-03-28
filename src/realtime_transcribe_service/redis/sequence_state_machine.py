@@ -56,7 +56,7 @@ return 'OK'
 
 
 class RedisSequenceStateMachine:
-    """基于 Redis Lua 的乐观锁序列状态机。"""
+    """Redis Lua-backed optimistic sequence state machine."""
 
     def __init__(
         self,

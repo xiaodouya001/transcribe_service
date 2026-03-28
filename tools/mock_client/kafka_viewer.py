@@ -1,4 +1,4 @@
-"""Kafka 消费者 — 订阅 topic 并广播消息给 SSE 订阅者。"""
+"""Kafka consumer helper — subscribe to a topic and broadcast messages to SSE subscribers."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 
 
 class KafkaViewer:
-    """持续消费 Kafka 消息，广播到所有已注册的 asyncio.Queue。"""
+    """Consume Kafka continuously and fan out messages to registered asyncio queues."""
 
     def __init__(
         self,
@@ -42,7 +42,7 @@ class KafkaViewer:
         return self._topic
 
     def subscribe(self) -> tuple[str, asyncio.Queue[dict[str, Any]]]:
-        """注册一个订阅者，返回 (subscriber_id, queue)。"""
+        """Register one subscriber and return ``(subscriber_id, queue)``."""
         sid = uuid.uuid4().hex[:8]
         q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=50_000)
         self._subscribers[sid] = q
@@ -52,7 +52,7 @@ class KafkaViewer:
         self._subscribers.pop(sid, None)
 
     async def start(self) -> None:
-        """启动 Kafka 消费循环。"""
+        """Start the Kafka consume loop."""
         self._consumer = AIOKafkaConsumer(
             self._topic,
             bootstrap_servers=self._bootstrap,
@@ -121,11 +121,14 @@ async def purge_topic_messages(
     *,
     timeout_ms: int = 60_000,
 ) -> dict[str, Any]:
-    """使用 Kafka DeleteRecords API 删除 topic 内**已提交**的全部消息（按分区截断到当前 log end）。
+    """Delete all committed messages in a topic using the Kafka DeleteRecords API.
 
-    需 broker 支持协议版本；开发环境常用。若 topic 不存在或已无数据则返回对应状态。
+    This requires broker support for the API version and is mainly used in development.
+    If the topic does not exist or already has no data, the returned status reflects that.
 
-    分区列表通过 Admin **describe_topics** 获取；未 assign 的 Consumer 上 ``partitions_for_topic`` 常为 ``None``，不可靠。
+    Partition metadata comes from Admin ``describe_topics``; relying on
+    ``Consumer.partitions_for_topic`` is not safe here because it is often ``None`` when
+    the consumer has not been assigned.
     """
     admin_meta = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
     await admin_meta.start()
@@ -137,7 +140,7 @@ async def purge_topic_messages(
     if not infos:
         return {
             "status": "error",
-            "error": f"无法获取 topic 元数据（集群不可达或拒绝请求）: {topic}",
+            "error": f"Unable to fetch topic metadata (cluster unreachable or request rejected): {topic}",
         }
 
     meta = infos[0]
@@ -149,14 +152,14 @@ async def purge_topic_messages(
             err_name = f"error_code={err_code}"
         return {
             "status": "error",
-            "error": f"topic 不可用（{err_name}）: {topic}",
+            "error": f"Topic unavailable ({err_name}): {topic}",
         }
 
     partitions = meta.get("partitions") or []
     if not partitions:
         return {
             "status": "error",
-            "error": f"topic 无分区（可能尚未创建）: {topic}",
+            "error": f"Topic has no partitions (it may not have been created yet): {topic}",
         }
 
     tps = [TopicPartition(topic, p["partition"]) for p in partitions]
@@ -181,7 +184,7 @@ async def purge_topic_messages(
         return {
             "status": "ok",
             "topic": topic,
-            "message": "topic 已无消息可删",
+            "message": "The topic already has no messages to delete",
             "partitions_truncated": 0,
         }
 
@@ -195,7 +198,7 @@ async def purge_topic_messages(
     return {
         "status": "ok",
         "topic": topic,
-        "message": "已提交范围的消息已删除（DeleteRecords）",
+        "message": "Committed messages were deleted with DeleteRecords",
         "partitions_truncated": len(to_delete),
         "low_watermark_after": {str(tp.partition): low_after.get(tp) for tp in to_delete},
     }

@@ -1,4 +1,4 @@
-"""请求契约 — Client → Server 消息结构，严格对齐 API Contract §2。"""
+"""Request contract — client-to-server message shape, aligned with API Contract §2."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from realtime_transcribe_service.schemas.events import EventType, Speaker
 
 
 class MetaData(BaseModel):
-    """请求元数据。"""
+    """Request metadata."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -35,7 +35,7 @@ class MetaData(BaseModel):
 
 
 class Payload(BaseModel):
-    """请求负载。"""
+    """Request payload."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -70,7 +70,7 @@ class Payload(BaseModel):
 
 
 class InboundMessage(BaseModel):
-    """完整上行消息 = metaData + payload，含跨字段业务规则校验。"""
+    """Complete inbound message = metaData + payload, including cross-field business rules."""
 
     model_config = ConfigDict(extra="forbid")
 
