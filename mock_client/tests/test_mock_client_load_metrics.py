@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tools.mock_client import ws_driver
+from mock_client import ws_driver
 
 
 async def _emit(_event_type: str, _data: dict) -> None:

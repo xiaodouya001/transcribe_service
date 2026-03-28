@@ -87,12 +87,12 @@ See [kafka-ui-usage.md](../ops/kafka-ui-usage.md) for Kafka UI details.
 poetry run pytest
 ```
 
-The repository-level run collects both `tests/` and `tools/mock_client/tests/`.
+The repository-level run collects both `tests/` and `mock_client/tests/`.
 
 Run only the mock-client tests from their own directory:
 
 ```bash
-cd tools/mock_client
+cd mock_client
 pip install -r requirements-dev.txt
 pytest
 ```
@@ -104,7 +104,7 @@ Default tests do not require a live Kafka or Redis instance:
 | Component | Mock strategy |
 |------|-----------|
 | Main service unit tests (`tests/`) | Redis state machine via [fakeredis[lua]](https://github.com/cunla/fakeredis-py), Kafka via `unittest.mock.AsyncMock`, and ASGI flows via `starlette.testclient.TestClient` |
-| Mock-client tests (`tools/mock_client/tests/`) | Local module tests plus scenario checks using an in-process Uvicorn server fixture |
+| Mock-client tests (`mock_client/tests/`) | Local module tests plus scenario checks using an in-process Uvicorn server fixture |
 
 ### 4.3 Coverage
 

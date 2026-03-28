@@ -1,7 +1,7 @@
 """Mock Client backend — FastAPI app for scenarios, load tests, and Kafka replay.
 
 Startup:
-    cd tools/mock_client
+    cd mock_client
     python server.py
     # Open http://127.0.0.1:8088 in a browser.
 """

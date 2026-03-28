@@ -190,28 +190,6 @@
   border-color: rgba(98, 114, 164, 0.42);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
-[data-theme="dracula"] .scenario-chip {
-  background: rgba(68, 71, 90, 0.82);
-  border-color: rgba(189, 147, 249, 0.18);
-  color: #f8f8f2;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-[data-theme="dracula"] .scenario-chip:hover {
-  border-color: rgba(189, 147, 249, 0.4);
-  background: rgba(189, 147, 249, 0.12);
-}
-[data-theme="dracula"] .scenario-chip.dragging {
-  border-color: rgba(255, 121, 198, 0.45);
-  background: rgba(255, 121, 198, 0.12);
-}
-[data-theme="dracula"] .scenario-chip-order {
-  background: rgba(189, 147, 249, 0.2);
-  border-color: rgba(189, 147, 249, 0.3);
-  color: #bd93f9;
-}
-[data-theme="dracula"] .scenario-chip-handle {
-  color: #6272a4;
-}
 [data-theme="dracula"] .kafka-count-pill {
   display: inline-flex;
   align-items: center;
@@ -628,57 +606,6 @@ input:focus {
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-.scenario-playlist {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-}
-.scenario-chip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 10px;
-  padding: 8px 11px;
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-ui);
-  cursor: grab;
-  user-select: none;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
-}
-.scenario-chip.dragging {
-  opacity: 0.65;
-  border-color: var(--accent);
-}
-.scenario-chip-order {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  background: var(--accent-dim);
-  border: 1px solid var(--border);
-  color: var(--accent);
-  font-size: 11px;
-  font-family: var(--font-mono);
-  font-weight: var(--fw-head);
-  flex: 0 0 auto;
-}
-.scenario-chip-label {
-  flex: 1;
-  min-width: 0;
-}
-.scenario-chip-handle {
-  flex: 0 0 auto;
-  color: var(--text-muted);
-  letter-spacing: 0.08em;
-  font-family: var(--font-mono);
 }
 .cp-scenario-subcard {
   background: var(--bg3);
@@ -1569,14 +1496,6 @@ select.cp-select:focus {
           <div class="cp-scenario-runall">
             <button type="button" class="primary" onclick="runAllScenarios()" title="Runs N-01 -> N-02 -> N-03 -> E-01 -> E-04 -> E-05 -> E-06 -> E-07 -> E-08 -> E-09 -> E-14 -> E-15; only N-01, N-02, N-03, and E-09 use the scenario control value">Run All</button>
           </div>
-          <div class="cp-scenario-subcard">
-            <div class="cp-scenario-subtitle">Scenario Playlist (drag to reorder)</div>
-            <div class="cp-scenario-subhint">Drag the items below to change the order, then run them in sequence.</div>
-            <div id="scenario-playlist" class="scenario-playlist"></div>
-            <div class="cp-scenario-runall">
-              <button type="button" class="primary" onclick="runScenarioPlaylist()" title="Run scenarios in the playlist order shown on the left">Run Playlist</button>
-            </div>
-          </div>
         </div>
       </section>
     </div>
@@ -1807,22 +1726,6 @@ let _loadUiRunning = false;
   } catch (e) {}
 })();
 
-/** Scenario playlist; define it before the first renderScenarioPlaylist() call or chip rendering breaks. */
-const scenarioPlaylist = [
-  'N-01',
-  'N-02',
-  'N-03',
-  'E-01',
-  'E-04',
-  'E-05',
-  'E-06',
-  'E-07',
-  'E-08',
-  'E-09',
-  'E-14',
-  'E-15',
-];
-
 function applyLoadBenchmarkPreset(name) {
   const preset = LOAD_BENCHMARK_PRESETS[name];
   if (!preset) return;
@@ -1858,44 +1761,6 @@ function syncLoadBenchmarkPresetSelection() {
     preset.rampup === current.rampup
   );
   sel.value = matched ? matched[0] : 'custom';
-}
-
-function renderScenarioPlaylist() {
-  const host = document.getElementById('scenario-playlist');
-  if (!host) return;
-  host.innerHTML = '';
-  scenarioPlaylist.forEach((name, idx) => {
-    const chip = document.createElement('span');
-    chip.className = 'scenario-chip';
-    chip.draggable = true;
-    chip.dataset.idx = String(idx);
-    const order = document.createElement('span');
-    order.className = 'scenario-chip-order';
-    order.textContent = String(idx + 1);
-    const label = document.createElement('span');
-    label.className = 'scenario-chip-label';
-    label.textContent = SCENARIO_LABELS[name] || name;
-    const handle = document.createElement('span');
-    handle.className = 'scenario-chip-handle';
-    handle.textContent = '::';
-    chip.appendChild(order);
-    chip.appendChild(label);
-    chip.appendChild(handle);
-    chip.addEventListener('dragstart', () => chip.classList.add('dragging'));
-    chip.addEventListener('dragend', () => chip.classList.remove('dragging'));
-    chip.addEventListener('dragover', (e) => e.preventDefault());
-    chip.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const dragging = document.querySelector('.scenario-chip.dragging');
-      const from = dragging ? Number(dragging.dataset.idx) : NaN;
-      const to = Number(chip.dataset.idx);
-      if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return;
-      const [moved] = scenarioPlaylist.splice(from, 1);
-      scenarioPlaylist.splice(to, 0, moved);
-      renderScenarioPlaylist();
-    });
-    host.appendChild(chip);
-  });
 }
 
 function setTheme(themeName) {
@@ -2010,7 +1875,6 @@ function connectSSE() {
 }
 connectSSE();
 updateKafkaExpandButtonLabel();
-renderScenarioPlaylist();
 renderHeatstrip();
 ['load-concurrency', 'load-messages', 'load-interval', 'load-rampup'].forEach((id) => {
   const el = document.getElementById(id);
@@ -2105,12 +1969,6 @@ syncLoadBenchmarkPresetSelection();
 const scenarioCards = {};
 /** conversation_registered may arrive before the card is created. */
 const pendingScenarioCids = {};
-
-async function runScenarioPlaylist() {
-  for (const name of scenarioPlaylist) {
-    await runScenario(name);
-  }
-}
 
 function escapeScenarioTitle(name) {
   const d = document.createElement('div');

@@ -46,7 +46,7 @@ realtime_transcribe_service/
 │   ├── dev/
 │   ├── ops/
 │   └── pt/
-├── tools/mock_client/               # Scenario testing, load testing, Kafka replay tools, and local tests
+├── mock_client/                     # Scenario testing, load testing, Kafka replay tools, and local tests
 └── docker-compose.yml               # Redis + Kafka + Kafka UI
 ```
 
@@ -61,7 +61,7 @@ poetry run pytest
 Run mock-client tests on their own:
 
 ```bash
-cd tools/mock_client
+cd mock_client
 pip install -r requirements-dev.txt
 pytest
 ```
@@ -79,7 +79,7 @@ Common entry points:
 | [docs/design/api-contract.md](docs/design/api-contract.md)                         | API contract                                     |
 | [docs/design/design-guardrails.md](docs/design/design-guardrails.md)               | Long-term guardrails and change constraints      |
 | [docs/design/protocol-scenario-matrix.md](docs/design/protocol-scenario-matrix.md) | Protocol scenario matrix                         |
-| [tools/mock_client/README.md](tools/mock_client/README.md)                                                                       | Mock Client, scenario tests, and load-test guide |
+| [mock_client/README.md](mock_client/README.md)                                                                                   | Mock Client, scenario tests, and load-test guide |
 | [docs/README.md](docs/README.md)                                                                                                 | Documentation index                              |
 
 

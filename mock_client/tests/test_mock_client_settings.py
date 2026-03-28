@@ -1,4 +1,4 @@
-"""Tests for tools.mock_client.settings."""
+"""Tests for mock_client.settings."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.mock_client import settings as mock_settings
+from mock_client import settings as mock_settings
 
 
 def test_get_settings_reads_prefixed_environment(monkeypatch):

@@ -1,4 +1,4 @@
-"""coverage: tools.mock_client.kafka_viewer"""
+"""coverage: mock_client.kafka_viewer"""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tools.mock_client import kafka_viewer as kv
-from tools.mock_client.kafka_viewer import KafkaViewer
+from mock_client import kafka_viewer as kv
+from mock_client.kafka_viewer import KafkaViewer
 
 
 class _BoomConsumer:

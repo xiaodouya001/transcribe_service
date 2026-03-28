@@ -1,4 +1,4 @@
-"""Tests for tools.mock_client.logging_config."""
+"""Tests for mock_client.logging_config."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import logging
 from unittest.mock import patch
 
-from tools.mock_client import logging_config as lc
+from mock_client import logging_config as lc
 
 
 def test_json_serializer_keeps_unicode():

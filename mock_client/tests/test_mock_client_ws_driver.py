@@ -1,4 +1,4 @@
-"""Scenario tests for tools.mock_client.ws_driver."""
+"""Scenario tests for mock_client.ws_driver."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestra
 from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
 from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
 from realtime_transcribe_service.transport.websocket_handler import ConnectionRegistry, create_app
-from tools.mock_client import ws_driver
+from mock_client import ws_driver
 
 pytestmark = [
     pytest.mark.filterwarnings(

@@ -47,5 +47,5 @@ This page collects the main documentation entry points for the Realtime Transcri
 
 | Document                                                     | Description                                                  |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| [tools/mock_client/README.md](../tools/mock_client/README.md) | Mock Client guide for scenario tests, load tests, and Kafka replay |
+| [mock_client/README.md](../mock_client/README.md) | Mock Client guide for scenario tests, load tests, and Kafka replay |
 | [ops/kafka-ui-usage.md](ops/kafka-ui-usage.md)               | Kafka UI usage guide                                         |

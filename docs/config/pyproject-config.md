@@ -34,14 +34,14 @@ Install with `pip install -e ".[dev]"` or `poetry install --with dev`.
 ### 1.3 `[tool.pytest.ini_options]`
 
 Repository-wide pytest configuration lives in `pyproject.toml`. The mock client also ships its own
-`tools/mock_client/pytest.ini` so it can run its local test suite without inheriting the repository
+`mock_client/pytest.ini` so it can run its local test suite without inheriting the repository
 root coverage gate.
 
 | Option | Description |
 |------|------|
 | `asyncio_mode = "auto"` | Auto-detect async tests |
 | `asyncio_default_fixture_loop_scope` | Fixture loop scope |
-| `testpaths` | Collect both `tests` and `tools/mock_client/tests` during a root-level run |
+| `testpaths` | Collect both `tests` and `mock_client/tests` during a root-level run |
 | `addopts` | Default coverage flags and `--cov-fail-under=100` |
 
 ### 1.4 `[tool.coverage.run]`
@@ -95,8 +95,8 @@ poetry run pytest
 ```
 
 - Dependencies: runtime plus `[project.optional-dependencies].dev`
-- A root-level pytest run collects both the main-service tests and `tools/mock_client/tests`
-- Mock-client-only runs use `tools/mock_client/pytest.ini` instead of the root coverage settings
+- A root-level pytest run collects both the main-service tests and `mock_client/tests`
+- Mock-client-only runs use `mock_client/pytest.ini` instead of the root coverage settings
 
 ### 2.3 Production
 

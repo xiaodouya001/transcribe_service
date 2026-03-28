@@ -23,7 +23,7 @@ The service keeps its own runtime config in the repository-root `.env`. That fil
 3. **Install mock-client dependencies** from its own manifest:
 
 ```bash
-cd tools/mock_client
+cd mock_client
 pip install -r requirements.txt
 ```
 
@@ -48,7 +48,7 @@ Supported mock-client variables:
 Install the mock-client test dependencies and run its local suite:
 
 ```bash
-cd tools/mock_client
+cd mock_client
 pip install -r requirements-dev.txt
 pytest
 ```
@@ -63,7 +63,7 @@ poetry run pytest
 ## Start the Mock Client
 
 ```bash
-cd tools/mock_client
+cd mock_client
 python server.py
 ```
 
@@ -85,7 +85,7 @@ Real-time metrics such as sent count, ACK count, errors, active connections, TPS
 |------|------|
 | WebSocket URL | The Realtime Transcribe Service endpoint, defaulting to `ws://127.0.0.1:8080/ws/v1/realtime-transcriptions` |
 | Scenario test groups | **Group 1: Uses the scenario control value**: `N-01`, `N-02`, `N-03`, `E-09`. **Group 2: Fixed error scenarios**: `E-01`, `E-04`, `E-05`, `E-06`, `E-07`, `E-08`, `E-14`, `E-15` |
-| Benchmark preset | Fills the `300 / 400 / 500` benchmark presets. The suggested values come from [env-profiles-300-400-500.md](../../docs/pt/env-profiles-300-400-500.md) |
+| Benchmark preset | Fills the `300 / 400 / 500` benchmark presets. The suggested values come from [env-profiles-300-400-500.md](../docs/pt/env-profiles-300-400-500.md) |
 | Scenario control value | The meaning changes by scenario; see the notes below |
 | Run all | Executes `N-01 -> N-02 -> N-03 -> E-01 -> E-04 -> E-05 -> E-06 -> E-07 -> E-08 -> E-09 -> E-14 -> E-15` in order |
 | Concurrent load test | Runs a normal success-path loop with multiple conversations. Each connection sends several `SESSION_ONGOING` events followed by one `SESSION_COMPLETE` |
@@ -182,7 +182,7 @@ curl -X POST "http://127.0.0.1:8088/api/kafka/purge?bootstrap=127.0.0.1:9092&top
 ## File Layout
 
 ```text
-tools/mock_client/
+mock_client/
 ├── server.py          # FastAPI backend: API endpoints, SSE, and static files
 ├── ws_driver.py       # Message generator, scenario engine, and load-test driver
 ├── kafka_viewer.py    # Kafka consumer and queue broadcaster
