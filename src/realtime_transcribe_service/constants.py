@@ -1,4 +1,5 @@
 """Global constants shared across modules: paths, field limits, and other immutables."""
+from typing import Literal
 
 # ---- Application metadata ----
 APP_TITLE = "Realtime Transcribe Service"
@@ -12,3 +13,14 @@ MAX_ERROR_DETAILS_LEN = 2048
 
 # ---- WebSocket close reasons ----
 WS_CLOSE_REASON_GOING_AWAY = "Going away"
+
+# ---- Environment variables ----
+APP_ENV_LOCAL = "local"
+APP_ENV_DEPLOYED = "deployed"
+LOCAL_REDIS_URL = "redis://127.0.0.1:6379/0"
+LOCAL_KAFKA_BOOTSTRAP_SERVERS = "127.0.0.1:9092"
+
+APP_ENV = Literal[APP_ENV_LOCAL, APP_ENV_DEPLOYED]
+COMPRESSION_TYPE = Literal["none", "gzip", "snappy", "lz4", "zstd"]
+LOG_LEVEL = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
+LOG_FORMAT = Literal["json", "console", "auto"]

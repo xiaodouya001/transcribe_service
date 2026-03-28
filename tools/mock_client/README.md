@@ -13,15 +13,52 @@ docker compose up -d
 2. **Start Realtime Transcribe Service**:
 
 ```bash
+cp .env.example .env
 python -m realtime_transcribe_service.main
 # Default WebSocket endpoint: ws://127.0.0.1:8080/ws/v1/realtime-transcriptions
 ```
 
-3. **Install Python dependencies**. Everything needed is already declared by the repository:
-   - `websockets` for the client
-   - `aiokafka` for Kafka consumption
-   - `fastapi` and `uvicorn` for the Mock Client backend
-   - `cramjam` for Kafka `zstd` support when `.env` uses `KAFKA_COMPRESSION_TYPE=zstd`
+The service keeps its own runtime config in the repository-root `.env`. That file does not configure the mock client.
+
+3. **Install mock-client dependencies** from its own manifest:
+
+```bash
+cd tools/mock_client
+pip install -r requirements.txt
+```
+
+4. **Optional: configure mock-client defaults** with its own local env file:
+
+```bash
+cp .env.example .env
+```
+
+Supported mock-client variables:
+
+- `MOCK_CLIENT_HOST`
+- `MOCK_CLIENT_PORT`
+- `MOCK_CLIENT_LOG_LEVEL`
+- `MOCK_CLIENT_LOG_FORMAT`
+- `MOCK_CLIENT_DEFAULT_WS_URL`
+- `MOCK_CLIENT_DEFAULT_KAFKA_BOOTSTRAP`
+- `MOCK_CLIENT_DEFAULT_KAFKA_TOPIC`
+
+## Run Mock-Client Tests
+
+Install the mock-client test dependencies and run its local suite:
+
+```bash
+cd tools/mock_client
+pip install -r requirements-dev.txt
+pytest
+```
+
+Run the full repository suite from the repository root when you want mock-client tests plus
+main-service tests together:
+
+```bash
+poetry run pytest
+```
 
 ## Start the Mock Client
 
@@ -149,6 +186,7 @@ tools/mock_client/
 ├── server.py          # FastAPI backend: API endpoints, SSE, and static files
 ├── ws_driver.py       # Message generator, scenario engine, and load-test driver
 ├── kafka_viewer.py    # Kafka consumer and queue broadcaster
+├── tests/             # Mock-client-local tests (unit + integration)
 ├── static/
 │   └── index.html     # Single-page browser UI
 └── README.md          # This document
@@ -166,4 +204,4 @@ Make sure you clicked **Start Consumer** and that the Kafka container is healthy
 `interval_ms` controls how long the client waits between messages on the same connection. Setting it to `0` sends as fast as possible. Increase concurrency or reduce interval if you need more throughput.
 
 **Q: Why do I get `zstd` compression errors?**  
-Install `cramjam` with `pip install cramjam`.
+`requirements.txt` already includes `cramjam`. If you use a custom environment, make sure it is installed.

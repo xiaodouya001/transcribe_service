@@ -9,10 +9,10 @@ This document summarizes the CI/CD flow and the GitHub Actions setup for the rep
 | Step | Description |
 |------|------|
 | **Lint** | Optional formatting and static checks such as `ruff` or `black` |
-| **UT** | `pytest` with coverage, using the default options from `pyproject.toml` |
+| **Tests** | `pytest` for the configured test paths in CI |
 | **Docker build** | Verifies that `docker build` succeeds |
 
-Unit tests rely on `fakeredis[lua]` and `unittest.mock`, so CI does **not** require a live Redis or Kafka instance.
+Default tests rely on `fakeredis[lua]`, `unittest.mock`, and in-process fixtures, so CI does **not** require a live Redis or Kafka instance.
 
 ---
 
@@ -20,7 +20,7 @@ Unit tests rely on `fakeredis[lua]` and `unittest.mock`, so CI does **not** requ
 
 The repository includes [.github/workflows/ci.yml](../.github/workflows/ci.yml). It runs on pushes and pull requests targeting `main` or `master`.
 
-- **test** job: Python 3.12, `poetry install --with dev`, then `poetry run pytest`
+- **test** job: Python 3.12, `poetry install --with dev`, then `poetry run pytest -v` (collects `tests` and `tools/mock_client/tests` from `pyproject.toml` `testpaths`)
 - **docker** job: builds `docker/Dockerfile` through `docker/build-push-action` without pushing to a registry
 
 ### 2.1 Environment variables

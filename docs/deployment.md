@@ -39,6 +39,7 @@ The minimum production configuration is:
 
 | Variable | Description |
 |------|------|
+| `APP_ENV` | Must be `deployed` in non-local environments |
 | `REDIS_URL` | ElastiCache Redis connection string |
 | `KAFKA_BOOTSTRAP_SERVERS` | MSK broker endpoints |
 | `KAFKA_TOPIC` | Usually `AI_STAGING_TRANSCRIPTION`; must match the actual topic name |
@@ -50,7 +51,20 @@ The minimum production configuration is:
 | `LOG_FORMAT` | Usually `json` in production |
 | `LOG_LEVEL` | Typical values include `INFO` or `WARNING` |
 
-Inject them through the ECS task definition environment block or AWS Secrets Manager as appropriate.
+Deployed environments should inject these values as real process environment variables. Do not rely on `.env` files in ECS or other deployed runtimes.
+
+For AWS ECS, use:
+
+- task definition `environment` for non-sensitive values such as `APP_ENV`, `KAFKA_TOPIC`, `HTTP_HOST`, and `HTTP_PORT`
+- task definition `secrets` or AWS Secrets Manager / SSM for sensitive values such as `REDIS_URL`
+
+Startup is fail-fast:
+
+- `APP_ENV` is required and must be `deployed` outside local development
+- `REDIS_URL` and `KAFKA_BOOTSTRAP_SERVERS` are required when `APP_ENV=deployed`
+- missing or blank required values cause configuration validation to fail before Redis or Kafka startup checks run
+
+For local development only, `.env` remains supported and should set `APP_ENV=local`.
 
 This deployment mode assumes that upstream systems connect directly over WebSocket. Legacy client-side STT provider settings such as `STT_PROVIDER_URL` are not part of this service.
 

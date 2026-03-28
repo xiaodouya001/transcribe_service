@@ -3,17 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-_mock_client_dir = Path(__file__).resolve().parents[1] / "tools" / "mock_client"
-if str(_mock_client_dir) not in sys.path:
-    sys.path.insert(0, str(_mock_client_dir))
-
-import ws_driver
+from tools.mock_client import ws_driver
 
 
 async def _emit(_event_type: str, _data: dict) -> None:

@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-_mock_client_dir = Path(__file__).resolve().parents[1] / "tools" / "mock_client"
-if str(_mock_client_dir) not in sys.path:
-    sys.path.insert(0, str(_mock_client_dir))
-
-import kafka_viewer as kv
-from kafka_viewer import KafkaViewer
+from tools.mock_client import kafka_viewer as kv
+from tools.mock_client.kafka_viewer import KafkaViewer
 
 
 class _BoomConsumer:

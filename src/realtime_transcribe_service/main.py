@@ -5,17 +5,13 @@ import sys
 import time
 from collections.abc import Awaitable
 from typing import Any
-from pathlib import Path
-
-_project_root = Path(__file__).resolve().parents[2]
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
 
 import uvicorn
+from pydantic import ValidationError
 
-from config.logging_config import configure_logging, get_logger
-from config.settings import get_settings
 from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
+from realtime_transcribe_service.config.logging_config import configure_logging, get_logger
+from realtime_transcribe_service.config.settings import get_settings
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from realtime_transcribe_service.producer.kafka_producer import KafkaProducer
 from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
@@ -232,6 +228,9 @@ def main() -> None:
     """Synchronous entrypoint."""
     try:
         asyncio.run(run())
+    except ValidationError as e:
+        sys.stderr.write(f"Configuration invalid:\n{e}\n")
+        sys.exit(1)
     except RuntimeError as e:
         log.error("Startup failed", error=str(e))
         sys.exit(1)

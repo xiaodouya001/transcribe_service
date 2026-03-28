@@ -11,10 +11,13 @@
 poetry install --with dev
 poetry shell
 
-# 2. Start dependencies
+# 2. Prepare local config
+cp .env.example .env
+
+# 3. Start dependencies
 docker compose up -d
 
-# 3. Run
+# 4. Run
 python -m realtime_transcribe_service.main
 ```
 
@@ -24,8 +27,8 @@ python -m realtime_transcribe_service.main
 
 ```
 realtime_transcribe_service/
-├── config/                          # Pydantic Settings
 ├── src/realtime_transcribe_service/
+│   ├── config/                      # Runtime settings and logging configuration
 │   ├── main.py                      # Main entrypoint (DI + lifecycle wiring)
 │   ├── schemas/                     # Contract layer: Pydantic request/response models
 │   ├── transport/                   # Ingress layer: WebSocket server
@@ -38,8 +41,24 @@ realtime_transcribe_service/
 ├── tests/
 ├── design/                          # Design docs, guardrails, scenario matrix, and API contract
 ├── docs/                            # Configuration, deployment, development, and troubleshooting docs
-├── tools/mock_client/               # Scenario testing, load testing, and Kafka replay tools
+├── tools/mock_client/               # Scenario testing, load testing, Kafka replay tools, and local tests
 └── docker-compose.yml               # Redis + Kafka + Kafka UI
+```
+
+## Testing
+
+Run the full repository test suite from the root:
+
+```bash
+poetry run pytest
+```
+
+Run mock-client tests on their own:
+
+```bash
+cd tools/mock_client
+pip install -r requirements-dev.txt
+pytest
 ```
 
 ## Documentation

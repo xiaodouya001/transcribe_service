@@ -33,17 +33,20 @@ Install with `pip install -e ".[dev]"` or `poetry install --with dev`.
 
 ### 1.3 `[tool.pytest.ini_options]`
 
-Pytest configuration lives directly in `pyproject.toml`, so a separate `pytest.ini` is not needed.
+Repository-wide pytest configuration lives in `pyproject.toml`. The mock client also ships its own
+`tools/mock_client/pytest.ini` so it can run its local test suite without inheriting the repository
+root coverage gate.
 
 | Option | Description |
 |------|------|
 | `asyncio_mode = "auto"` | Auto-detect async tests |
 | `asyncio_default_fixture_loop_scope` | Fixture loop scope |
+| `testpaths` | Collect both `tests` and `tools/mock_client/tests` during a root-level run |
 | `addopts` | Default coverage flags and `--cov-fail-under=100` |
 
 ### 1.4 `[tool.coverage.run]`
 
-Defines the coverage source roots: `src` and `config`.
+Defines the coverage source root: `src`.
 
 ### 1.5 `[build-system]`
 
@@ -51,7 +54,7 @@ Declares the build backend used by `pip install -e .`.
 
 ### 1.6 `[tool.setuptools.packages.find]`
 
-Configures setuptools package discovery for both `config` and `realtime_transcribe_service` under `src/`.
+Configures setuptools package discovery for `realtime_transcribe_service` under `src/`.
 
 ### 1.7 `[tool.poetry]` and `[tool.poetry.group.dev.dependencies]`
 
@@ -70,11 +73,12 @@ pip install -e .
 # or
 poetry install
 
+cp .env.example .env
 python -m realtime_transcribe_service.main
 ```
 
 - Dependencies: `[project].dependencies`
-- Configuration: `.env` values such as `REDIS_URL` and `KAFKA_BOOTSTRAP_SERVERS`
+- Configuration: `.env` values such as `APP_ENV`, `REDIS_URL`, and `KAFKA_BOOTSTRAP_SERVERS`
 
 This service runs as a WebSocket server. Upstream systems connect to `ws://.../ws/v1/realtime-transcriptions?conversationId=...`. Legacy client-side settings such as `STT_PROVIDER_URL` are not part of this runtime model.
 
@@ -85,12 +89,14 @@ pip install -e ".[dev]"
 # or
 poetry install --with dev
 
-pytest tests/ -v
+pytest
 # or
 poetry run pytest
 ```
 
 - Dependencies: runtime plus `[project.optional-dependencies].dev`
+- A root-level pytest run collects both the main-service tests and `tools/mock_client/tests`
+- Mock-client-only runs use `tools/mock_client/pytest.ini` instead of the root coverage settings
 
 ### 2.3 Production
 
@@ -103,7 +109,7 @@ python -m realtime_transcribe_service.main
 ```
 
 - Dependencies: runtime only
-- Configuration: environment variables described in [configuration.md](configuration.md) and [deployment.md](deployment.md)
+- Configuration: injected process environment variables described in [configuration.md](configuration.md) and [deployment.md](deployment.md); deployed environments should set `APP_ENV=deployed` and should not rely on `.env`
 
 ---
 

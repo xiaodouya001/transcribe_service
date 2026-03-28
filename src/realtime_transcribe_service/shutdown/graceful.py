@@ -14,13 +14,13 @@ log = structlog.get_logger(__name__)
 class GracefulShutdown:
     """Handle SIGTERM/SIGINT, mark drain mode, and notify the main loop to exit."""
 
-    def __init__(self, stop_timeout: int = 120) -> None:
+    def __init__(self, stop_timeout: float = 120.0) -> None:
         self._stop_timeout = stop_timeout
         self._draining = False
         self._shutdown_event = asyncio.Event()
 
     @property
-    def stop_timeout(self) -> int:
+    def stop_timeout(self) -> float:
         """Total graceful shutdown budget in seconds."""
         return self._stop_timeout
 

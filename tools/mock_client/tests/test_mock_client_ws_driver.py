@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -15,12 +13,7 @@ from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestra
 from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
 from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
 from realtime_transcribe_service.transport.websocket_handler import ConnectionRegistry, create_app
-
-_mock_client_dir = Path(__file__).resolve().parents[1] / "tools" / "mock_client"
-if str(_mock_client_dir) not in sys.path:
-    sys.path.insert(0, str(_mock_client_dir))
-
-import ws_driver
+from tools.mock_client import ws_driver
 
 pytestmark = [
     pytest.mark.filterwarnings(

@@ -9,6 +9,15 @@ from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareR
 from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
 
 
+def test_constructor_requires_redis_url_when_client_not_provided():
+    with pytest.raises(ValueError, match="redis_url is required"):
+        RedisSequenceStateMachine(
+            active_ttl_sec=3600,
+            final_ttl_sec=60,
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
+        )
+
+
 @pytest.fixture
 async def sm():
     """RedisSequenceStateMachine with fakeredis backend."""

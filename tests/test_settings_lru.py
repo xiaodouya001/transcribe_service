@@ -1,9 +1,12 @@
 """coverage: get_settings cache_clear"""
 
-from config.settings import get_settings
+from __future__ import annotations
+
+from realtime_transcribe_service.config.settings import get_settings
 
 
-def test_get_settings_cached_then_cleared():
+def test_get_settings_cached_then_cleared(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "local")
     get_settings.cache_clear()
     a = get_settings()
     b = get_settings()

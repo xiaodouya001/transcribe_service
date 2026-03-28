@@ -11,23 +11,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-
-# make project root importable for shared config
-_project_root = Path(__file__).resolve().parents[2]
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
 
 import uvicorn
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from config.logging_config import configure_logging
 from kafka_viewer import KafkaViewer, purge_topic_messages
+from logging_config import configure_logging
+from settings import get_settings
 from ws_driver import SCENARIOS, Stats, run_load_test
 
 # ---------------------------------------------------------------------------
@@ -40,10 +35,11 @@ _load_stop_event: asyncio.Event | None = None
 _load_task: asyncio.Task | None = None
 _kafka_viewer: KafkaViewer | None = None
 _kafka_forward_task: asyncio.Task | None = None
+SETTINGS = get_settings()
 
-DEFAULT_WS_URL = "ws://127.0.0.1:8080/ws/v1/realtime-transcriptions"
-DEFAULT_KAFKA_BOOTSTRAP = "127.0.0.1:9092"
-DEFAULT_KAFKA_TOPIC = "AI_STAGING_TRANSCRIPTION"
+DEFAULT_WS_URL = SETTINGS.default_ws_url
+DEFAULT_KAFKA_BOOTSTRAP = SETTINGS.default_kafka_bootstrap
+DEFAULT_KAFKA_TOPIC = SETTINGS.default_kafka_topic
 
 
 # ---------------------------------------------------------------------------
@@ -405,13 +401,13 @@ async def _stats_pusher():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    configure_logging()
+    configure_logging(level=SETTINGS.log_level, format=SETTINGS.log_format)
     uvicorn.run(
         "server:app",
-        host="0.0.0.0",
-        port=8088,
+        host=SETTINGS.host,
+        port=SETTINGS.port,
         reload=False,
-        log_level="info",
+        log_level=SETTINGS.log_level.lower(),
         timeout_graceful_shutdown=3,
         log_config=None,
     )
