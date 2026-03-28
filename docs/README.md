@@ -1,44 +1,51 @@
 # Documentation Index
 
-This page collects the main documentation entry points for the Realtime Transcribe Service repository across `design/`, `docs/`, and the supporting tooling guides.
+This page collects the main documentation entry points for the Realtime Transcribe Service repository across `docs/design`, `docs/pt`, and the scenario-oriented documentation categories under `docs/`.
 
 ---
 
 ## Core Design
 
-| Document | Description |
-|------|------|
-| [realtime-transcribe-service-app-design.md](../design/realtime-transcribe-service-app-design.md) | Application architecture overview |
-| [realtime-transcribe-service-api-contract.md](../design/realtime-transcribe-service-api-contract.md) | API contract and protocol semantics |
-| [realtime-transcribe-service-design-guardrails.md](../design/realtime-transcribe-service-design-guardrails.md) | Long-term guardrails, testing strategy, and change constraints |
-| [realtime-transcribe-service-protocol-scenario-matrix.md](../design/realtime-transcribe-service-protocol-scenario-matrix.md) | Unified scenario matrix for normal flow, errors, close codes, and example payloads |
+
+| Document                                                                                                                  | Description                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [app-design.md](design/app-design.md)                             | Application architecture overview                                                  |
+| [api-contract.md](design/api-contract.md)                         | API contract and protocol semantics                                                |
+| [design-guardrails.md](design/design-guardrails.md)               | Long-term guardrails, testing strategy, and change constraints                     |
+| [protocol-scenario-matrix.md](design/protocol-scenario-matrix.md) | Unified scenario matrix for normal flow, errors, close codes, and example payloads |
+| [env-profiles-300-400-500.md](pt/env-profiles-300-400-500.md)                                                             | Performance tuning env profiles for 300/400/500 concurrency targets                |
+
 
 ---
 
-## Configuration, Capacity, and Deployment
+## Configuration and CI/CD
 
-| Document | Description |
-|------|------|
-| [configuration.md](configuration.md) | Environment variable reference |
-| [deployment.md](deployment.md) | Build and deployment guide |
-| [pyproject-config.md](pyproject-config.md) | `pyproject.toml` reference |
+
+| Document                                                 | Description                                            |
+| -------------------------------------------------------- | ------------------------------------------------------ |
+| [config/configuration.md](config/configuration.md)       | Environment variable reference                         |
+| [config/pyproject-config.md](config/pyproject-config.md) | `pyproject.toml` reference                             |
+| [cicd/ci-cd.md](cicd/ci-cd.md)                           | CI pipeline, build, deployment, and operations runbook |
+
 
 ---
 
-## Development, Testing, and Operations
+## Development, Testing and Operations
 
-| Document | Description |
-|------|------|
-| [development.md](development.md) | Local development, unit tests, and debugging |
-| [cicd.md](cicd.md) | CI/CD flow and GitHub Actions |
-| [troubleshooting.md](troubleshooting.md) | Operational troubleshooting guide |
-| [faq.md](faq.md) | Frequently asked questions |
-| [kafka-ui-usage.md](kafka-ui-usage.md) | Kafka UI usage guide |
+
+| Document                                         | Description                                  |
+| ------------------------------------------------ | -------------------------------------------- |
+| [dev/development.md](dev/development.md)         | Local development, unit tests, and debugging |
+| [ops/troubleshooting.md](ops/troubleshooting.md) | Operational troubleshooting guide            |
+| [ops/faq.md](ops/faq.md)                         | Frequently asked questions                   |
+
 
 ---
 
 ## Tooling Guides
 
-| Document | Description |
-|------|------|
+
+| Document                                                     | Description                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
 | [tools/mock_client/README.md](../tools/mock_client/README.md) | Mock Client guide for scenario tests, load tests, and Kafka replay |
+| [ops/kafka-ui-usage.md](ops/kafka-ui-usage.md)               | Kafka UI usage guide                                         |

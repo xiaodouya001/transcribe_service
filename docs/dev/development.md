@@ -75,7 +75,7 @@ The service listens on `0.0.0.0:8080`, with the WebSocket endpoint at `/ws/v1/re
 | Kafka | 127.0.0.1:9092 |
 | Kafka UI | http://127.0.0.1:8090 |
 
-See [kafka-ui-usage.md](kafka-ui-usage.md) for Kafka UI details.
+See [kafka-ui-usage.md](../ops/kafka-ui-usage.md) for Kafka UI details.
 
 ---
 

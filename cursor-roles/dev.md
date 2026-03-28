@@ -16,7 +16,7 @@ This repository is contract-first.
 
 When the UI, tests, implementation, or supporting docs disagree, the canonical source of truth is:
 
-- `design/realtime-transcribe-service-api-contract.md`
+- `docs/design/api-contract.md`
 
 Do not let implementation detail redefine contract semantics.
 

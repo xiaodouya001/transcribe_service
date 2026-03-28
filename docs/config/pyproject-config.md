@@ -109,7 +109,7 @@ python -m realtime_transcribe_service.main
 ```
 
 - Dependencies: runtime only
-- Configuration: injected process environment variables described in [configuration.md](configuration.md) and [deployment.md](deployment.md); deployed environments should set `APP_ENV=deployed` and should not rely on `.env`
+- Configuration: injected process environment variables described in [configuration.md](configuration.md) and [ci-cd.md](../cicd/ci-cd.md); deployed environments should set `APP_ENV=deployed` and should not rely on `.env`
 
 ---
 

@@ -204,7 +204,7 @@ sequenceDiagram
 
 #### 2.2.4 Exception Handling and Error Response
 
-When validation fails or a downstream dependency becomes unavailable, Realtime Transcribe Service sends an `ERROR` frame first and then closes the WebSocket according to policy. See [API Contract Section 4](realtime-transcribe-service-api-contract.md#4-status-codes-and-error-codes) for the error-code and close-code mapping.
+When validation fails or a downstream dependency becomes unavailable, Realtime Transcribe Service sends an `ERROR` frame first and then closes the WebSocket according to policy. See [API Contract Section 4](api-contract.md#4-status-codes-and-error-codes) for the error-code and close-code mapping.
 
 ```mermaid
 sequenceDiagram
@@ -438,7 +438,7 @@ When ECS Fargate triggers a rolling deployment or scales the service down, the s
 | `acks` | `all` | Required before the service can commit Redis state |
 | Compression | `zstd` | Default compression strategy |
 
-The full Kafka write contract is documented in [realtime-transcribe-service-api-contract.md](realtime-transcribe-service-api-contract.md#6-kafka-persistence-contract).
+The full Kafka write contract is documented in [api-contract.md](api-contract.md#6-kafka-persistence-contract).
 
 ### 4.2 Redis Constraints
 
@@ -455,4 +455,4 @@ The full Kafka write contract is documented in [realtime-transcribe-service-api-
 
 ## Appendix A - API Contract Reference
 
-> The canonical API contract is documented in [Realtime Transcribe Service API Contract](realtime-transcribe-service-api-contract.md).
+> The canonical API contract is documented in [Realtime Transcribe Service API Contract](api-contract.md).

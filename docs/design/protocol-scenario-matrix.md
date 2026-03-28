@@ -2,11 +2,11 @@
 
 This document consolidates the key WebSocket protocol scenarios across normal flow, error flow, pre-handshake rejection, close codes, and representative JSON responses. It serves as:
 
-- a companion view to the [API contract](realtime-transcribe-service-api-contract.md)
-- the concrete scenario-matrix document referenced by the long-term guardrails in [realtime-transcribe-service-design-guardrails.md](realtime-transcribe-service-design-guardrails.md)
-- the documentation-side counterpart of the contract-level matrix tests in [../tests/test_contract_matrix.py](../tests/test_contract_matrix.py)
+- a companion view to the [API contract](api-contract.md)
+- the concrete scenario-matrix document referenced by the long-term guardrails in [design-guardrails.md](design-guardrails.md)
+- the documentation-side counterpart of the contract-level matrix tests in [../../tests/test_contract_matrix.py](../../tests/test_contract_matrix.py)
 
-If this matrix conflicts with the [API contract](realtime-transcribe-service-api-contract.md), the API contract wins.
+If this matrix conflicts with the [API contract](api-contract.md), the API contract wins.
 
 Business constraints such as handshake/body `conversationId` matching, continuous sequence numbers starting at `0`, single-sender semantics, and retrying the same failed sequence number are defined by **section 2.3 Business Rules** in the API contract. This matrix focuses on mapping **scenario -> error code / close code**.
 

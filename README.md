@@ -39,8 +39,13 @@ realtime_transcribe_service/
 │   ├── orchestrator/                # Orchestration layer: two-phase commit flow
 │   └── shutdown/                    # Graceful shutdown
 ├── tests/
-├── design/                          # Design docs, guardrails, scenario matrix, and API contract
-├── docs/                            # Configuration, deployment, development, and troubleshooting docs
+├── docs/                            # Documentation hub (root keeps only README.md)
+│   ├── cicd/
+│   ├── config/
+│   ├── design/
+│   ├── dev/
+│   ├── ops/
+│   └── pt/
 ├── tools/mock_client/               # Scenario testing, load testing, Kafka replay tools, and local tests
 └── docker-compose.yml               # Redis + Kafka + Kafka UI
 ```
@@ -63,17 +68,17 @@ pytest
 
 ## Documentation
 
-For the full documentation index, see [docs/README.md](docs/README.md). That page collects the main entry points across `design/`, `docs/`, and the key tool documents.
+For the full documentation index, see [docs/README.md](docs/README.md). That page collects the main entry points across `docs/design`, `docs/pt`, `docs`, and the key tool documents.
 
 Common entry points:
 
 
 | Document                                                                                                                         | Description                                      |
 | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| [design/realtime-transcribe-service-app-design.md](design/realtime-transcribe-service-app-design.md)                             | Application architecture overview                |
-| [design/realtime-transcribe-service-api-contract.md](design/realtime-transcribe-service-api-contract.md)                         | API contract                                     |
-| [design/realtime-transcribe-service-design-guardrails.md](design/realtime-transcribe-service-design-guardrails.md)               | Long-term guardrails and change constraints      |
-| [design/realtime-transcribe-service-protocol-scenario-matrix.md](design/realtime-transcribe-service-protocol-scenario-matrix.md) | Protocol scenario matrix                         |
+| [docs/design/app-design.md](docs/design/app-design.md)                             | Application architecture overview                |
+| [docs/design/api-contract.md](docs/design/api-contract.md)                         | API contract                                     |
+| [docs/design/design-guardrails.md](docs/design/design-guardrails.md)               | Long-term guardrails and change constraints      |
+| [docs/design/protocol-scenario-matrix.md](docs/design/protocol-scenario-matrix.md) | Protocol scenario matrix                         |
 | [tools/mock_client/README.md](tools/mock_client/README.md)                                                                       | Mock Client, scenario tests, and load-test guide |
 | [docs/README.md](docs/README.md)                                                                                                 | Documentation index                              |
 
@@ -86,4 +91,14 @@ Common entry points:
 docker build -f docker/Dockerfile -t realtime-transcribe-service:latest .
 ```
 
-Target environment: AWS ECS Fargate. See [docs/deployment.md](docs/deployment.md) for details.
+Run the container with explicit runtime configuration:
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e APP_ENV=deployed \
+  -e REDIS_URL=redis://<redis-host>:6379/0 \
+  -e KAFKA_BOOTSTRAP_SERVERS=<broker-1>:9092,<broker-2>:9092 \
+  realtime-transcribe-service:latest
+```
+
+Target environment: AWS ECS Fargate. See [docs/cicd/ci-cd.md](docs/cicd/ci-cd.md) for details.

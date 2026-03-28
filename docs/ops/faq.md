@@ -46,7 +46,7 @@ On `SIGTERM`, the service marks itself as draining and rejects new connections, 
 
 The service uses the Uvicorn `websockets` stack for keepalive. After each server Ping, if the peer does not respond with Pong within `WS_PING_TIMEOUT` seconds (default `10s`), the connection is closed, typically with close code `1011`.
 
-Because the first Ping is sent after `WS_PING_INTERVAL` seconds (default `20s`), a client that never replies to Pong is usually disconnected after about `30s` in total. See `design/realtime-transcribe-service-api-contract.md` section 1.4 for the canonical definition.
+Because the first Ping is sent after `WS_PING_INTERVAL` seconds (default `20s`), a client that never replies to Pong is usually disconnected after about `30s` in total. See `docs/design/api-contract.md` section 1.4 for the canonical definition.
 
 ---
 
@@ -67,5 +67,5 @@ To preserve ordering, idempotency, and lossless retry behavior, clients must fol
 
 For the canonical error-code matrix and normal/error flow examples, see:
 
-- `design/realtime-transcribe-service-api-contract.md`
-- `design/realtime-transcribe-service-protocol-scenario-matrix.md`
+- `docs/design/api-contract.md`
+- `docs/design/protocol-scenario-matrix.md`

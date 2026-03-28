@@ -1,10 +1,38 @@
-# Deployment Guide
+# CI/CD and Deployment Guide
 
-This document describes how to build, deploy, and operate Realtime Transcribe Service, including the WebSocket gateway, the Redis sequence state machine plus ownership guard, and Kafka delivery.
+This document consolidates continuous integration, delivery flow, deployment setup, and operational runbook notes for Realtime Transcribe Service.
 
 ---
 
-## 1. Build the Image
+## 1. CI Flow
+
+| Step | Description |
+|------|------|
+| **Lint** | Optional formatting and static checks such as `ruff` or `black` |
+| **Tests** | `pytest` for the configured test paths |
+| **Docker build** | Verifies that `docker build` succeeds |
+
+Default tests rely on `fakeredis[lua]`, `unittest.mock`, and in-process fixtures, so CI does **not** require a live Redis or Kafka instance.
+
+---
+
+## 2. GitHub Actions
+
+The repository includes [.github/workflows/ci.yml](../../.github/workflows/ci.yml). It runs on pushes and pull requests targeting `main` or `master`.
+
+- **test** job: Python 3.12, `poetry install --with dev`, then `poetry run pytest -v` (collects `tests` and `tools/mock_client/tests` from `pyproject.toml` `testpaths`)
+- **docker** job: builds `docker/Dockerfile` through `docker/build-push-action` without pushing to a registry
+
+### 2.1 Environment variables
+
+Default tests do not require Redis or Kafka. If you introduce integration tests backed by real middleware, inject the required values through GitHub Secrets and workflow `env`, for example:
+
+- `REDIS_URL`
+- `KAFKA_BOOTSTRAP_SERVERS`
+
+---
+
+## 3. Build the Image
 
 ```bash
 docker build -f docker/Dockerfile -t realtime-transcribe-service:latest .
@@ -14,26 +42,38 @@ The image is based on `python:3.12-slim`, uses a multi-stage build, runs as a no
 
 ---
 
-## 2. Target Environment
+## 4. CD Overview
+
+The target runtime is **AWS ECS Fargate** backed by a VPC, ElastiCache Redis, and MSK.
+
+The common sequence is:
+
+1. Build the image and push it to ECR.
+2. Update the ECS service or task definition.
+3. Inject environment variables through the ECS task definition or Secrets Manager.
+
+---
+
+## 5. Target Deployment Environment
 
 The primary deployment target is **AWS ECS Fargate** with:
 
-- A **VPC** where the service can reach ElastiCache and MSK
+- A **VPC** where the service can reach ElastiCache and MSK.
 - **ElastiCache Redis** exposed through `REDIS_URL` and used for:
   - the sequence state machine / 2PC state
   - the conversation ownership guard that enforces single-sender semantics
 - **MSK** exposed through `KAFKA_BOOTSTRAP_SERVERS`
-- An upstream **load balancer**, typically **ALB**, terminating WSS for Fano Assist. Its idle timeout must exceed the WebSocket keepalive interval described in the design docs
+- An upstream **load balancer**, typically **ALB**, terminating WSS for Fano Assist. Its idle timeout must exceed the WebSocket keepalive interval described in the design docs.
 
 Protocol note: this service is a **WebSocket server**. It does not open outbound STT connections. Upstream clients connect to:
 
 `wss://<your-host>/ws/v1/realtime-transcriptions?conversationId=<id>`
 
-See the full protocol definition in [design/realtime-transcribe-service-api-contract.md](../design/realtime-transcribe-service-api-contract.md).
+See the full protocol definition in [design/api-contract.md](../design/api-contract.md).
 
 ---
 
-## 3. Environment Variables
+## 6. Runtime Configuration in Deployment
 
 The minimum production configuration is:
 
@@ -70,7 +110,7 @@ This deployment mode assumes that upstream systems connect directly over WebSock
 
 ---
 
-## 4. Health Checks
+## 7. Health Checks
 
 The service exposes HTTP probes suitable for ALB and ECS:
 
@@ -84,15 +124,15 @@ Before listening for traffic, `main` runs `_check_redis` and `_check_kafka`. If 
 
 ---
 
-## 5. Scaling Notes
+## 8. Scaling Notes
 
-- Only one active sender connection is allowed per `conversationId` at any moment. The server enforces this with the Redis ownership key. If a second connection attempts to send concurrently for the same conversation, it is rejected with `E1009`
-- Cross-instance consistency depends on the Redis Lua state machine, which stores the expected sequence and 2PC state; it is not implemented as a one-off deduplication key
-- Kafka uses `conversationId` as the partition key so each call remains ordered within a single partition
+- Only one active sender connection is allowed per `conversationId` at any moment. The server enforces this with the Redis ownership key. If a second connection attempts to send concurrently for the same conversation, it is rejected with `E1009`.
+- Cross-instance consistency depends on the Redis Lua state machine, which stores the expected sequence and 2PC state; it is not implemented as a one-off deduplication key.
+- Kafka uses `conversationId` as the partition key so each call remains ordered within a single partition.
 
 ---
 
-## 6. Related Documents
+## 9. Related Documents
 
-- [configuration.md](configuration.md) for the full environment-variable reference
-- [design/realtime-transcribe-service-app-design.md](../design/realtime-transcribe-service-app-design.md) for architecture and graceful-shutdown flow
+- [configuration.md](../config/configuration.md) for the full environment-variable reference
+- [design/app-design.md](../design/app-design.md) for architecture and graceful-shutdown flow

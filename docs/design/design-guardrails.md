@@ -106,8 +106,8 @@ Existing tests lock the following semantics:
 
 The contract-level scenario matrix is consolidated in:
 
-- [realtime-transcribe-service-protocol-scenario-matrix.md](realtime-transcribe-service-protocol-scenario-matrix.md)
-- Matching tests: [test_contract_matrix.py](../tests/test_contract_matrix.py)
+- [protocol-scenario-matrix.md](protocol-scenario-matrix.md)
+- Matching tests: [test_contract_matrix.py](../../tests/test_contract_matrix.py)
 
 The matrix covers the following key scenarios:
 
@@ -177,16 +177,16 @@ The following categories are especially easy to break accidentally and therefore
 
 After any non-trivial change, review at least the following documents to confirm that they are still true:
 
-- `design/realtime-transcribe-service-api-contract.md`
-- `design/realtime-transcribe-service-app-design.md`
-- `docs/faq.md`
+- `docs/design/api-contract.md`
+- `docs/design/app-design.md`
+- `docs/ops/faq.md`
 - any `docs/*.md` files affected by the behavior change
 
 If code and documentation diverge, update the documentation first or explicitly declare a design change.
 
 ### 4.6 Contract-First Rule
 
-If the UI, tests, and implementation conflict with the API contract, the source of truth is [realtime-transcribe-service-api-contract.md](realtime-transcribe-service-api-contract.md).
+If the UI, tests, and implementation conflict with the API contract, the source of truth is [api-contract.md](api-contract.md).
 
 All other documents and mock tools must follow the contract and must not reinterpret contract semantics.
 
