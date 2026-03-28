@@ -52,7 +52,7 @@ async def test_check_kafka_timeout():
     prod = MagicMock()
     prod.ensure_ready = AsyncMock(side_effect=slow)
     prod.close = AsyncMock()
-    with pytest.raises(RuntimeError, match="Kafka.*超时"):
+    with pytest.raises(RuntimeError, match="Kafka.*timed out"):
         await main_mod._check_kafka(prod, timeout=0.05)
     prod.close.assert_awaited_once()
 
@@ -67,7 +67,7 @@ async def test_check_kafka_timeout_close_raises_logged(monkeypatch):
     prod.close = AsyncMock(side_effect=RuntimeError("close failed"))
     warn_mock = MagicMock()
     monkeypatch.setattr(main_mod.log, "warning", warn_mock)
-    with pytest.raises(RuntimeError, match="Kafka.*超时"):
+    with pytest.raises(RuntimeError, match="Kafka.*timed out"):
         await main_mod._check_kafka(prod, timeout=0.05)
     warn_mock.assert_called_once()
 
@@ -106,8 +106,8 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
-    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -234,8 +234,8 @@ async def test_run_graceful_shutdown_order(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
-    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -345,8 +345,8 @@ async def test_run_startup_checks_are_parallel(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
-    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -449,8 +449,8 @@ async def test_run_stop_timeout_forces_cleanup(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
-    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -501,7 +501,7 @@ async def test_run_stop_timeout_forces_cleanup(monkeypatch):
         await asyncio.wait([stop_task], timeout=1.0)
 
     warn_mock.assert_any_call(
-        "Shutdown: 优雅停机超时，强制收尾",
+        "Shutdown: Graceful shutdown timed out, forcing final cleanup",
         timeout_sec=shutdown_inst.stop_timeout,
     )
     reg.close_all.assert_awaited_once()
@@ -536,8 +536,8 @@ async def test_run_stop_timeout_cancels_server_task_when_graceful_stop_stalls(mo
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
-    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -591,7 +591,7 @@ async def test_run_stop_timeout_cancels_server_task_when_graceful_stop_stalls(mo
         await asyncio.wait([stop_task], timeout=1.0)
 
     warn_mock.assert_any_call(
-        "Shutdown: 优雅停机超时，强制收尾",
+        "Shutdown: Graceful shutdown timed out, forcing final cleanup",
         timeout_sec=shutdown_inst.stop_timeout,
     )
     reg.close_all.assert_awaited_once()
@@ -606,7 +606,7 @@ def test_main_sync_entry_invokes_asyncio_run(monkeypatch):
 
     def capture_run(coro):
         seen.append(coro)
-        coro.close()  # 避免 “coroutine was never awaited”
+        coro.close()  # Avoid "coroutine was never awaited".
         return None
 
     monkeypatch.setattr(main_mod.asyncio, "run", capture_run)
@@ -635,7 +635,7 @@ def test_main_catches_keyboard_interrupt(monkeypatch):
 
 
 def test_bootstrap_inserts_project_root_into_syspath():
-    """覆盖 main 模块顶部的 sys.path 注入分支。"""
+    """Cover the ``sys.path`` injection branch at the top of the main module."""
     root = str(Path(main_mod.__file__).resolve().parents[2])
     saved = sys.path.copy()
     try:
@@ -667,8 +667,8 @@ async def test_run_propagates_exception(monkeypatch):
     settings.http_port = 18081
     settings.kafka_startup_timeout_sec = 5.0
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
-    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
@@ -711,7 +711,7 @@ async def test_run_propagates_exception(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_port_conflict_system_exit(monkeypatch):
-    """server.serve() 因端口占用抛出 SystemExit → RuntimeError。"""
+    """If ``server.serve()`` raises ``SystemExit`` because the port is in use, it is converted to ``RuntimeError``."""
     settings = MagicMock()
     settings.redis_url = "redis://127.0.0.1:6379/0"
     settings.log_level = "INFO"
@@ -730,8 +730,8 @@ async def test_run_port_conflict_system_exit(monkeypatch):
     settings.http_port = 18082
     settings.kafka_startup_timeout_sec = 5.0
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "real-time-transcriber:transcript-checker"
-    settings.redis_ownership_guard_key_prefix = "real-time-transcriber:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)

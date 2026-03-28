@@ -402,9 +402,9 @@ The system does not rely on a distributed transaction manager. Instead, it achie
 
 | Phase | Operation |
 | --- | --- |
-| **Prepare** | Lua pre-check verifies that `payload.sequenceNumber` matches `real-time-transcriber:transcript-checker:{conversationId}` without incrementing it |
+| **Prepare** | Lua pre-check verifies that `payload.sequenceNumber` matches `realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` without incrementing it |
 | **Persistence** | Converter-assembled Kafka value, then Kafka write keyed by `conversationId`, with `acks=all` |
-| **Commit** | After Kafka ACK, increment `real-time-transcriber:transcript-checker:{conversationId}` |
+| **Commit** | After Kafka ACK, increment `realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` |
 | **ACK** | Return `TRANSCRIPT_ACK` or `EOL_ACK` based on the processed event |
 
 ### 3.6 Container Replacement and Graceful Shutdown
@@ -444,8 +444,8 @@ The full Kafka write contract is documented in [realtime-transcribe-service-api-
 
 | Item | Configuration | Description |
 | --- | --- | --- |
-| Sequence state key | `real-time-transcriber:transcript-checker:{conversationId}` | Stores the next expected `sequenceNumber` |
-| Ownership guard key | `real-time-transcriber:conversation-owner:{conversationId}` | Enforces the single-sender rule |
+| Sequence state key | `realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` | Stores the next expected `sequenceNumber` |
+| Ownership guard key | `realtime-transcribe-service:conversation-owner:{conversationId}` | Enforces the single-sender rule |
 | Value | Sequence state: integer string; ownership guard: ownership token | Used for sequence advancement and sender ownership respectively |
 | Update strategy | Lua pre-check plus commit, and `SET NX`-based lease renewal | Keeps sequence control and single-sender enforcement atomic enough for the use case |
 | TTL | Ownership guard TTL defaults to 30 seconds; active TTL defaults to 3600 seconds; final TTL defaults to 60 seconds | All values are environment-configurable |

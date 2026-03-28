@@ -1,9 +1,9 @@
-"""Mock Client 后端 — FastAPI 应用，驱动场景 / 压测 / Kafka 回显。
+"""Mock Client backend — FastAPI app for scenarios, load tests, and Kafka replay.
 
-启动方式:
+Startup:
     cd tools/mock_client
     python server.py
-    # 浏览器打开 http://127.0.0.1:8088
+    # Open http://127.0.0.1:8088 in a browser.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from kafka_viewer import KafkaViewer, purge_topic_messages
 from ws_driver import SCENARIOS, Stats, run_load_test
 
 # ---------------------------------------------------------------------------
-# 全局状态
+# Global state
 # ---------------------------------------------------------------------------
 
 stats = Stats()
@@ -47,11 +47,11 @@ DEFAULT_KAFKA_TOPIC = "AI_STAGING_TRANSCRIPTION"
 
 
 # ---------------------------------------------------------------------------
-# SSE 广播
+# SSE broadcasting
 # ---------------------------------------------------------------------------
 
 def _sse_put_drop_oldest(q: asyncio.Queue[str], payload: str) -> None:
-    """入队一条 SSE；若满则丢弃队列中最旧的事件再试，避免压测/Kafka 洪峰时 QueueFull 把整个订阅者从列表移除导致 UI 断流。"""
+    """Enqueue one SSE payload; if the queue is full, drop the oldest event and retry so load/Kafka bursts do not disconnect the UI."""
     for _ in range(10_000):
         try:
             q.put_nowait(payload)
@@ -74,7 +74,7 @@ async def _emit(event_type: str, data: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 生命周期
+# Lifecycle
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
@@ -103,7 +103,7 @@ async def lifespan(app: FastAPI):
 
 
 # ---------------------------------------------------------------------------
-# FastAPI 应用
+# FastAPI application
 # ---------------------------------------------------------------------------
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -120,12 +120,14 @@ async def index():
 
 @app.get("/api/events")
 async def sse(request: Request):
-    """SSE 流：推送场景进度、Kafka 消息、统计。"""
+    """SSE stream that pushes scenario progress, Kafka messages, and metrics."""
     q: asyncio.Queue[str] = asyncio.Queue(maxsize=50_000)
     _sse_queues.append(q)
 
-    # 浏览器刷新会新建 SSE；服务端仍保留上一轮压测的内存统计，若不清理 UI 会一直显示旧数字。
-    # 仅在「当前无压测任务」时清空，避免打断正在进行的压测（多标签页也能继续看到实时数据）。
+    # Refreshing the browser creates a new SSE stream. The server still retains the
+    # last load test's in-memory metrics, so clear the UI only when no load test is
+    # currently running. That avoids interrupting an active run and still lets multiple
+    # tabs observe live data.
     if not stats.load_running:
         stats.reset()
         _broadcast_sse("stats", stats.snapshot())
@@ -160,17 +162,17 @@ async def run_scenario(
         ge=1,
         le=100,
         description=(
-            "N-01：发送多少条 SESSION_ONGOING。"
-            "N-02：幂等 seq 个数 [0..N)。"
-            "N-03：会话业务消息总数（含 SESSION_COMPLETE）。"
-            "E-09：乱序第二帧的 seq=max(2,N)。"
-            "其余固定错误场景忽略本参数。"
+            "N-01: number of SESSION_ONGOING messages to send. "
+            "N-02: number of idempotent seq values in [0..N). "
+            "N-03: total business messages in the session, including SESSION_COMPLETE. "
+            "E-09: the second out-of-order frame uses seq=max(2,N). "
+            "All other fixed error scenarios ignore this parameter."
         ),
     ),
 ):
-    """运行单个预定义场景。"""
+    """Run one predefined scenario."""
     if name not in SCENARIOS:
-        return {"error": f"未知场景: {name}，可选: {list(SCENARIOS.keys())}"}
+        return {"error": f"Unknown scenario: {name}. Available values: {list(SCENARIOS.keys())}"}
 
     fn = SCENARIOS[name]
     _broadcast_sse("scenario_start", {"scenario": name})
@@ -192,7 +194,7 @@ async def run_all_scenarios(
     ws_url: str = Query(DEFAULT_WS_URL),
     n_messages: int = Query(5, ge=1, le=100),
 ):
-    """顺序运行全部场景。"""
+    """Run all scenarios sequentially."""
     results = []
     for name in SCENARIOS:
         r = await run_scenario(name=name, ws_url=ws_url, n_messages=n_messages)
@@ -207,25 +209,25 @@ async def load_start(
         10,
         ge=1,
         le=10_000,
-        description="本轮同时进行的会话路数（≈ 峰值在线 WebSocket 数）；一轮共本值这么多路，无额外倍率。",
+        description="Number of sessions running concurrently in this round, roughly matching the peak concurrent WebSocket count.",
     ),
     messages_per_conv: int = Query(
         10,
         ge=1,
         le=1000,
-        description="单连接发送的业务消息总数（含一条 SESSION_COMPLETE）。",
+        description="Total business messages sent by one connection, including one SESSION_COMPLETE.",
     ),
     interval_ms: float = Query(20, ge=0),
     ramp_up_ms: float = Query(
         0,
         ge=0,
-        description="连接爬坡时间（毫秒）。> 0 时在此时段内均匀启动全部连接，避免瞬间洪峰打满 TCP backlog。0 = 同时发起。",
+        description="Connection ramp-up time in milliseconds. Values above 0 spread connection starts evenly across this interval to avoid saturating the TCP backlog. 0 starts all connections immediately.",
     ),
 ):
-    """启动并发压测（正常闭环流：若干 `SESSION_ONGOING` + 最后一条 `SESSION_COMPLETE`，不包含错误/边界场景）。"""
+    """Start a concurrent load test on the normal happy path only: multiple `SESSION_ONGOING` frames plus a final `SESSION_COMPLETE`, with no error or edge-case scenarios."""
     global _load_stop_event, _load_task
     if _load_task and not _load_task.done():
-        return {"error": "压测已在运行中"}
+        return {"error": "A load test is already running"}
 
     _load_stop_event = asyncio.Event()
 
@@ -243,9 +245,9 @@ async def load_start(
             "ramp_up_ms": ramp_up_ms,
             "total_sessions": total_sessions,
             "note": (
-                f"本轮共 {total_sessions} 路会话，同时在线约 {concurrency} 条连接"
-                f"{'（爬坡 %.0fms）' % ramp_up_ms if ramp_up_ms > 0 else ''}；"
-                "全部发完后结束。可先点「停止」不再排队尚未开始的会话。"
+                f"This round runs {total_sessions} sessions with about {concurrency} concurrent connections"
+                f"{' (ramp-up %.0fms)' % ramp_up_ms if ramp_up_ms > 0 else ''}. "
+                "The run finishes after all messages are sent. You can click Stop first to prevent not-yet-started sessions from entering the queue."
             ),
         },
     )
@@ -276,7 +278,7 @@ async def load_start(
 
 @app.post("/api/load/stop")
 async def load_stop():
-    """停止压测（立即返回，后台收尾）。"""
+    """Stop the load test immediately and let cleanup continue in the background."""
     global _load_stop_event
     if _load_stop_event:
         _load_stop_event.set()
@@ -293,7 +295,7 @@ async def kafka_start(
     bootstrap: str = Query(DEFAULT_KAFKA_BOOTSTRAP),
     topic: str = Query(DEFAULT_KAFKA_TOPIC),
 ):
-    """启动 Kafka 消费者并通过 SSE 推送消息。"""
+    """Start the Kafka consumer and forward messages through SSE."""
     global _kafka_viewer, _kafka_forward_task
 
     if _kafka_forward_task and not _kafka_forward_task.done():
@@ -347,10 +349,10 @@ async def kafka_purge(
     topic: str = Query(DEFAULT_KAFKA_TOPIC),
     restart_consumer: bool = Query(
         True,
-        description="若清空前正在消费同一 bootstrap+topic，是否在清空后自动重新订阅",
+        description="Whether to automatically re-subscribe after purge if the same bootstrap+topic was already being consumed",
     ),
 ):
-    """删除 topic 内已提交的全部消息（DeleteRecords）。执行前会停止本机的 Kafka 消费者，以免位移错乱。"""
+    """Delete all committed messages in the topic with DeleteRecords. The local Kafka consumer is stopped first to avoid offset confusion."""
     global _kafka_viewer, _kafka_forward_task
 
     resume_bs: str | None = None
@@ -385,11 +387,11 @@ async def kafka_purge(
         started = await kafka_start(bootstrap=resume_bs, topic=resume_topic)
         return {"purge": result, **started}
 
-    return {**result, "consumer": "stopped", "hint": "可再次点击「开始消费」查看最新状态"}
+    return {**result, "consumer": "stopped", "hint": "Click Start Consumer again to inspect the latest state"}
 
 
 # ---------------------------------------------------------------------------
-# 统计定时推送
+# Periodic stats push
 # ---------------------------------------------------------------------------
 
 async def _stats_pusher():
@@ -399,7 +401,7 @@ async def _stats_pusher():
 
 
 # ---------------------------------------------------------------------------
-# 入口
+# Entrypoint
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":

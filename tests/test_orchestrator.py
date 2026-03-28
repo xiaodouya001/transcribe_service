@@ -1,4 +1,4 @@
-"""Tests for orchestrator 调度层 — 覆盖 7 种场景。"""
+"""Tests for the orchestrator layer covering seven scenarios."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def orchestrator(mock_sm, mock_producer, mock_converter) -> TwoPhaseOrchestrator
 
 
 class TestScenarioA:
-    """A. 请求合法 + PRE_CHECK_OK + Kafka 成功 (SESSION_ONGOING) → ACK, 不断连。"""
+    """A. Valid request + PRE_CHECK_OK + Kafka success (SESSION_ONGOING) -> ACK without disconnect."""
 
     async def test_normal_ongoing(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, mock_converter, valid_ongoing_msg
@@ -73,7 +73,7 @@ class TestScenarioA:
 
 
 class TestScenarioB:
-    """B. IDEMPOTENT → 返回对应 ACK。ONGOING 不断连，COMPLETE 正常 close 1000。"""
+    """B. IDEMPOTENT -> return the matching ACK. ONGOING stays connected; COMPLETE closes with 1000."""
 
     async def test_idempotent(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, mock_converter, valid_ongoing_msg
@@ -102,7 +102,7 @@ class TestScenarioB:
 
 
 class TestScenarioC:
-    """C. OUT_OF_ORDER → E1006, 断连 1008。"""
+    """C. OUT_OF_ORDER -> E1006 and disconnect 1008."""
 
     async def test_out_of_order(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_converter, valid_ongoing_msg
@@ -129,7 +129,7 @@ class TestScenarioC:
         assert result.disconnect is True
         assert result.close_code == 1008
         warn_mock.assert_any_call(
-            "Orchestrator: 序列号乱序",
+            "Orchestrator: Sequence number out of order",
             conversation_id=valid_ongoing_msg["metaData"]["conversationId"],
             seq=valid_ongoing_msg["payload"]["sequenceNumber"],
             actual_sequence=valid_ongoing_msg["payload"]["sequenceNumber"],
@@ -152,7 +152,7 @@ class TestScenarioC:
         assert result.disconnect is True
         assert result.close_code == 1008
         warn_mock.assert_any_call(
-            "Orchestrator: 序列号乱序",
+            "Orchestrator: Sequence number out of order",
             conversation_id=valid_ongoing_msg["metaData"]["conversationId"],
             seq=valid_ongoing_msg["payload"]["sequenceNumber"],
             actual_sequence=valid_ongoing_msg["payload"]["sequenceNumber"],
@@ -163,7 +163,7 @@ class TestScenarioC:
 
 
 class TestScenarioD:
-    """D. Schema 校验失败 → ERROR, 断连 1008 (或 1007)。"""
+    """D. Schema validation failure -> ERROR and disconnect 1008 (or 1007)."""
 
     async def test_missing_field(
         self, orchestrator: TwoPhaseOrchestrator, mock_converter, valid_ongoing_msg
@@ -267,7 +267,7 @@ class TestScenarioD:
 
 
 class TestScenarioE:
-    """E. Kafka 失败/超时 → E1008/E1011, 不 commit, 断连 1013。"""
+    """E. Kafka failure/timeout -> E1008/E1011, no commit, disconnect 1013."""
 
     async def test_kafka_timeout(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, mock_converter, valid_ongoing_msg
@@ -292,13 +292,13 @@ class TestScenarioE:
         mock_sm.commit.assert_not_awaited()
 
     async def test_retry_same_seq_after_kafka_failure_is_lossless(self, valid_ongoing_msg):
-        """首次 Kafka 失败不 commit；同一 seq 重试成功；再次重放命中幂等 ACK。"""
+        """The first Kafka failure must not commit; retrying the same seq succeeds; replaying again hits the idempotent ACK path."""
         client = fakeredis.aioredis.FakeRedis(decode_responses=True)
         state_machine = RedisSequenceStateMachine(
             client=client,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="real-time-transcriber:transcript-checker",
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
         )
         producer = AsyncMock()
         producer.send = AsyncMock(side_effect=[RuntimeError("broker down"), None])
@@ -321,7 +321,7 @@ class TestScenarioE:
                 assert first.close_code == 1013
 
                 cid = valid_ongoing_msg["metaData"]["conversationId"]
-                key = f"real-time-transcriber:transcript-checker:{cid}"
+                key = f"realtime-transcribe-service:expect-transcript-seq-num:{cid}"
                 assert await client.get(key) == "0"
 
                 second = await orchestrator.handle_message(valid_ongoing_msg)
@@ -343,7 +343,7 @@ class TestScenarioE:
 
 
 class TestScenarioF:
-    """F. 服务端未捕获异常 → E1007, 断连 1011。"""
+    """F. Unhandled server exception -> E1007 and disconnect 1011."""
 
     async def test_unexpected_exception(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, valid_ongoing_msg
@@ -356,7 +356,7 @@ class TestScenarioF:
 
 
 class TestClassifyValidationError:
-    """_classify_validation_error 分支（避免依赖 Pydantic 具体 type 字符串）。"""
+    """Branches in ``_classify_validation_error`` without depending on Pydantic's exact type strings."""
 
     def test_branch_json(self):
         e = MagicMock()
@@ -384,7 +384,7 @@ class TestClassifyValidationError:
         assert c == ErrorCode.E1002
 
     def test_branch_intish_without_parsing_substring(self):
-        """避免 type 中含 'parsing' 子串，否则会命中 JSON 类分支。"""
+        """Avoid putting the substring ``parsing`` in the type so it does not hit the JSON branch."""
         e = MagicMock()
         e.errors.return_value = [{"type": "int_type"}]
         c, w = TwoPhaseOrchestrator._classify_validation_error(e)
@@ -423,7 +423,7 @@ class TestClassifyValidationError:
 
 
 class TestScenarioG:
-    """G. SESSION_COMPLETE → EOL_ACK, cleanup, 断连 1000。"""
+    """G. SESSION_COMPLETE -> EOL_ACK, cleanup, and disconnect 1000."""
 
     async def test_session_complete(
         self, orchestrator: TwoPhaseOrchestrator, mock_sm, mock_producer, mock_converter, valid_complete_msg

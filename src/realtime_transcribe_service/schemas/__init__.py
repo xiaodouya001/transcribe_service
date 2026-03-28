@@ -1,4 +1,4 @@
-"""Schemas 契约层 — Pydantic 强类型数据网关，纯 CPU 内存级校验，禁止任何 I/O。"""
+"""Schema contract layer — strongly typed Pydantic validation with no I/O."""
 
 from realtime_transcribe_service.schemas.errors import ErrorCode, WsCloseCode, close_code_for_error
 from realtime_transcribe_service.schemas.events import EventType, ResponseEventType, Speaker

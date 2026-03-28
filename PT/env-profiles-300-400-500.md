@@ -1,24 +1,23 @@
-# 并发档位完整配置（300 / 400 / 500）
+# Full Concurrency Profiles (300 / 400 / 500)
 
-## 说明
+## Notes
 
-- 以下为**单实例（单 Pod / 单 Task）**目标并发配置。
-- 用于实时低延迟场景，优先保证 `P95` 与稳定性。
-- `KAFKA_TOPIC_NUM_PARTITIONS` 仅对新建 topic 生效，已有 topic 需手动扩分区。
-- `WS_PING_INTERVAL` / `WS_PING_TIMEOUT` 由 `**main.py` 传入 Uvicorn**（`ws="websockets"`），用于 **RFC WebSocket Ping/Pong** 保活；与业务 JSON 无关。
+- These profiles target **one service instance** (one pod or one ECS task)
+- They are tuned for low-latency real-time traffic, prioritizing `P95` and stability over raw peak throughput
+- `KAFKA_TOPIC_NUM_PARTITIONS` only applies when creating a new topic; existing topics must be repartitioned separately
+- `WS_PING_INTERVAL` and `WS_PING_TIMEOUT` are passed from `main.py` into Uvicorn with `ws="websockets"` and control RFC WebSocket Ping/Pong keepalive, not business JSON behavior
 
 ---
 
-## 一、服务端 `.env` 配置表
+## 1. Suggested Server `.env` Values
 
-
-| 配置项                          | 300 并发/实例（低延迟） | 400 并发/实例（平衡） | 500 并发/实例（高负载） |
+| Setting | 300 concurrency / instance (low latency) | 400 concurrency / instance (balanced) | 500 concurrency / instance (high load) |
 | ---------------------------- | -------------- | ------------- | -------------- |
 | `WS_MAX_CONNECTIONS`         | 360            | 480           | 600            |
 | `REDIS_MAX_CONNECTIONS`      | 900            | 1200          | 1600           |
 | `REDIS_OWNERSHIP_GUARD_TTL_SEC` | 30       | 30            | 30             |
-| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | real-time-transcriber:transcript-checker | real-time-transcriber:transcript-checker | real-time-transcriber:transcript-checker |
-| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | real-time-transcriber:conversation-owner | real-time-transcriber:conversation-owner | real-time-transcriber:conversation-owner |
+| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | realtime-transcribe-service:transcript-checker | realtime-transcribe-service:transcript-checker | realtime-transcribe-service:transcript-checker |
+| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | realtime-transcribe-service:conversation-owner | realtime-transcribe-service:conversation-owner | realtime-transcribe-service:conversation-owner |
 | `HTTP_BACKLOG`               | 4096           | 4096          | 4096           |
 | `KAFKA_COMPRESSION_TYPE`     | lz4            | lz4           | lz4            |
 | `KAFKA_LINGER_MS`            | 1              | 1             | 1              |
@@ -31,44 +30,39 @@
 | `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 5.0 | 5.0 | 5.0 |
 | `STOP_TIMEOUT`               | 120            | 120           | 120            |
 
-
 ---
 
-## 二、压测参数建议（Mock Client）
+## 2. Suggested Mock Client Load-Test Parameters
 
-
-| 参数            | 300 并发      | 400 并发      | 500 并发      |
+| Parameter | 300 concurrency | 400 concurrency | 500 concurrency |
 | ------------- | ----------- | ----------- | ----------- |
-| 并发连接数         | 300         | 400         | 500         |
-| 每连接消息总数（起步）   | 100         | 100         | 100         |
-| **消息间隔 (ms)** | 60~80       | 70~85       | 80~90       |
-| **爬坡时间 (ms)** | 20000~30000 | 25000~35000 | 30000~45000 |
-
+| Concurrent connections | 300 | 400 | 500 |
+| Messages per connection (starting point) | 100 | 100 | 100 |
+| **Message interval (ms)** | 60-80 | 70-85 | 80-90 |
+| **Ramp-up window (ms)** | 20000-30000 | 25000-35000 | 30000-45000 |
 
 ---
 
-## 三、自动扩缩容阈值（每实例）
+## 3. Autoscaling Thresholds per Instance
 
-
-| 档位  | 扩容触发（持续 2 分钟）              | 缩容触发（持续 10 分钟）             |
+| Profile | Scale-out trigger (for 2 minutes) | Scale-in trigger (for 10 minutes) |
 | --- | -------------------------- | -------------------------- |
 | 300 | `active_connections > 260` | `active_connections < 160` |
 | 400 | `active_connections > 350` | `active_connections < 220` |
 | 500 | `active_connections > 430` | `active_connections < 280` |
 
-
 ---
 
-## 四、快速复制片段（按档位替换）
+## 4. Copy/Paste Snippets
 
-### 300 并发/实例
+### 300 concurrency per instance
 
 ```env
 WS_MAX_CONNECTIONS=360
 REDIS_MAX_CONNECTIONS=900
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=real-time-transcriber:transcript-checker
-REDIS_OWNERSHIP_GUARD_KEY_PREFIX=real-time-transcriber:conversation-owner
+REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:transcript-checker
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
@@ -79,14 +73,14 @@ LOG_LEVEL=WARNING
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 ```
 
-### 400 并发/实例
+### 400 concurrency per instance
 
 ```env
 WS_MAX_CONNECTIONS=480
 REDIS_MAX_CONNECTIONS=1200
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=real-time-transcriber:transcript-checker
-REDIS_OWNERSHIP_GUARD_KEY_PREFIX=real-time-transcriber:conversation-owner
+REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:transcript-checker
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
@@ -97,14 +91,14 @@ LOG_LEVEL=WARNING
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 ```
 
-### 500 并发/实例
+### 500 concurrency per instance
 
 ```env
 WS_MAX_CONNECTIONS=600
 REDIS_MAX_CONNECTIONS=1600
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=real-time-transcriber:transcript-checker
-REDIS_OWNERSHIP_GUARD_KEY_PREFIX=real-time-transcriber:conversation-owner
+REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:transcript-checker
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
@@ -114,4 +108,3 @@ KAFKA_TOPIC_NUM_PARTITIONS=100
 LOG_LEVEL=WARNING
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 ```
-

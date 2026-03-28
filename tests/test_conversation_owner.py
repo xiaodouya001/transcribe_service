@@ -15,7 +15,7 @@ from realtime_transcribe_service.redis.ownership_guard import RedisConversationO
 async def test_claim_refresh_and_release_roundtrip():
     client = fakeredis.aioredis.FakeRedis(decode_responses=True)
     owner = RedisConversationOwnershipGuard(
-        client=client, guard_ttl_sec=30, key_prefix="real-time-transcriber:conversation-owner"
+        client=client, guard_ttl_sec=30, key_prefix="realtime-transcribe-service:conversation-owner"
     )
 
     assert await owner.claim_or_refresh("conv-1", "owner-a") is True
@@ -23,24 +23,24 @@ async def test_claim_refresh_and_release_roundtrip():
     assert await owner.claim_or_refresh("conv-1", "owner-b") is False
 
     await owner.release("conv-1", "owner-b")
-    assert await client.get("real-time-transcriber:conversation-owner:conv-1") == "owner-a"
+    assert await client.get("realtime-transcribe-service:conversation-owner:conv-1") == "owner-a"
 
     await owner.release("conv-1", "owner-a")
-    assert await client.get("real-time-transcriber:conversation-owner:conv-1") is None
+    assert await client.get("realtime-transcribe-service:conversation-owner:conv-1") is None
 
 
 @pytest.mark.asyncio
 async def test_claim_reacquires_after_ttl_expiry():
     client = fakeredis.aioredis.FakeRedis(decode_responses=True)
     owner = RedisConversationOwnershipGuard(
-        client=client, guard_ttl_sec=1, key_prefix="real-time-transcriber:conversation-owner"
+        client=client, guard_ttl_sec=1, key_prefix="realtime-transcribe-service:conversation-owner"
     )
 
     assert await owner.claim_or_refresh("conv-1", "owner-a") is True
-    await client.delete("real-time-transcriber:conversation-owner:conv-1")
+    await client.delete("realtime-transcribe-service:conversation-owner:conv-1")
 
     assert await owner.claim_or_refresh("conv-1", "owner-b") is True
-    assert await client.get("real-time-transcriber:conversation-owner:conv-1") == "owner-b"
+    assert await client.get("realtime-transcribe-service:conversation-owner:conv-1") == "owner-b"
 
 
 @pytest.mark.asyncio
@@ -56,7 +56,7 @@ async def test_get_client_lazy_and_close_calls_aclose():
             redis_url="redis://127.0.0.1:6379/0",
             max_connections=5,
             guard_ttl_sec=30,
-            key_prefix="real-time-transcriber:conversation-owner",
+            key_prefix="realtime-transcribe-service:conversation-owner",
         )
 
         assert await owner.claim_or_refresh("conv-1", "owner-a") is True
@@ -74,7 +74,7 @@ async def test_close_skips_aclose_for_injected_client():
     injected.aclose = AsyncMock()
 
     owner = RedisConversationOwnershipGuard(
-        client=injected, guard_ttl_sec=30, key_prefix="real-time-transcriber:conversation-owner"
+        client=injected, guard_ttl_sec=30, key_prefix="realtime-transcribe-service:conversation-owner"
     )
     await owner.close()
 
@@ -93,7 +93,7 @@ async def test_claim_reload_script_after_noscript():
         owner = RedisConversationOwnershipGuard(
             redis_url="redis://127.0.0.1:6379/0",
             guard_ttl_sec=30,
-            key_prefix="real-time-transcriber:conversation-owner",
+            key_prefix="realtime-transcribe-service:conversation-owner",
         )
 
         assert await owner.claim_or_refresh("conv-1", "owner-a") is True
@@ -115,7 +115,7 @@ async def test_release_reload_script_after_noscript():
         owner = RedisConversationOwnershipGuard(
             redis_url="redis://127.0.0.1:6379/0",
             guard_ttl_sec=30,
-            key_prefix="real-time-transcriber:conversation-owner",
+            key_prefix="realtime-transcribe-service:conversation-owner",
         )
 
         assert await owner.claim_or_refresh("conv-1", "owner-a") is True

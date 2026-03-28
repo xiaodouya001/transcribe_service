@@ -1,4 +1,4 @@
-"""Tests for transport 接入层 — WebSocket 端到端。"""
+"""End-to-end tests for the transport layer WebSocket boundary."""
 
 from __future__ import annotations
 
@@ -139,7 +139,7 @@ def app(mock_orchestrator, shutdown, registry):
 
 
 class TestHealthEndpoints:
-    """HTTP 健康检查端点。"""
+    """HTTP health-check endpoint."""
 
     async def test_health(self, app):
         async with AsyncClient(
@@ -235,7 +235,7 @@ class TestHealthEndpoints:
 
 
 class TestWebSocket:
-    """WebSocket 端点测试。"""
+    """WebSocket endpoint tests."""
 
     def test_ws_normal_ongoing(self, app, mock_orchestrator):
         client = TestClient(app)
@@ -279,7 +279,7 @@ class TestWebSocket:
             client=fake_redis,
             active_ttl_sec=120,
             final_ttl_sec=5,
-            key_prefix="real-time-transcriber:transcript-checker",
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
         )
         producer = AsyncMock()
         producer.send = AsyncMock()
@@ -308,7 +308,7 @@ class TestWebSocket:
                 resp = orjson.loads(ws.receive_text())
                 assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
 
-            key = "real-time-transcriber:transcript-checker:conv-reconnect"
+            key = "realtime-transcribe-service:expect-transcript-seq-num:conv-reconnect"
             ttl = asyncio.run(fake_redis.ttl(key))
             assert 5 < ttl <= 120
             assert asyncio.run(fake_redis.get(key)) == "1"
@@ -337,7 +337,7 @@ class TestWebSocket:
         owner = RedisConversationOwnershipGuard(
             client=fake_redis,
             guard_ttl_sec=30,
-            key_prefix="real-time-transcriber:conversation-owner",
+            key_prefix="realtime-transcribe-service:conversation-owner",
         )
         app = create_app(
             mock_orchestrator,
@@ -376,7 +376,7 @@ class TestWebSocket:
         owner = RedisConversationOwnershipGuard(
             client=fake_redis,
             guard_ttl_sec=30,
-            key_prefix="real-time-transcriber:conversation-owner",
+            key_prefix="realtime-transcribe-service:conversation-owner",
         )
         app = create_app(
             mock_orchestrator,
@@ -391,11 +391,11 @@ class TestWebSocket:
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ):
                 assert asyncio.run(
-                    fake_redis.get("real-time-transcriber:conversation-owner:conv-1")
+                    fake_redis.get("realtime-transcribe-service:conversation-owner:conv-1")
                 ) is not None
 
             assert asyncio.run(
-                fake_redis.get("real-time-transcriber:conversation-owner:conv-1")
+                fake_redis.get("realtime-transcribe-service:conversation-owner:conv-1")
             ) is None
 
             with client.websocket_connect(
@@ -559,7 +559,7 @@ class TestWebSocket:
                 pass
         assert len(owner.release_calls) == 1
         warn_mock.assert_any_call(
-            "Transport: 会话发送所有权守卫释放失败",
+            "Transport: Failed to release conversation ownership guard",
             conversation_id="conv-1",
             error="release failed",
         )
@@ -567,7 +567,7 @@ class TestWebSocket:
     def test_ws_conversation_id_mismatch_e1009_not_orchestrator(
         self, app, mock_orchestrator
     ):
-        """query 与 body 中字符串 conversationId 不一致 → E1009 + 1008，不进入 orchestrator。"""
+        """A string ``conversationId`` mismatch between query and body returns E1009 + 1008 and never reaches the orchestrator."""
         client = TestClient(app)
         with client.websocket_connect(
             "/ws/v1/realtime-transcriptions?conversationId=conv-1"
@@ -596,7 +596,7 @@ class TestWebSocket:
                 assert ei.value.code == 1008
 
         warn_mock.assert_any_call(
-            "Transport: metaData.conversationId 与握手 query 不一致",
+            "Transport: metaData.conversationId does not match the handshake query",
             conversation_id="conv-1",
             handshake_conversation_id="conv-1",
             metadata_conversation_id="conv-2",
@@ -608,7 +608,7 @@ class TestWebSocket:
     def test_ws_meta_conversation_id_missing_still_invokes_orchestrator(
         self, shutdown, registry
     ):
-        """metaData 缺少 conversationId 时不走 transport mismatch，而是返回 schema E1003。"""
+        """If ``metaData.conversationId`` is missing, transport mismatch logic does not run and schema E1003 is returned instead."""
         sm = AsyncMock()
         sm.prepare = AsyncMock()
         sm.commit = AsyncMock()
@@ -654,7 +654,7 @@ class TestWebSocket:
     def test_ws_meta_conversation_id_wrong_type_still_invokes_orchestrator(
         self, shutdown, registry
     ):
-        """metaData.conversationId 非字符串时不作 transport 一致性比对，而是返回 schema E1004。"""
+        """If ``metaData.conversationId`` is not a string, transport does not run the consistency check and schema E1004 is returned instead."""
         sm = AsyncMock()
         sm.prepare = AsyncMock()
         sm.commit = AsyncMock()
@@ -701,7 +701,7 @@ class TestWebSocket:
     def test_ws_non_object_json_returns_e1004_with_handshake_conversation_id(
         self, shutdown, registry
     ):
-        """顶层 JSON 非对象时应返回客户端类型错误，而不是 E1007。"""
+        """A non-object top-level JSON payload should return a client type error, not E1007."""
         sm = AsyncMock()
         sm.prepare = AsyncMock()
         sm.commit = AsyncMock()
@@ -766,7 +766,7 @@ class TestWebSocket:
                 assert ei.value.code == 1007
 
         warn_mock.assert_any_call(
-            "Transport: JSON 解析失败",
+            "Transport: JSON decode failed",
             conversation_id="conv-1",
             error=ANY,
             error_code="E1001",
@@ -871,7 +871,7 @@ class TestWebSocket:
                 resp = orjson.loads(ws.receive_text())
                 assert resp["metaData"]["eventType"] == "ERROR"
             info_mock.assert_any_call(
-                "Transport: 发出 ERROR 响应帧",
+                "Transport: Sent ERROR response frame",
                 conversation_id="conv-1",
                 response=error_resp,
             )
@@ -916,7 +916,7 @@ class TestWebSocket:
         slow_calls = [
             kwargs
             for args, kwargs in warn_mock.call_args_list
-            if args == ("Transport: 慢消息分段耗时",)
+            if args == ("Transport: Slow message stage timings",)
         ]
         assert len(slow_calls) == 1
         slow_log = slow_calls[0]
@@ -973,7 +973,7 @@ class TestWebSocket:
                 assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
 
         assert not any(
-            args == ("Transport: 慢消息分段耗时",)
+            args == ("Transport: Slow message stage timings",)
             for args, _kwargs in warn_mock.call_args_list
         )
 
@@ -1086,14 +1086,14 @@ async def test_send_error_and_close_logs_error_frame_when_enabled():
             log_ws_error_frames=True,
         )
     info_mock.assert_any_call(
-        "Transport: 发出 ERROR 响应帧",
+        "Transport: Sent ERROR response frame",
         conversation_id="conv-x",
         response=ANY,
     )
     logged_response = next(
         kwargs["response"]
         for args, kwargs in info_mock.call_args_list
-        if args == ("Transport: 发出 ERROR 响应帧",) and kwargs.get("conversation_id") == "conv-x"
+        if args == ("Transport: Sent ERROR response frame",) and kwargs.get("conversation_id") == "conv-x"
     )
     assert logged_response["error"]["code"] == "E1001"
 
@@ -1217,7 +1217,7 @@ class TestConnectionRegistry:
         assert registry.active_count == 0
 
     def test_remove_with_ws_only_pops_same_instance(self, registry: ConnectionRegistry):
-        """旧连接 finally 不应删掉已被同 conversationId 覆盖的新连接登记。"""
+        """An older connection's ``finally`` block must not delete a newer registration for the same conversationId."""
         ws_old = MagicMock()
         ws_new = MagicMock()
         registry.add("conv-1", ws_old)

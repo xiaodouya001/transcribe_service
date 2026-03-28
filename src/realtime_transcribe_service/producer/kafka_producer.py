@@ -1,4 +1,4 @@
-"""Kafka 生产者 — conversationId 路由、acks=all、zstd 压缩、2s 快速失败。"""
+"""Kafka producer — conversationId routing, acks=all, zstd compression, and fast failure."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ async def _ensure_topic(
     num_partitions: int,
     replication_factor: int = 1,
 ) -> None:
-    """幂等建 Topic（已存在则忽略）。"""
+    """Create the topic idempotently and ignore the "already exists" case."""
     admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
     await admin.start()
     try:
@@ -30,7 +30,7 @@ async def _ensure_topic(
         err_text = str(exc).lower()
         log_fn = log.debug if any(token in err_text for token in ("exist", "already exists", "topic already")) else log.warning
         log_fn(
-            "Kafka: 幂等建 Topic 失败，继续启动",
+            "Kafka: Idempotent topic creation failed, continuing startup",
             bootstrap_servers=bootstrap_servers,
             topic=topic,
             num_partitions=num_partitions,
@@ -43,12 +43,12 @@ async def _ensure_topic(
 
 
 class KafkaProducer:
-    """Kafka 投递层实现。
+    """Kafka delivery-layer implementation.
 
     - Partition Key: conversationId
     - acks=all, enable_idempotence=True, max_in_flight_requests_per_connection=1
-    - compression: zstd（可配置）
-    - send timeout: 2s（可配置）
+    - compression: zstd (configurable)
+    - send timeout: 2s (configurable)
     """
 
     def __init__(
@@ -98,7 +98,7 @@ class KafkaProducer:
         return self._producer
 
     async def ensure_ready(self) -> None:
-        """启动时验证 Kafka 可达。"""
+        """Verify Kafka connectivity during startup."""
         try:
             await self._get_producer()
         except Exception:
@@ -110,7 +110,7 @@ class KafkaProducer:
         conversation_id: str,
         payload: dict[str, Any],
     ) -> None:
-        """发送消息到 Kafka，conversationId 作为 Key。"""
+        """Send a message to Kafka using ``conversationId`` as the key."""
         value = orjson.dumps(payload)
         key = conversation_id.encode("utf-8")
         producer = await self._get_producer()
@@ -121,7 +121,7 @@ class KafkaProducer:
             )
         except asyncio.TimeoutError:
             log.error(
-                "Kafka: 发送超时",
+                "Kafka: Send timed out",
                 conversation_id=conversation_id,
                 topic=self._topic,
                 timeout_sec=self._send_timeout_sec,
@@ -129,25 +129,25 @@ class KafkaProducer:
             raise
         except Exception as e:
             log.error(
-                "Kafka: 发送失败",
+                "Kafka: Send failed",
                 conversation_id=conversation_id,
                 topic=self._topic,
                 error=str(e),
             )
             raise
         log.debug(
-            "Kafka: 已发送",
+            "Kafka: Sent",
             conversation_id=conversation_id,
             topic=self._topic,
         )
 
     async def flush(self) -> None:
-        """刷新缓冲区。"""
+        """Flush producer buffers."""
         if self._producer:
             await self._producer.flush()
 
     async def close(self) -> None:
-        """关闭生产者。"""
+        """Close the producer."""
         if self._producer:
             await self._producer.stop()
             self._producer = None

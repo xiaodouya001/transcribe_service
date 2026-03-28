@@ -1,73 +1,76 @@
-# 故障排查
+# Troubleshooting
 
 ---
 
-## 1. 启动失败
+## 1. Startup Failures
 
-### 启动失败: Redis 不可用
+### Redis unavailable during startup
 
-**原因**：无法连接 Redis。
+**Cause:** the service cannot connect to Redis.
 
-**排查**：
+**Checks:**
 
-1. 确认 Redis 已启动：`docker compose ps` 或 `redis-cli ping`
-2. 检查 `REDIS_URL` 是否正确
-3. 在 Docker 网络内访问时，应使用服务名而非 `127.0.0.1`
+1. Confirm Redis is up with `docker compose ps` or `redis-cli ping`
+2. Verify `REDIS_URL`
+3. Inside a Docker network, use the service name instead of `127.0.0.1`
 
-### 启动失败: Kafka 不可用
+### Kafka unavailable during startup
 
-**原因**：无法连接 Kafka（30s 超时）。
+**Cause:** the service cannot complete Kafka startup checks before timeout.
 
-**排查**：
+**Checks:**
 
-1. 确认 Kafka 已启动：`docker compose ps`，健康检查通过
-2. 检查 `KAFKA_BOOTSTRAP_SERVERS` 地址
-3. Kafka 启动较慢，可等待 30–60 秒后重试
-
----
-
-## 2. WebSocket 连接问题
-
-### 客户端连接被拒绝（503）
-
-**原因**：服务处于 Drain 模式（优雅停机中）。
-
-**解决**：等待新版本 Pod 就绪后重连。
-
-### 连接被关闭（Close Code 1008）
-
-**原因**：Schema 校验失败或序列号乱序。查看 ERROR 帧中的 `error.code` 和 `error.details`。
-
-### 连接被关闭（Close Code 1013）
-
-**原因**：Kafka 不可用或超时。服务端暂时无法处理，待 Kafka 恢复后重新建立连接。
+1. Confirm Kafka is healthy with `docker compose ps`
+2. Verify `KAFKA_BOOTSTRAP_SERVERS`
+3. Kafka startup can be slow; wait 30-60 seconds and retry if needed
 
 ---
 
-## 3. Kafka 发送问题
+## 2. WebSocket Connection Problems
 
-### Kafka: 发送超时
+### Handshake rejected with HTTP 503
 
-**原因**：Kafka 集群响应超过 `KAFKA_SEND_TIMEOUT_SEC`（默认 2s）。
+**Cause:** the service is draining during graceful shutdown.
 
-**排查**：
+**Resolution:** reconnect after the replacement pod or task becomes ready.
 
-1. 检查 Kafka 集群状态
-2. 通过 Kafka UI 确认 Topic 存在、可写
-3. 检查网络延迟
+### Connection closed with WebSocket code 1008
+
+**Cause:** schema validation failed, business rules were violated, or the sequence number was out of order.
+
+**Resolution:** inspect `error.code` and `error.details` in the `ERROR` frame.
+
+### Connection closed with WebSocket code 1013
+
+**Cause:** Kafka is unavailable or timed out.
+
+**Resolution:** treat this as a temporary downstream failure and reconnect after Kafka recovers.
 
 ---
 
-## 4. 日志关键字
+## 3. Kafka Delivery Problems
 
-| 关键字 | 含义 |
+### `Kafka: Send timed out`
+
+**Cause:** the Kafka broker did not acknowledge the send before `KAFKA_SEND_TIMEOUT_SEC` elapsed.
+
+**Checks:**
+
+1. Verify Kafka cluster health
+2. Confirm the topic exists and is writable in Kafka UI
+3. Check network latency between the service and brokers
+
+---
+
+## 4. Log Keywords
+
+| Keyword | Meaning |
 |--------|------|
-| `Realtime Transcribe Service: 已启动` | 启动成功 |
-| `Transport: 连接已建立` | WebSocket 连接建立 |
-| `StateMachine.prepare` | Lua 预检结果 |
-| `StateMachine.commit` | 序列号推进 |
-| `Kafka: 已发送` | 消息已写入 Kafka |
-| `Orchestrator: 幂等命中` | 重复包被拦截 |
-| `Orchestrator: 序列号乱序` | 乱序包被拒绝 |
-| `Shutdown: 开始优雅停机` | 收到 SIGTERM |
-
+| `Realtime Transcribe Service: Started` | Startup completed successfully |
+| `Transport: Connection established` | A WebSocket connection was accepted |
+| `StateMachine.prepare` | Redis Lua pre-check result |
+| `StateMachine.commit` | Sequence state advanced |
+| `Kafka: Sent` | The message was written to Kafka |
+| `Orchestrator: Idempotent replay hit, returning ACK directly` | A duplicate packet was short-circuited |
+| `Orchestrator: Sequence number out of order` | An out-of-order packet was rejected |
+| `Shutdown: Starting graceful shutdown` | The service began shutdown handling |

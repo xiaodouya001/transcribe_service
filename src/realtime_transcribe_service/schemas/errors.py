@@ -1,4 +1,4 @@
-"""应用错误码与 WebSocket Close Code 枚举 — 对齐 API Contract §4。"""
+"""Application error codes and WebSocket close-code enums aligned with API Contract §4."""
 
 from __future__ import annotations
 
@@ -6,34 +6,34 @@ from enum import Enum
 
 
 class ErrorCode(str, Enum):
-    """应用错误码，对应 API Contract §4.3。"""
+    """Application error codes as defined in API Contract §4.3."""
 
-    E1001 = "E1001"  # JSON 解析失败
-    E1002 = "E1002"  # 枚举值非法
-    E1003 = "E1003"  # 缺少必填字段
-    E1004 = "E1004"  # 字段类型不符
-    E1005 = "E1005"  # 时间格式无效
-    E1006 = "E1006"  # 序列号乱序
-    E1007 = "E1007"  # 服务端内部异常
-    E1008 = "E1008"  # 下游不可用
-    E1009 = "E1009"  # 策略冲突
-    E1010 = "E1010"  # 鉴权失败
-    E1011 = "E1011"  # 下游超时
+    E1001 = "E1001"  # JSON parsing failed
+    E1002 = "E1002"  # Invalid enum value
+    E1003 = "E1003"  # Missing required field
+    E1004 = "E1004"  # Field type mismatch
+    E1005 = "E1005"  # Invalid timestamp format
+    E1006 = "E1006"  # Sequence number out of order
+    E1007 = "E1007"  # Internal server exception
+    E1008 = "E1008"  # Downstream unavailable
+    E1009 = "E1009"  # Policy conflict
+    E1010 = "E1010"  # Authentication failed
+    E1011 = "E1011"  # Downstream timeout
 
 
 class WsCloseCode(int, Enum):
-    """WebSocket Close Code，对应 API Contract §4.2。"""
+    """WebSocket close codes as defined in API Contract §4.2."""
 
     NORMAL = 1000
     GOING_AWAY = 1001
-    INVALID_PAYLOAD = 1007  # JSON 解析/类型/格式错误
-    POLICY_VIOLATION = 1008  # 业务规则、鉴权或策略违规
-    INTERNAL_ERROR = 1011  # 服务端内部异常
-    TRY_AGAIN_LATER = 1013  # 临时过载 / 下游不可用
+    INVALID_PAYLOAD = 1007  # JSON parse/type/format error
+    POLICY_VIOLATION = 1008  # Business-rule, authentication, or policy violation
+    INTERNAL_ERROR = 1011  # Internal server exception
+    TRY_AGAIN_LATER = 1013  # Temporary overload or downstream issue
 
 
 def close_code_for_error(code: ErrorCode) -> WsCloseCode:
-    """根据错误码返回对应的 WebSocket Close Code。"""
+    """Return the WebSocket close code mapped from the given application error code."""
     if code == ErrorCode.E1001:
         return WsCloseCode.INVALID_PAYLOAD
     if code in (

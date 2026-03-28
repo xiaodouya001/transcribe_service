@@ -37,7 +37,7 @@ return 0
 
 
 class RedisConversationOwnershipGuard:
-    """基于 Redis 的会话发送所有权守卫实现。"""
+    """Redis-backed implementation of the conversation sender ownership guard."""
 
     def __init__(
         self,

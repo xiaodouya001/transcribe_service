@@ -68,7 +68,7 @@ def test_register_signal_windows_fallback_when_add_handler_fails(monkeypatch):
 
 
 def test_register_signal_skips_when_not_win32_and_no_handler(monkeypatch):
-    """Unix: add_signal_handler raises → 非 win32 时不注册 sync handler。"""
+    """Unix: if ``add_signal_handler`` raises, non-win32 platforms must not register the sync handler."""
     gs = GracefulShutdown()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

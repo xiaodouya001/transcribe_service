@@ -1,71 +1,71 @@
-# 常见问题
+# FAQ
 
 ---
 
-## Q1：启动报 Redis/Kafka 不可用？
+## Q1. Why does startup fail when Redis or Kafka is unavailable?
 
-启动前会校验 Redis、Kafka 连通性，失败则退出。
+Startup performs explicit Redis and Kafka readiness checks. If either dependency is unreachable, the process exits before serving traffic.
 
-**解决**：确保 `docker compose up -d` 已执行，或配置正确的 `REDIS_URL`、`KAFKA_BOOTSTRAP_SERVERS`。
-
----
-
-## Q2：序列号乱序（E1006）？
-
-状态机通过 Redis Lua 原子预检，若 `sequenceNumber > expected`（跳号）则返回 `OUT_OF_ORDER`，服务端发送 ERROR 帧并断开连接（Close Code 1008）。
-
-**解决**：确保上游 Fano Assist 在同一 `conversationId` 下严格递增发送 `sequenceNumber`。断连后重连会从 Redis 中已保存的 expected 序号继续。
+**What to do:** make sure `docker compose up -d` has started the local stack, or verify that `REDIS_URL` and `KAFKA_BOOTSTRAP_SERVERS` point to reachable services.
 
 ---
 
-## Q3：Kafka 挂了会怎样？
+## Q2. What causes `E1006` sequence out-of-order errors?
 
-Kafka 发送超时/失败 → 返回 ERROR 帧（E1008/E1011）→ 断连（Close Code 1013）→ 不执行 Redis commit（expected 不前进）。上游重连后重发同一 seq，Redis 预检通过，实现无损重试。
+The Redis Lua state machine atomically validates sequence numbers. If `sequenceNumber > expected`, the state machine returns `OUT_OF_ORDER`, the server sends an `ERROR` frame, and the connection closes with code `1008`.
 
----
-
-## Q4：重复消息如何处理？
-
-同一 `(conversationId, sequenceNumber)` 的重复消息命中 IDEMPOTENT，服务端直接返回对应成功 ACK，不再写入 Kafka，不推进 Redis 状态。`SESSION_ONGOING` 返回 `TRANSCRIPT_ACK`，`SESSION_COMPLETE` 返回 `EOL_ACK`。
+**What to do:** ensure Fano Assist sends `sequenceNumber` values strictly in ascending order for the same `conversationId`. After reconnecting, the server resumes from the expected sequence already stored in Redis.
 
 ---
 
-## Q5：Kafka 消息顺序？
+## Q3. What happens if Kafka is down?
 
-使用 `conversationId` 作为 Kafka Partition Key，同一通话路由到同一分区，分区内有序。
-
----
-
-## Q6：优雅停机如何工作？
-
-收到 SIGTERM 后：标记 Drain（拒绝新连接）→ 向存量连接发送 Close 1001 → flush Kafka 缓冲区 → 等待服务循环退出 → 释放 Redis 连接并退出。整个 graceful shutdown 受 `STOP_TIMEOUT` 控制；超时后服务会停止等待，继续做强制收尾。
+Kafka send timeout or failure results in `ERROR` (`E1008` or `E1011`) plus close code `1013`. The Redis commit step is skipped, so the expected sequence does not advance. After reconnecting, the client retries the same sequence number and the Redis pre-check still accepts it. That is how the service preserves lossless retry semantics.
 
 ---
 
-## Q7a：WebSocket Ping/Pong 多久没回应会断连？
+## Q4. How are duplicate messages handled?
 
-服务端使用 Uvicorn **`websockets`** 栈的 keepalive：**每次**服务端发出 **Ping** 后，若在 `WS_PING_TIMEOUT`（默认 **10s**）内未收到对应 **Pong**，会关闭连接（典型 close code **1011**）。
-
-首帧 Ping 在连接建立后约 `WS_PING_INTERVAL`（默认 **20s**）才发出，因此若客户端**完全不响应** Pong，最早约在 **约 30s**（20+10）后断开。详见 `design/realtime-transcribe-service-api-contract.md` §1.4。
+If the same `(conversationId, sequenceNumber)` arrives again, the state machine returns `IDEMPOTENT`. The service replies with the matching success ACK without writing to Kafka again and without advancing Redis state. `SESSION_ONGOING` maps to `TRANSCRIPT_ACK`; `SESSION_COMPLETE` maps to `EOL_ACK`.
 
 ---
 
-## Q7：客户端需要严格遵守哪些接入约束？
+## Q5. How is Kafka ordering preserved?
 
-为满足顺序性、幂等性与无损重试语义，客户端必须严格遵守以下要求：
+`conversationId` is used as the Kafka partition key, so each conversation is routed to one partition and remains ordered within that partition.
 
-- **握手标识**：WebSocket 握手必须携带 query 参数 `conversationId`；若消息体中显式提供 `metaData.conversationId`，其值必须与 query 中的 `conversationId` 完全一致。
-- **单会话单发送链路**：同一 `conversationId` 在任一时刻应只保留一条活跃发送链路；不要为同一会话建立多条并发发送连接，也不要由多个 worker/线程并发发送同一会话消息。
-- **服务端会强制单连接发送**：若同一 `conversationId` 已有连接在发送消息，新的冲突连接会在握手阶段收到 HTTP `403` + `E1009`，不会建立 WebSocket 连接。
-- **严格顺序**：同一 `conversationId` 下，`sequenceNumber` 必须从 `0` 开始并按 `0, 1, 2, 3...` 连续推进；不允许跳号、不允许乱序、不允许先发 `N+1` 再补发 `N`。
-- **失败后重发同一 seq**：若收到 `ERROR`（尤其 `E1008` / `E1011`）、WebSocket 被 `1008` / `1013` 关闭，或客户端等待 ACK 超时，重连后必须重发上一个未被 ACK 的同一 `sequenceNumber`，不得跳到下一条。
-- **重复重试要保持幂等键不变**：同一次业务重试必须保持 `(conversationId, sequenceNumber)` 不变；服务端会按幂等语义返回 ACK，不会重复写 Kafka。
-- **事件语义**：中间过程使用 `SESSION_ONGOING`，此时 `callEndTimeStamp` 必须为 `null`；结束时发送 `SESSION_COMPLETE`，并提供 `callEndTimeStamp`，作为最终 EOL 控制事件。该结束帧使用 `payload.speaker=System`，成功后收到 `EOL_ACK`；`payload.transcript` 为普通字符串字段，服务端不校验固定字面值。
-- **仅发送 final transcript**：`payload.isFinal` 必须为 `true`；服务不接收 partial / interim transcript。
-- **请求体必须满足契约字段要求**：必填字段、时间戳格式、`speaker` 取值、`agentId/customerId` 的条件必填规则，以及 `dialect` 的可选语义都必须满足 API 契约；详细字段定义以 `design/realtime-transcribe-service-api-contract.md` 为准。
+---
 
-协议错误码、关闭码与典型正常/异常流，请统一参考：
+## Q6. How does graceful shutdown work?
+
+On `SIGTERM`, the service marks itself as draining and rejects new connections, sends close code `1001` to existing connections, flushes Kafka, waits for the server loop to exit, and then releases Redis resources. The full shutdown budget is controlled by `STOP_TIMEOUT`. If that budget is exceeded, the service stops waiting and moves into forced cleanup.
+
+---
+
+## Q7. How long can a client ignore Ping/Pong before the service disconnects it?
+
+The service uses the Uvicorn `websockets` stack for keepalive. After each server Ping, if the peer does not respond with Pong within `WS_PING_TIMEOUT` seconds (default `10s`), the connection is closed, typically with close code `1011`.
+
+Because the first Ping is sent after `WS_PING_INTERVAL` seconds (default `20s`), a client that never replies to Pong is usually disconnected after about `30s` in total. See `design/realtime-transcribe-service-api-contract.md` section 1.4 for the canonical definition.
+
+---
+
+## Q8. What client-side rules are mandatory?
+
+To preserve ordering, idempotency, and lossless retry behavior, clients must follow these rules:
+
+- The WebSocket handshake must include the `conversationId` query parameter
+- If the body includes `metaData.conversationId`, it must exactly match the handshake query
+- Only one active sending connection may exist for the same `conversationId`
+- `sequenceNumber` must start at `0` and advance strictly as `0, 1, 2, 3, ...`
+- After an `ERROR`, a `1008`/`1013` close, or an ACK timeout, the client must reconnect and retry the same unacknowledged `sequenceNumber`
+- Retries must keep the same `(conversationId, sequenceNumber)` idempotency key
+- `SESSION_ONGOING` requires `callEndTimeStamp=null`
+- `SESSION_COMPLETE` requires `callEndTimeStamp` and acts as the EOL control frame with `payload.speaker=System`
+- `payload.isFinal` must always be `true`; interim transcripts are out of contract
+- All required fields, timestamp formats, enum values, and conditional field rules must satisfy the API contract
+
+For the canonical error-code matrix and normal/error flow examples, see:
 
 - `design/realtime-transcribe-service-api-contract.md`
 - `design/realtime-transcribe-service-protocol-scenario-matrix.md`
-

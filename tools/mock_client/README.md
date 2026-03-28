@@ -1,167 +1,169 @@
-# Mock Client — Realtime Transcribe Service 虚拟测试客户端
+# Mock Client for Realtime Transcribe Service
 
-模拟 Fano Assist 客户端行为，通过 WebSocket 向 Realtime Transcribe Service 发送转写消息，
-验证契约矩阵中已落地的主要客户端可触发场景，并支持并发压测和 Kafka 消息回显。
+This tool simulates Fano Assist client behavior, sends transcript messages to Realtime Transcribe Service over WebSocket, verifies the client-triggerable scenarios in the protocol matrix, and supports concurrent load tests plus Kafka message replay.
 
-## 前置条件
+## Prerequisites
 
-1. **基础设施已启动**（项目根目录）：
+1. **Start the infrastructure** from the repository root:
 
 ```bash
-docker compose up -d   # Redis + Kafka + Kafka UI
+docker compose up -d
 ```
 
-2. **Realtime Transcribe Service 已启动**：
+2. **Start Realtime Transcribe Service**:
 
 ```bash
 python -m realtime_transcribe_service.main
-# 默认监听 ws://127.0.0.1:8080/ws/v1/realtime-transcriptions
+# Default WebSocket endpoint: ws://127.0.0.1:8080/ws/v1/realtime-transcriptions
 ```
 
-3. **Python 依赖已安装**（均为项目已有依赖，无需额外安装）：
-   - `websockets` — WebSocket 客户端
-   - `aiokafka` — Kafka 消费者
-   - `fastapi` / `uvicorn` — Mock Client 后端
-   - `cramjam` — Kafka zstd 压缩支持（如 `.env` 配置了 `KAFKA_COMPRESSION_TYPE=zstd`）
+3. **Install Python dependencies**. Everything needed is already declared by the repository:
+   - `websockets` for the client
+   - `aiokafka` for Kafka consumption
+   - `fastapi` and `uvicorn` for the Mock Client backend
+   - `cramjam` for Kafka `zstd` support when `.env` uses `KAFKA_COMPRESSION_TYPE=zstd`
 
-## 启动
+## Start the Mock Client
 
 ```bash
 cd tools/mock_client
 python server.py
 ```
 
-浏览器打开 **http://127.0.0.1:8088**。
+Then open **http://127.0.0.1:8088** in the browser.
 
-## UI 界面
+## UI Overview
 
-界面布局：顶部为控制条（标题栏右侧 **收起 / 展开**，状态会记入浏览器本地）；中间一行左右为**场景结果**与 **Kafka 消息**（占满剩余高度）。**实时指标**（已发送、ACK、错误、活跃连接、TPS、延迟分位数）在控制条内 **并发压测** 卡片底部：仅随 **压测** 累计，**场景测试不改这些数**；每次点「启动压测」会先清零并由 SSE `stats` 推送；约每秒刷新一次。
+The page is split into:
 
-### 1. 控制面板（顶部）
+- a top control area with scenario and load-test controls
+- the scenario result panel on the left
+- the Kafka message panel on the right
 
-| 控件 | 说明 |
+Real-time metrics such as sent count, ACK count, errors, active connections, TPS, and latency percentiles live inside the **Concurrent Load Test** card. Those counters are updated only by the load-test path, not by scenario tests. Each time you start a new load test, the dashboard resets and is repopulated from SSE `stats` events.
+
+### 1. Control Panel
+
+| Control | Description |
 |------|------|
-| WebSocket URL | Realtime Transcribe Service 的 WS 端点地址，默认 `ws://127.0.0.1:8080/ws/v1/realtime-transcriptions` |
-| 场景测试（两块） | **① 使用场景控制值**：`N-01`、`N-02`、`N-03`、`E-09` + 「场景控制值」输入框（含义见下表）。**② 固定错误场景**：`E-01`、`E-04`、`E-05`、`E-06`、`E-07`、`E-08`、`E-14`、`E-15`（直接构造固定握手错误、协议错误或业务规则错误；不会读取场景控制值） |
-| Benchmark 预设 | 可一键填充 `300 / 400 / 500` 并发基准档；参数参考 [env-profiles-300-400-500.md](../../PT/env-profiles-300-400-500.md) 的 Mock Client 建议，区间项默认取中值：`300 -> interval 70ms / ramp-up 25000ms`，`400 -> interval 78ms / ramp-up 30000ms`，`500 -> interval 85ms / ramp-up 37500ms`。手动修改任一字段后，下拉会自动回到「自定义」。 |
-| 场景控制值 | 含义随场景变化，见下方分项说明。 |
-| 全部运行 | 顺序 `N-01 → N-02 → N-03 → E-01 → E-04 → E-05 → E-06 → E-07 → E-08 → E-09 → E-14 → E-15`；仅 `N-01`、`N-02`、`N-03`、`E-09` 会读取场景控制值 |
-| 并发压测 | **正常闭环负载**：每条连接内在「每连接消息总数」下按 `_session_message_split` 发若干 `SESSION_ONGOING` + 最后一条 `SESSION_COMPLETE`。前者期望 `TRANSCRIPT_ACK`，最后一条结束帧期望 `EOL_ACK`。<strong>不包含</strong> `N-02`、`E-01`、`E-04`、`E-05`、`E-06`、`E-07`、`E-08`、`E-09`、`E-14`、`E-15` 等边界场景；用于打吞吐、延迟、并发连接。 |
-| 并发连接数 / 每连接消息数 / 消息间隔(ms) | **并发连接数** = 本轮**同时进行的对话路数**（≈ 同时在线 WebSocket 数），一轮共 **`concurrency` 路**，无额外倍率。「每连接消息数」= 每路业务消息**总数（含 COMPLETE）**；「消息间隔」= 同一路内相邻两条发送之间的间隔。再打一轮请再次点「启动压测」。 |
-| 压测何时结束 | 本轮 **`concurrency` 路**会话全部发完并关闭后推送 `load_done`。「停止」后尚未开始建连的路不再执行。 |
-| 启动压测 / 停止 | 启动或停止并发压测 |
-| **实时指标** | 卡片内「启动/停止压测」下方；**仅压测**写入统计，场景测试不影响；SSE `stats`（约 1s）与 `load_done` 更新；启动压测时先清零，避免显示上一轮残留 |
+| WebSocket URL | The Realtime Transcribe Service endpoint, defaulting to `ws://127.0.0.1:8080/ws/v1/realtime-transcriptions` |
+| Scenario test groups | **Group 1: Uses the scenario control value**: `N-01`, `N-02`, `N-03`, `E-09`. **Group 2: Fixed error scenarios**: `E-01`, `E-04`, `E-05`, `E-06`, `E-07`, `E-08`, `E-14`, `E-15` |
+| Benchmark preset | Fills the `300 / 400 / 500` benchmark presets. The suggested values come from [env-profiles-300-400-500.md](../../PT/env-profiles-300-400-500.md) |
+| Scenario control value | The meaning changes by scenario; see the notes below |
+| Run all | Executes `N-01 -> N-02 -> N-03 -> E-01 -> E-04 -> E-05 -> E-06 -> E-07 -> E-08 -> E-09 -> E-14 -> E-15` in order |
+| Concurrent load test | Runs a normal success-path loop with multiple conversations. Each connection sends several `SESSION_ONGOING` events followed by one `SESSION_COMPLETE` |
+| Concurrency / messages per connection / interval | `concurrency` is the number of simultaneously active conversations. `messages per connection` includes the final `SESSION_COMPLETE`. `interval` is the delay between messages within the same connection |
+| Start / stop | Starts or stops the current load-test run |
 
-**超高并发（如 1000 路）若 Mock UI 指标不刷新**：旧版曾向浏览器对**每路**发 `conversation_registered`，几分钟内几千条 SSE 会塞满队列并把订阅踢掉。现已默认**压测不发**该事件，并加大 SSE 缓冲 + 满则丢最旧帧。若仍长时间全 0，多半是 **Realtime Transcribe Service** 吃满 CPU/线程或拒连，请看其日志与机器资源。
+Scenario control value meanings:
 
-场景控制值说明：
+- `N-01`: number of `SESSION_ONGOING` messages to send
+- `N-02`: number of sequence numbers to test, each sent twice
+- `N-03`: total number of messages in one conversation, including the final `SESSION_COMPLETE`
+- `E-09`: target sequence number of the out-of-order second message; the implementation uses `max(2, N)`
+- Other error scenarios: the control value is ignored
 
-- `N-01`：表示发送多少条 `SESSION_ONGOING`
-- `N-02`：表示要测试的 seq 个数，每个 seq 会发送两次
-- `N-03`：表示每条通话的消息总数（含最后一条 COMPLETE）
-- `E-09`：表示第二条乱序消息的目标 seq，实际取 `max(2,N)`
-- 其余错误场景：不使用该参数
+### 2. Scenario Results
 
-### 2. 场景结果（左侧主区域）
+The **Clear** action in the panel header removes all scenario cards and restores the empty-state hint.
 
-标题栏右侧 **清空** 可移除所有场景卡片并恢复空状态提示。
+Each scenario run appears as a card containing:
 
-每次运行的场景以卡片形式展示，包含：
-- **一行标题**：场景名称 → **conversationId**（小标签，跟在名称后；点击可复制）→ PASS/FAIL 徽章
-- 每一步的详细记录：发送了什么、收到了什么、close code 是否符合预期
+- a single-line title with the scenario name, conversation ID, and PASS/FAIL badge
+- detailed step logs showing what was sent, what came back, and whether the close code matched expectations
 
-### 3. Kafka 消息（右侧主区域）
+### 3. Kafka Messages
 
-面板**标题栏**（Kafka 消息 banner）右侧：**可见条数** + **清空列表** + **清空 Topic**，与「Kafka 消息」标题同一行。
+The Kafka panel header includes:
 
-| 控件 | 说明 |
+- visible message count
+- clear list
+- purge topic
+
+| Control | Description |
 |------|------|
-| Bootstrap / Topic | 与本区域「开始消费」一起使用，先填好再启动消费者 |
-| conversationId 下拉框 | 与「开始消费」同一行；自动登记 ID 后在此选择会话，用于筛选下方消息列表（选「全部会话」不做筛选） |
-| 开始消费 / 停止 | 启动或停止 Kafka 消费者 |
-| **清空 Topic** | 对当前填写的 Bootstrap / Topic 调用 Kafka **DeleteRecords**，删除各分区已提交的全部消息。会先停止本工具的消费者；若清空前正在消费**同一** Topic，默认在完成后**自动重新订阅**。生产环境请谨慎使用。 |
+| Bootstrap / Topic | Used when starting the consumer |
+| `conversationId` filter | Filters the message list by conversation ID; choosing "All conversations" disables the filter |
+| Start consumer / stop | Starts or stops the Kafka consumer |
+| Purge topic | Uses Kafka `DeleteRecords` to remove committed messages from the current topic. Intended for development or test use |
 
-消息列表行为：
+Message-list behavior:
 
-- 列表 **自上而下与 Kafka 消费顺序一致（FIFO）**：先消费的 seq 在上、后消费的在下；超过 200 条从顶部丢弃最旧。若正在向上滚动查看历史，不会强行滚到底部。
-- 用下拉框按 `conversationId` 筛选；标题栏 **清空列表** 会同时清空消息列表与下拉里已缓存的会话 ID（新产生的场景/消息会重新加入）
-- 点击单条消息可展开查看完整 JSON
+- Messages are shown in Kafka consumption order from top to bottom
+- The list keeps up to 200 visible entries and discards the oldest first
+- Clicking a message expands the full JSON body
 
-## 场景说明
+## Scenario Reference
 
-| 矩阵 ID | 内部名称 | 操作 | 预期结果 |
+| Matrix ID | Internal name | Action | Expected result |
 |------|------|------|----------|
-| `N-01` | `N-01` | 连续发送 N 条 `SESSION_ONGOING`，验证每条都正常处理 | 每条都收到 `TRANSCRIPT_ACK`，服务端不主动断开 |
-| `N-02` | `N-02` | 对每个 `seq ∈ [0,N)` 各发一次 `SESSION_ONGOING` 再重放同一帧 | 每次首次与重放均收到 `TRANSCRIPT_ACK` |
-| `N-03` | `N-03` | 共 N 条业务消息（含最后一条系统 EOL 帧 `SESSION_COMPLETE`），重点验证最终 COMPLETE 收尾 | 最后一条收到 `EOL_ACK`，随后 close `1000` |
-| `E-01` | `E-01` | 握手时不携带 query `conversationId` | 收到 HTTP `400` + `E1003` |
-| `E-04` | `E-04` | 连接后首包即非法 JSON（与 N 无关） | 收到 `ERROR(E1001)` + close `1007` |
-| `E-05` | `E-05` | 建连成功后发送 `eventType=INVALID` 的消息 | 收到 `ERROR(E1002)` + close `1008` |
-| `E-06` | `E-06` | 连接后首包即缺字段 JSON（与 N 无关） | 收到 `ERROR(E1003)` + close `1008` |
-| `E-07` | `E-07` | 将 `metaData.conversationId` 改为非字符串类型 | 收到 `ERROR(E1004)` + close `1008` |
-| `E-08` | `E-08` | 将 `createdAtTimeStamp` 改为非 UTC/非法时间格式 | 收到 `ERROR(E1005)` + close `1008` |
-| `E-09` | `E-09` | seq 0 后跳到 `seq=max(2,N)`（默认 N=5 即跳 5） | 收到 `ERROR(E1006)` + close `1008` |
-| `E-14` | `E-14` | query 中的 `conversationId` 与消息体里的 `metaData.conversationId` 不一致 | 收到 `ERROR(E1009)` + close `1008` |
-| `E-15` | `E-15` | 构造违反业务规则的消息（默认使用 `isFinal=false`） | 收到 `ERROR(E1009)` + close `1008` |
+| `N-01` | `N-01` | Send N consecutive `SESSION_ONGOING` messages | Each one receives `TRANSCRIPT_ACK`; the server keeps the connection open |
+| `N-02` | `N-02` | For each `seq in [0, N)`, send one `SESSION_ONGOING` and then replay the same frame | Both the first attempt and the replay receive `TRANSCRIPT_ACK` |
+| `N-03` | `N-03` | Send N total business messages including the final `SESSION_COMPLETE` EOL frame | The last frame receives `EOL_ACK`, followed by close code `1000` |
+| `E-01` | `E-01` | Omit the `conversationId` query parameter during handshake | HTTP `400` + `E1003` |
+| `E-04` | `E-04` | Send invalid JSON as the first frame | `ERROR(E1001)` + close `1007` |
+| `E-05` | `E-05` | Send a message with `eventType=INVALID` after the connection opens | `ERROR(E1002)` + close `1008` |
+| `E-06` | `E-06` | Send JSON missing required fields | `ERROR(E1003)` + close `1008` |
+| `E-07` | `E-07` | Change `metaData.conversationId` to a non-string type | `ERROR(E1004)` + close `1008` |
+| `E-08` | `E-08` | Change `createdAtTimeStamp` to a non-UTC or invalid timestamp | `ERROR(E1005)` + close `1008` |
+| `E-09` | `E-09` | Send `seq 0`, then jump to `seq=max(2, N)` | `ERROR(E1006)` + close `1008` |
+| `E-14` | `E-14` | Use different `conversationId` values in the query string and body | `ERROR(E1009)` + close `1008` |
+| `E-15` | `E-15` | Build a message that violates a business rule, such as `isFinal=false` | `ERROR(E1009)` + close `1008` |
 
-> `E-02`、`E-03`、`E-10`、`E-11`、`E-12`、`E-13`、`N-04` 这类依赖服务状态、连接容量或故障注入的场景，无法稳定由普通客户端主动构造，需通过环境控制、测试桩或故障注入方式验证。
+> Scenarios such as `E-02`, `E-03`, `E-10`, `E-11`, `E-12`, `E-13`, and `N-04` depend on service state, connection saturation, or failure injection and therefore cannot be triggered reliably by a normal client-only flow.
 
-## API 接口
+## HTTP API
 
-除了 UI 界面，也可以直接通过 HTTP API 调用：
+The mock UI also exposes HTTP endpoints:
 
 ```bash
-# 运行单个场景
+# Run a single scenario
 curl -X POST "http://127.0.0.1:8088/api/scenario/run?name=N-01&n_messages=5"
 
-# 运行全部场景
+# Run the whole scenario playlist
 curl -X POST "http://127.0.0.1:8088/api/scenario/run-all"
 
-# 启动压测（10 路同时会话，每路 10 条消息，间隔 20ms）
+# Start load testing: 10 concurrent conversations, 10 messages each, 20ms interval
 curl -X POST "http://127.0.0.1:8088/api/load/start?concurrency=10&messages_per_conv=10&interval_ms=20"
 
-# 停止压测
+# Stop load testing
 curl -X POST "http://127.0.0.1:8088/api/load/stop"
 
-# 查看统计（含最近约 100 条压测错误摘要 recent_errors）
+# Read status, including recent error summaries
 curl "http://127.0.0.1:8088/api/status"
 
-# 启动 Kafka 消费（消息通过 SSE 推送到 UI）
+# Start Kafka consumption
 curl -X POST "http://127.0.0.1:8088/api/kafka/start"
 
-# 停止 Kafka 消费
+# Stop Kafka consumption
 curl -X POST "http://127.0.0.1:8088/api/kafka/stop"
 
-# 清空 Topic 已提交消息（DeleteRecords；可与 kafka/start 相同 query 传 bootstrap、topic）
-# restart_consumer=true（默认）：若清空前正在消费同一 bootstrap+topic，清空后自动再次 start
+# Purge committed Kafka records
 curl -X POST "http://127.0.0.1:8088/api/kafka/purge?bootstrap=127.0.0.1:9092&topic=AI_STAGING_TRANSCRIPTION"
 ```
 
-## 文件结构
+## File Layout
 
-```
+```text
 tools/mock_client/
-├── server.py          # FastAPI 后端：API 端点 + SSE 推送 + 静态文件托管
-├── ws_driver.py       # 消息生成器 + 场景引擎 + 并发压测驱动
-├── kafka_viewer.py    # Kafka 消费者 → asyncio.Queue 广播
+├── server.py          # FastAPI backend: API endpoints, SSE, and static files
+├── ws_driver.py       # Message generator, scenario engine, and load-test driver
+├── kafka_viewer.py    # Kafka consumer and queue broadcaster
 ├── static/
-│   └── index.html     # 暗色主题单页 UI
-└── README.md          # 本文件
+│   └── index.html     # Single-page browser UI
+└── README.md          # This document
 ```
 
-## 常见问题
+## FAQ
 
-**Q: `N-01` 会话中正常处理连接失败？**
-确认 Realtime Transcribe Service 已启动且监听在 `ws://127.0.0.1:8080`。
+**Q: Why does the normal `N-01` scenario fail to connect?**  
+Make sure Realtime Transcribe Service is running and listening at `ws://127.0.0.1:8080`.
 
-**Q: Kafka 消费看不到消息？**
-确认已点击"开始消费"按钮，且 Kafka 容器健康（`docker compose ps`）。Consumer 使用 `auto_offset_reset=earliest`，无 group_id，每次启动会从 topic 最早的消息开始回放。
+**Q: Why do I not see Kafka messages?**  
+Make sure you clicked **Start Consumer** and that the Kafka container is healthy. The consumer uses `auto_offset_reset=earliest` with no group ID, so each fresh start replays the topic from the beginning.
 
-**Q: 压测 TPS 偏低？**
-`interval_ms` 控制每条消息发完后等待多少毫秒再发下一条（默认 20ms）。设为 0 表示尽快发送。如需更高吞吐，增大并发数或减小间隔。
+**Q: Why is TPS low during load tests?**  
+`interval_ms` controls how long the client waits between messages on the same connection. Setting it to `0` sends as fast as possible. Increase concurrency or reduce interval if you need more throughput.
 
-**Q: zstd 压缩报错？**
-安装 `cramjam`：`pip install cramjam`。
-
-
-
+**Q: Why do I get `zstd` compression errors?**  
+Install `cramjam` with `pip install cramjam`.

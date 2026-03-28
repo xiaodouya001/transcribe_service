@@ -1,39 +1,41 @@
-# Cursor角色文件目录
+# Cursor Role Files
 
-此目录包含所有可用的Cursor AI角色定义文件。
+This directory contains the available Cursor AI role definition files for the repository.
 
-## 文件说明
+## Files
 
-- `dev.md` - Python全栈AI工程师（默认角色）
-- `review.md` - 代码审查专家
-- `architect.md` - 架构师
-- `tester.md` - 测试专家
-- `docs.md` - 文档工程师
-- `devops.md` - DevOps工程师
+- `dev.md` - Full-stack multi-stack developer (default role)
+- `review.md` - Code review specialist
+- `architect.md` - System architect
+- `tester.md` - QA and testing specialist
+- `docs.md` - Technical documentation engineer
+- `devops.md` - DevOps and infrastructure engineer
+- `prompt.md` - Prompt engineering specialist
+- `python_edu_prompt.md` - Structured teaching prompt for Java-to-Python transition material
 
-## 使用方法
+## How to switch roles
 
-使用项目根目录的 `switch_role.ps1` 脚本来切换角色：
-
-```powershell
-.\switch_role.ps1 <角色名>
-```
-
-例如：
+Use the `switch_role.ps1` script from the repository root:
 
 ```powershell
-.\switch_role.ps1 review    # 切换到代码审查专家
-.\switch_role.ps1 dev       # 切换到Python全栈AI工程师
+.\switch_role.ps1 <role-name>
 ```
 
-## 添加新角色
+Examples:
 
-1. 在此目录创建新的 `.md` 文件，例如 `custom.md`
-2. 按照现有文件的格式编写角色定义
-3. 修改 `switch_role.ps1` 脚本，添加新角色到 `ValidateSet` 和 `$roleNames`
+```powershell
+.\switch_role.ps1 review
+.\switch_role.ps1 dev
+```
 
-## 注意事项
+## Adding a new role
 
-- 所有角色文件使用 `.md` 扩展名
-- 文件内容会被复制到项目根目录的 `.cursorrules` 文件
-- 切换前会自动备份当前的 `.cursorrules` 文件
+1. Create a new `.md` file in this directory, for example `custom.md`
+2. Follow the existing role-file structure
+3. Update `switch_role.ps1` so the new role appears in `ValidateSet` and `$roleNames`
+
+## Notes
+
+- All role files use the `.md` extension
+- Their contents are copied into the repository root `.cursorrules` file when you switch roles
+- The current `.cursorrules` file is backed up automatically before switching

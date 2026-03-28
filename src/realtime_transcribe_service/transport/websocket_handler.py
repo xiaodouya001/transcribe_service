@@ -1,7 +1,8 @@
-"""WebSocket 接入层 — FastAPI 服务端，心跳、JSON 收发、Close Code 映射。
+"""WebSocket transport layer — FastAPI server, heartbeat, JSON I/O, and close-code mapping.
 
-架构红线：只负责协议层面的脏活累活，不感知业务逻辑。
-收到 JSON → 抛给 orchestrator → 将结果原封不动返回。
+Architectural boundary: this layer handles protocol mechanics only and does not own
+business logic. It receives JSON, hands it to the orchestrator, and returns the
+result unchanged.
 """
 
 from __future__ import annotations
@@ -199,7 +200,7 @@ def _maybe_log_slow_message(
         bottleneck, bottleneck_hint = bottleneck_info
 
     log.warning(
-        "Transport: 慢消息分段耗时",
+        "Transport: Slow message stage timings",
         conversation_id=conversation_id,
         threshold_ms=threshold_ms,
         total_ms=total_ms,
@@ -214,7 +215,7 @@ def _maybe_log_slow_message(
 
 
 class ConnectionRegistry:
-    """追踪活跃 WebSocket 连接，支持优雅停机时批量关闭。"""
+    """Track active WebSocket connections and close them in bulk during shutdown."""
 
     def __init__(self) -> None:
         self._connections: dict[str, list[WebSocket]] = {}
@@ -225,8 +226,11 @@ class ConnectionRegistry:
         self._active_count += 1
 
     def remove(self, conversation_id: str, ws: WebSocket | None = None) -> None:
-        """移除登记。若传入 ``ws``，仅当登记对象仍是该实例时才删除，避免重复 conversationId 或
-        旧连接 finally 误删新连接。
+        """Remove a registration.
+
+        If ``ws`` is provided, remove it only when the registered object is still the
+        same instance. This prevents an older connection's ``finally`` block from
+        accidentally deleting a newer registration for the same conversation.
         """
         if ws is None:
             sockets = self._connections.pop(conversation_id, None)
@@ -252,7 +256,7 @@ class ConnectionRegistry:
     async def close_all(
         self, code: int = WsCloseCode.GOING_AWAY, reason: str = WS_CLOSE_REASON_GOING_AWAY
     ) -> None:
-        """优雅停机：向所有存量连接发送 Close 帧。"""
+        """Send Close frames to all currently active connections during graceful shutdown."""
         for cid, sockets in list(self._connections.items()):
             for ws in list(sockets):
                 try:
@@ -265,10 +269,11 @@ class ConnectionRegistry:
 
 
 class _WsGuardMiddleware:
-    """ASGI 中间件：WebSocket 握手前做准入检查。
+    """ASGI middleware that enforces handshake admission checks before accepting WebSockets.
 
-    检查顺序：conversationId → draining → 连接数上限 → ownership guard。
-    拒绝时使用 ASGI WebSocket Denial Response 协议返回 JSON ERROR 帧 + HTTP 状态码。
+    Check order: conversationId -> draining -> connection limit -> ownership guard.
+    Rejections use the ASGI WebSocket denial response protocol to return a JSON ERROR
+    body together with the HTTP status code.
     """
 
     def __init__(
@@ -287,7 +292,7 @@ class _WsGuardMiddleware:
 
     @staticmethod
     def _extract_conversation_id(scope: Scope) -> str:
-        """从 query string 提取 conversationId，未找到返回空字符串。"""
+        """Extract ``conversationId`` from the query string, or return an empty string."""
         from urllib.parse import parse_qs
 
         qs = scope.get("query_string", b"").decode("latin-1")
@@ -316,7 +321,7 @@ class _WsGuardMiddleware:
             )
             _log_handshake_reject(
                 scope,
-                reason="Transport: 缺少 conversationId，拒绝连接",
+                reason="Transport: Missing conversationId, rejecting connection",
                 status_code=status.HTTP_400_BAD_REQUEST,
                 error_response=error_response,
             )
@@ -337,7 +342,7 @@ class _WsGuardMiddleware:
             )
             _log_handshake_reject(
                 scope,
-                reason="Transport: 服务 draining，拒绝新连接",
+                reason="Transport: Service is draining, rejecting new connection",
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 error_response=error_response,
                 conversation_id=cid,
@@ -359,7 +364,7 @@ class _WsGuardMiddleware:
             )
             _log_handshake_reject(
                 scope,
-                reason="Transport: 连接数已达上限，拒绝新连接",
+                reason="Transport: Connection limit reached, rejecting new connection",
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 error_response=error_response,
                 conversation_id=cid,
@@ -387,7 +392,7 @@ class _WsGuardMiddleware:
                 )
                 _log_handshake_reject(
                     scope,
-                    reason="Transport: 会话发送所有权守卫获取失败，拒绝连接",
+                    reason="Transport: Failed to acquire conversation ownership guard, rejecting connection",
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     error_response=error_response,
                     conversation_id=cid,
@@ -410,7 +415,7 @@ class _WsGuardMiddleware:
                 )
                 _log_handshake_reject(
                     scope,
-                    reason="Transport: 会话已有连接在发送，握手期拒绝新连接",
+                    reason="Transport: Conversation already has an active sender, rejecting during handshake",
                     status_code=status.HTTP_403_FORBIDDEN,
                     error_response=error_response,
                     conversation_id=cid,
@@ -442,7 +447,7 @@ def create_app(
     log_ws_error_frames: bool = False,
     log_slow_message_threshold_ms: float = 0.0,
 ) -> FastAPI:
-    """构建 FastAPI 应用，包含 WebSocket 端点和健康检查。"""
+    """Build the FastAPI app with the WebSocket endpoint and health checks."""
     app = FastAPI(
         title=APP_TITLE,
         description=APP_TITLE,
@@ -504,20 +509,20 @@ def create_app(
         ws: WebSocket,
         conversationId: str = Query("", max_length=64),
     ):
-        """主 WebSocket 端点：Fano Assist 作为客户端连接此服务端。"""
+        """Main WebSocket endpoint used by Fano Assist as the client."""
         scope_token = ws.scope.get(SCOPE_OWNERSHIP_TOKEN)
         ownership_token = scope_token if isinstance(scope_token, str) else uuid.uuid4().hex
         ownership_acquired = bool(ws.scope.get(SCOPE_OWNERSHIP_ACQUIRED))
         ownership_refresh_task: asyncio.Task[None] | None = None
         log.info(
-            "Transport: WebSocket 即将 accept",
+            "Transport: About to accept WebSocket",
             conversation_id=conversationId,
         )
         try:
             await ws.accept()
         except Exception as exc:  # pragma: no cover - hard to deterministically trigger in TestClient
             log.warning(
-                "Transport: WebSocket accept 失败",
+                "Transport: WebSocket accept failed",
                 conversation_id=conversationId,
                 exc_type=type(exc).__name__,
                 error=str(exc),
@@ -527,7 +532,7 @@ def create_app(
                     await ownership_guard.release(conversationId, ownership_token)
                 except Exception as release_exc:
                     log.warning(
-                        "Transport: 会话发送所有权守卫释放失败",
+                        "Transport: Failed to release conversation ownership guard",
                         conversation_id=conversationId,
                         error=str(release_exc),
                     )
@@ -539,7 +544,7 @@ def create_app(
                 )
             except Exception as exc:
                 log.error(
-                    "Transport: 会话发送所有权守卫获取失败",
+                    "Transport: Failed to acquire conversation ownership guard",
                     conversation_id=conversationId,
                     error=str(exc),
                 )
@@ -555,7 +560,7 @@ def create_app(
                 return
             if not ownership_acquired:
                 log.warning(
-                    "Transport: 会话已有连接在发送，拒绝新连接",
+                    "Transport: Conversation already has an active sender, rejecting new connection",
                     conversation_id=conversationId,
                 )
                 await _send_error_and_close(
@@ -570,7 +575,7 @@ def create_app(
                 return
         registry.add(conversationId, ws)
         log.info(
-            "Transport: 连接已建立",
+            "Transport: Connection established",
             conversation_id=conversationId,
         )
         if ownership_guard is not None and ownership_acquired:
@@ -595,12 +600,12 @@ def create_app(
             )
         except WebSocketDisconnect:
             log.info(
-                "Transport: 客户端断开",
+                "Transport: Client disconnected",
                 conversation_id=conversationId,
             )
         except Exception as exc:
             log.exception(
-                "Transport: 连接异常",
+                "Transport: Connection error",
                 conversation_id=conversationId,
                 error=str(exc),
             )
@@ -625,7 +630,7 @@ def create_app(
                     await ownership_guard.release(conversationId, ownership_token)
                 except Exception as exc:
                     log.warning(
-                        "Transport: 会话发送所有权守卫释放失败",
+                        "Transport: Failed to release conversation ownership guard",
                         conversation_id=conversationId,
                         error=str(exc),
                     )
@@ -641,20 +646,20 @@ async def _message_loop(
     log_ws_error_frames: bool = False,
     log_slow_message_threshold_ms: float = 0.0,
 ) -> None:
-    """消息循环：接收 JSON → orchestrator 处理 → 发送响应。"""
+    """Message loop: receive JSON, let the orchestrator process it, then send the response."""
     while True:
         raw_text = await ws.receive_text()
         t0 = time.perf_counter()
         decode_ms: float | None = None
 
-        # JSON 解析
+        # Decode JSON.
         decode_started_at = time.perf_counter()
         try:
             raw_json = orjson.loads(raw_text)
         except (orjson.JSONDecodeError, ValueError) as e:
             decode_ms = _elapsed_ms(decode_started_at)
             log.warning(
-                "Transport: JSON 解析失败",
+                "Transport: JSON decode failed",
                 conversation_id=conversation_id,
                 error=str(e),
                 error_code=ErrorCode.E1001.value,
@@ -688,7 +693,8 @@ async def _message_loop(
             return
         decode_ms = _elapsed_ms(decode_started_at)
 
-        # 握手 query 为会话唯一标识；若 body 显式提供字符串 conversationId，则必须与之一致
+        # The handshake query owns conversation identity. If the body explicitly provides
+        # a string conversationId, it must match the handshake query.
         if isinstance(raw_json, dict):
             meta = raw_json.get("metaData")
             if isinstance(meta, dict):
@@ -704,7 +710,7 @@ async def _message_loop(
                         ),
                     )
                     log.warning(
-                        "Transport: metaData.conversationId 与握手 query 不一致",
+                        "Transport: metaData.conversationId does not match the handshake query",
                         conversation_id=conversation_id,
                         handshake_conversation_id=conversation_id,
                         metadata_conversation_id=body_cid,
@@ -746,7 +752,7 @@ async def _message_loop(
         ):
             resp["payload"]["serverProcessingMs"] = server_processing_ms
 
-        # 发送响应帧
+        # Send the response frame.
         send_ms: float | None = None
         if ws.client_state == WebSocketState.CONNECTED:
             if (
@@ -755,7 +761,7 @@ async def _message_loop(
                 and (resp.get("metaData") or {}).get("eventType") == "ERROR"
             ):
                 log.info(
-                    "Transport: 发出 ERROR 响应帧",
+                    "Transport: Sent ERROR response frame",
                     conversation_id=conversation_id,
                     response=resp,
                 )
@@ -777,12 +783,12 @@ async def _message_loop(
             timings_ms=result.timings_ms,
         )
 
-        # 是否断连
+        # Close the connection if requested.
         if result.disconnect:
             if ws.client_state == WebSocketState.CONNECTED:
                 code = int(result.close_code)
                 log.info(
-                    "Transport: 服务端主动断开连接",
+                    "Transport: Server closing connection",
                     conversation_id=conversation_id,
                     close_code=code,
                 )
@@ -799,7 +805,7 @@ async def _ownership_refresh_loop(
     refresh_interval_sec: float = OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
     log_ws_error_frames: bool = False,
 ) -> None:
-    """后台续租会话发送所有权，避免把 Redis 调用放进消息热路径。"""
+    """Refresh conversation ownership in the background to keep Redis off the hot path."""
     refresh_interval = max(0.1, refresh_interval_sec)
     while True:
         await asyncio.sleep(refresh_interval)
@@ -807,7 +813,7 @@ async def _ownership_refresh_loop(
             owned = await ownership_guard.claim_or_refresh(conversation_id, ownership_token)
         except Exception as exc:
             log.error(
-                "Transport: 会话发送所有权守卫存储不可用",
+                "Transport: Conversation ownership guard store unavailable",
                 conversation_id=conversation_id,
                 error=str(exc),
             )
@@ -823,7 +829,7 @@ async def _ownership_refresh_loop(
             return
         if not owned:
             log.warning(
-                "Transport: 会话并发发送冲突",
+                "Transport: Concurrent sender conflict",
                 conversation_id=conversation_id,
             )
             await _send_error_and_close(
@@ -848,19 +854,19 @@ async def _send_error_and_close(
     details: str | None = None,
     log_ws_error_frames: bool = False,
 ) -> None:
-    """发送 ERROR 帧后关闭连接。"""
+    """Send an ERROR frame and then close the connection."""
     try:
         if ws.client_state == WebSocketState.CONNECTED:
             error_payload = build_error(conversation_id, code, message, details)
             if log_ws_error_frames:
                 log.info(
-                    "Transport: 发出 ERROR 响应帧",
+                    "Transport: Sent ERROR response frame",
                     conversation_id=conversation_id,
                     response=error_payload,
                 )
             await ws.send_text(orjson.dumps(error_payload).decode("utf-8"))
             log.info(
-                "Transport: 服务端发送错误后主动断开连接",
+                "Transport: Server closed connection after sending error",
                 conversation_id=conversation_id,
                 error_code=code,
                 close_code=int(close_code),
@@ -877,7 +883,7 @@ async def _deny_websocket(
     status: int,
     error_response: dict,
 ) -> None:
-    """在 WebSocket 握手前以 HTTP 状态码 + JSON ERROR 帧拒绝连接。"""
+    """Reject the connection before the WebSocket handshake with HTTP status plus JSON ERROR."""
     body = orjson.dumps(error_response)
     await receive()
     await send(

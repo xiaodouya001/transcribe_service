@@ -1,1 +1,1 @@
-"""Transport 接入层 — WebSocket 服务端，物理协议守卫。"""
+"""Transport layer — WebSocket server boundary and protocol guardrails."""

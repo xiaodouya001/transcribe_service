@@ -13,9 +13,9 @@ import config.logging_config as lc
 
 
 def test_json_serializer():
-    s = lc._json_serializer({"a": "中文"})
-    assert "中文" in s
-    assert json.loads(s)["a"] == "中文"
+    s = lc._json_serializer({"a": "café"})
+    assert "café" in s
+    assert json.loads(s)["a"] == "café"
 
 
 def test_get_version_success():

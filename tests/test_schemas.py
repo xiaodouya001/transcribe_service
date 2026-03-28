@@ -1,4 +1,4 @@
-"""Tests for schemas 契约层。"""
+"""Tests for the schema contract layer."""
 
 import pytest
 from pydantic import ValidationError
@@ -13,7 +13,7 @@ from realtime_transcribe_service.schemas.response import (
 
 
 class TestInboundMessage:
-    """InboundMessage 校验测试。"""
+    """InboundMessage validation tests."""
 
     def test_valid_ongoing(self, valid_ongoing_msg: dict):
         msg = InboundMessage.model_validate(valid_ongoing_msg)
