@@ -1,4 +1,4 @@
-"""coverage: config.logging_config"""
+"""coverage: realtime_transcribe_service.config.logging_config"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import structlog
 
-import config.logging_config as lc
+import realtime_transcribe_service.config.logging_config as lc
 
 
 def test_json_serializer():
@@ -96,7 +96,10 @@ def test_mask_redis_url_no_hostname_fallback():
 
 
 def test_mask_redis_url_parse_error():
-    with patch("config.logging_config.urlparse", side_effect=Exception("boom")):
+    with patch(
+        "realtime_transcribe_service.config.logging_config.urlparse",
+        side_effect=Exception("boom"),
+    ):
         assert lc._mask_redis_url("redis://x") == "redis://***"
 
 

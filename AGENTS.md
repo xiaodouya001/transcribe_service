@@ -2,7 +2,7 @@
 
 ## Contract First
 
-- If the UI, tests, and implementation conflict with the API contract, `design/realtime-transcribe-service-api-contract.md` is the source of truth.
+- If the UI, tests, and implementation conflict with the API contract, `docs/design/api-contract.md` is the source of truth.
 - All other documents, mock tools, scenario matrices, and tests must follow the contract and must not reinterpret contract semantics.
 - If the contract must change, explicitly declare it as a contract change first, then update the related docs, tests, and implementation together.
 
@@ -14,7 +14,7 @@
 
 ## Documentation Constraints
 
-- `design/realtime-transcribe-service-design-guardrails.md` is the long-term maintenance baseline.
-- `design/realtime-transcribe-service-protocol-scenario-matrix.md` is the single entry point for protocol-scenario documentation.
+- `docs/design/design-guardrails.md` is the long-term maintenance baseline.
+- `docs/design/protocol-scenario-matrix.md` is the single entry point for protocol-scenario documentation.
 - If implementation and documentation diverge, update the documentation first or explicitly declare that the contract has changed.
 

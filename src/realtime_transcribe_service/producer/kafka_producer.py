@@ -28,16 +28,27 @@ async def _ensure_topic(
         )
     except Exception as exc:
         err_text = str(exc).lower()
-        log_fn = log.debug if any(token in err_text for token in ("exist", "already exists", "topic already")) else log.warning
-        log_fn(
-            "Kafka: Idempotent topic creation failed, continuing startup",
-            bootstrap_servers=bootstrap_servers,
-            topic=topic,
-            num_partitions=num_partitions,
-            replication_factor=replication_factor,
-            exc_type=type(exc).__name__,
-            error=str(exc),
-        )
+        if any(token in err_text for token in ("exist", "already exists", "topic already")):
+            log.debug(
+                "Kafka: Topic already exists, continuing startup",
+                bootstrap_servers=bootstrap_servers,
+                topic=topic,
+                num_partitions=num_partitions,
+                replication_factor=replication_factor,
+                exc_type=type(exc).__name__,
+                error=str(exc),
+            )
+        else:
+            log.warning(
+                "Kafka: Topic creation failed during startup",
+                bootstrap_servers=bootstrap_servers,
+                topic=topic,
+                num_partitions=num_partitions,
+                replication_factor=replication_factor,
+                exc_type=type(exc).__name__,
+                error=str(exc),
+            )
+            raise
     finally:
         await admin.close()
 
@@ -53,7 +64,7 @@ class KafkaProducer:
 
     def __init__(
         self,
-        bootstrap_servers: str = "127.0.0.1:9092",
+        bootstrap_servers: str,
         topic: str = "AI_STAGING_TRANSCRIPTION",
         *,
         compression_type: str = "zstd",

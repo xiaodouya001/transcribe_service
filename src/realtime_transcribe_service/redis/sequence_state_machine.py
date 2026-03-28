@@ -60,7 +60,7 @@ class RedisSequenceStateMachine:
 
     def __init__(
         self,
-        redis_url: str = "redis://127.0.0.1:6379/0",
+        redis_url: str | None = None,
         *,
         max_connections: int = 100,
         active_ttl_sec: int,
@@ -68,6 +68,8 @@ class RedisSequenceStateMachine:
         key_prefix: str,
         client: Redis | None = None,
     ) -> None:
+        if client is None and redis_url is None:
+            raise ValueError("redis_url is required when client is not provided")
         self._redis_url = redis_url
         self._max_connections = max_connections
         self._active_ttl = active_ttl_sec

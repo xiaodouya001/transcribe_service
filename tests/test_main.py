@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
-import sys
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 import realtime_transcribe_service.main as main_mod
 from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
+from realtime_transcribe_service.config.settings import Settings
 
 
 @pytest.mark.asyncio
@@ -78,6 +77,24 @@ async def test_check_kafka_other_error():
     prod.ensure_ready = AsyncMock(side_effect=RuntimeError("broker"))
     with pytest.raises(RuntimeError, match="Kafka"):
         await main_mod._check_kafka(prod, timeout=5.0)
+
+
+@pytest.mark.asyncio
+async def test_run_invalid_settings_fail_before_startup_checks(monkeypatch):
+    def invalid_settings():
+        return Settings(_env_file=None, app_env="deployed")
+
+    redis_check = AsyncMock()
+    kafka_check = AsyncMock()
+    monkeypatch.setattr(main_mod, "get_settings", invalid_settings)
+    monkeypatch.setattr(main_mod, "_check_redis", redis_check)
+    monkeypatch.setattr(main_mod, "_check_kafka", kafka_check)
+
+    with pytest.raises(ValidationError):
+        await main_mod.run()
+
+    redis_check.assert_not_awaited()
+    kafka_check.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -625,6 +642,18 @@ def test_main_catches_runtime_error_and_exits(monkeypatch):
     assert ei.value.code == 1
 
 
+def test_main_catches_validation_error_and_exits(monkeypatch, capsys):
+    def boom(coro):
+        coro.close()
+        Settings(_env_file=None, app_env="deployed")
+
+    monkeypatch.setattr(main_mod.asyncio, "run", boom)
+    with pytest.raises(SystemExit) as ei:
+        main_mod.main()
+    assert ei.value.code == 1
+    assert "Configuration invalid" in capsys.readouterr().err
+
+
 def test_main_catches_keyboard_interrupt(monkeypatch):
     def interrupted(coro):
         coro.close()
@@ -632,20 +661,6 @@ def test_main_catches_keyboard_interrupt(monkeypatch):
 
     monkeypatch.setattr(main_mod.asyncio, "run", interrupted)
     main_mod.main()
-
-
-def test_bootstrap_inserts_project_root_into_syspath():
-    """Cover the ``sys.path`` injection branch at the top of the main module."""
-    root = str(Path(main_mod.__file__).resolve().parents[2])
-    saved = sys.path.copy()
-    try:
-        while root in sys.path:
-            sys.path.remove(root)
-        importlib.reload(main_mod)
-        assert root in sys.path
-    finally:
-        sys.path[:] = saved
-
 
 @pytest.mark.asyncio
 async def test_run_propagates_exception(monkeypatch):

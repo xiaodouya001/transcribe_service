@@ -312,7 +312,7 @@ class TestScenarioE:
         ts = ["2020-01-01T00:00:00.001Z", "2020-01-01T00:00:00.002Z"]
         try:
             with patch(
-                "realtime_transcribe_service.converter.kafka_message_converter.utc_now_timestamp",
+                "realtime_transcribe_service.converter.kafka_message_converter.format_utc_timestamp",
                 side_effect=ts,
             ):
                 first = await orchestrator.handle_message(valid_ongoing_msg)

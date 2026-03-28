@@ -28,10 +28,11 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--cov=src/realtime_transcribe_service --cov=config --cov-report=term-missing --cov-fail-under=100"
+testpaths = ["tests", "mock_client/tests"]
+addopts = "--cov=src/realtime_transcribe_service --cov-report=term-missing --cov-fail-under=100"
 
 [tool.coverage.run]
-source = ["src", "config"]
+source = ["src"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -43,8 +44,8 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = [".", "src"]
-include = ["config*", "realtime_transcribe_service*"]
+where = ["src"]
+include = ["realtime_transcribe_service*"]
 
 # Optional Poetry workflow; use either Poetry or pip/venv
 [tool.poetry]
@@ -52,7 +53,6 @@ name = "realtime-transcribe-service"
 version = "0.1.0"
 description = "Realtime Transcribe Service - realtime transcription WebSocket gateway"
 packages = [
-    {include = "config"},
     {include = "realtime_transcribe_service", from = "src"}
 ]
 

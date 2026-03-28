@@ -24,7 +24,7 @@ jobs:
         run: poetry install --with dev
 
       - name: Run tests
-        run: poetry run pytest tests/ -v
+        run: poetry run pytest -v
 
   docker:
     runs-on: ubuntu-latest

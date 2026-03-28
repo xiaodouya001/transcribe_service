@@ -11,6 +11,14 @@ from redis.exceptions import NoScriptError
 from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
 
 
+def test_constructor_requires_redis_url_when_client_not_provided():
+    with pytest.raises(ValueError, match="redis_url is required"):
+        RedisConversationOwnershipGuard(
+            guard_ttl_sec=30,
+            key_prefix="realtime-transcribe-service:conversation-owner",
+        )
+
+
 @pytest.mark.asyncio
 async def test_claim_refresh_and_release_roundtrip():
     client = fakeredis.aioredis.FakeRedis(decode_responses=True)
