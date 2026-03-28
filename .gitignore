@@ -20,3 +20,4 @@ venv/
 # Others
 .vscode
 .cursor
+cursor-roles/
