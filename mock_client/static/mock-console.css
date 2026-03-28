@@ -1594,7 +1594,7 @@ input.cp-select::placeholder {
 .livechat-thread-panel .panel-body {
   height: 100%;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 16px;
   overflow: hidden;
   padding: 20px 22px 22px;
@@ -1659,11 +1659,6 @@ input.cp-select::placeholder {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 40px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
 }
 .livechat-inline-field-label {
   color: var(--text-muted);
@@ -1677,9 +1672,12 @@ input.cp-select::placeholder {
 .livechat-inline-field input[type="number"] {
   width: 58px;
   min-width: 58px;
-  padding: 5px 8px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 8px;
   font-size: var(--fs-sm);
-  border-radius: 9px;
+  line-height: 1.2;
+  border-radius: var(--radius-sm);
   text-align: center;
 }
 .livechat-session-tab {
@@ -1718,35 +1716,91 @@ input.cp-select::placeholder {
   color: var(--text2);
   background: var(--bg3);
 }
+.livechat-conversation-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+.livechat-conversation-cluster[hidden] {
+  display: none !important;
+}
 .livechat-conversation-pill {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   min-height: 32px;
-  max-width: min(420px, 100%);
+  max-width: min(380px, 100%);
+  min-width: 0;
   padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.03);
   color: var(--text);
   font-size: var(--fs-sm);
-  font-family: var(--font-mono);
+  font-weight: var(--fw-ui);
   white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.livechat-conversation-pill:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--accent-dim);
+}
+.livechat-conversation-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.livechat-conversation-prefix {
+  flex-shrink: 0;
+  font-family: var(--font-sans);
+  font-weight: var(--fw-ui);
+  color: var(--text2);
+}
+.livechat-conversation-id {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-weight: var(--fw-normal);
+  color: var(--text);
 }
-.livechat-conversation-pill[hidden] {
-  display: none !important;
-}
-.livechat-conversation-pill:empty {
-  display: none !important;
+.livechat-copy-cid-btn {
+  height: 32px !important;
+  min-height: 0 !important;
+  padding: 0 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: var(--fs-sm) !important;
+  line-height: 1.2 !important;
 }
 .livechat-status--idle {
   border-style: dashed;
 }
+@keyframes livechat-status-running-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+    border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent),
+      0 0 16px -4px var(--accent-glow);
+    border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+  }
+}
 .livechat-status--running {
   color: var(--text);
-  border-color: rgba(45, 212, 191, 0.42);
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
   background: var(--accent-dim);
+  animation: livechat-status-running-glow 1.75s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .livechat-status--running {
+    animation: none;
+  }
 }
 .livechat-status--completed {
   color: var(--green);
@@ -1813,19 +1867,33 @@ input.cp-select::placeholder {
 }
 .livechat-actions--header {
   align-items: center;
+  margin-left: auto;
 }
 .livechat-actions--header button {
   min-width: 104px;
-  min-height: 40px;
-  padding-top: 0;
-  padding-bottom: 0;
+  height: 32px;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 0 12px;
+  font-size: var(--fs-sm);
+  line-height: 1.2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
+.livechat-actions--header button.success:disabled,
+.livechat-actions--header button.success[data-livechat-busy="1"] {
+  pointer-events: none;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 .livechat-actions--header .panel-header-action {
-  padding-left: 14px !important;
-  padding-right: 14px !important;
+  height: 32px !important;
+  min-height: 0 !important;
+  padding: 0 14px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   font-size: var(--fs-sm) !important;
   color: var(--text) !important;
 }
@@ -2198,7 +2266,7 @@ input.cp-select::placeholder {
   .livechat-session-header-actions {
     width: 100%;
     margin-left: 0;
-    justify-content: space-between;
+    justify-content: flex-start;
   }
   .livechat-session-tabs {
     width: 100%;

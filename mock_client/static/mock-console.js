@@ -37,6 +37,10 @@ let _loadUiRunning = false;
 let liveChatCsvText = '';
 let liveChatCsvFilename = '';
 let liveChatSnapshot = null;
+/** When true, Start stays disabled even if snapshot.state is briefly wrong (SSE / race). Cleared on idle|completed|failed. */
+let _liveChatStartLatch = false;
+/** Prevents overlapping startLiveChat() runs (e.g. double-click while awaiting preview or fetch). */
+let _liveChatStartInFlight = false;
 let liveChatPreviewShowAll = false;
 const liveChatSeenMessageIds = new Set();
 const liveChatSeenNoteIds = new Set();
@@ -284,8 +288,26 @@ function connectSSE() {
     if (Array.isArray(d.status_notes)) {
       d.status_notes.forEach(note => appendLiveChatNote(note));
     }
-    liveChatSnapshot = { ...(liveChatSnapshot || {}), ...d };
-    setLiveChatStatusBanner(_liveChatPrimaryMessage(liveChatSnapshot), d.state || 'idle');
+    const prev = liveChatSnapshot || {};
+    const merged = { ...prev, ...d };
+    const dState = d.state;
+    const dStateMissing =
+      dState === undefined ||
+      dState === null ||
+      (typeof dState === 'string' && dState.trim() === '');
+    const prevNorm = _liveChatNormState(prev.state);
+    if (dStateMissing && (prevNorm === 'running' || prevNorm === 'stopping')) {
+      merged.state = prev.state;
+    }
+    const mergedNorm = _liveChatNormState(merged.state);
+    if (mergedNorm) {
+      merged.state = mergedNorm;
+    }
+    liveChatSnapshot = merged;
+    setLiveChatStatusBanner(
+      _liveChatPrimaryMessage(liveChatSnapshot),
+      mergedNorm ?? 'idle',
+    );
     updateLiveChatControls(liveChatSnapshot);
   });
 
@@ -301,10 +323,29 @@ function connectSSE() {
   es.addEventListener('live_error', e => {
     const d = JSON.parse(e.data);
     setLiveChatStatusBanner(d.message || 'Mock Live-Chat failed.', 'failed');
+    const errNorm = _liveChatNormState(d.state);
+    liveChatSnapshot = {
+      ...(liveChatSnapshot || {}),
+      state: errNorm || 'failed',
+      error: d.message ?? liveChatSnapshot?.error,
+    };
+    updateLiveChatControls(liveChatSnapshot);
   });
 }
 connectSSE();
 initLiveChatDropzone();
+(function initLiveChatStartButton() {
+  const el = document.getElementById('btn-livechat-start');
+  if (!el) return;
+  el.addEventListener('click', (event) => {
+    if (el.disabled || el.getAttribute('data-livechat-busy') === '1') {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    void startLiveChat();
+  });
+})();
 restoreLiveChatSidebarTab();
 loadLiveChatStatus();
 updateKafkaExpandButtonLabel();
@@ -693,18 +734,62 @@ function setLiveChatStatusBanner(message, state) {
 }
 
 function setLiveChatConversationPill(conversationId) {
-  const el = document.getElementById('livechat-conversation-pill');
-  if (!el) return;
+  const cluster = document.getElementById('livechat-conversation-cluster');
+  const idEl = document.getElementById('livechat-conversation-id-value');
+  if (!cluster || !idEl) return;
   const value = String(conversationId || '').trim();
+  cluster.dataset.conversationId = value;
   if (!value) {
-    el.hidden = true;
-    el.style.display = 'none';
-    el.textContent = '';
+    cluster.hidden = true;
+    idEl.textContent = '';
     return;
   }
-  el.hidden = false;
-  el.style.display = 'inline-flex';
-  el.textContent = `conversationId: ${value}`;
+  cluster.hidden = false;
+  idEl.textContent = value;
+}
+
+function copyLiveChatConversationId() {
+  const cluster = document.getElementById('livechat-conversation-cluster');
+  const id = (cluster && cluster.dataset.conversationId ? String(cluster.dataset.conversationId) : '').trim();
+  if (!id) return;
+  const done = () => {
+    const btn = document.getElementById('btn-livechat-copy-cid');
+    if (btn) {
+      const prev = btn.textContent;
+      btn.textContent = 'Copied';
+      setTimeout(() => {
+        btn.textContent = prev;
+      }, 1600);
+    }
+  };
+  const fail = () => {
+    const btn = document.getElementById('btn-livechat-copy-cid');
+    if (btn) {
+      const prev = btn.textContent;
+      btn.textContent = 'Failed';
+      setTimeout(() => {
+        btn.textContent = prev;
+      }, 1600);
+    }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(id).then(done).catch(fail);
+    return;
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = id;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    done();
+  } catch (e) {
+    fail();
+  }
 }
 
 function clearLiveChatCsvErrorState() {
@@ -753,31 +838,61 @@ function _liveChatHasRenderableContent(snapshot) {
   return (snapshot.history && snapshot.history.length > 0) || (snapshot.status_notes && snapshot.status_notes.length > 0);
 }
 
+/** Lowercase canonical state, or null if missing/unknown (do not treat null as idle for latch rules). */
+function _liveChatNormState(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim().toLowerCase();
+  if (s === '') return 'idle';
+  if (s === 'running' || s === 'stopping' || s === 'completed' || s === 'failed' || s === 'idle') {
+    return s;
+  }
+  return null;
+}
+
 function _liveChatPrimaryMessage(snapshot) {
   if (!snapshot) {
     return 'Idle';
   }
   if (snapshot.error) return snapshot.error;
   const notes = snapshot.status_notes || [];
-  if (snapshot.state === 'running') return 'Running';
-  if (snapshot.state === 'stopping') return 'Stopping';
-  if (snapshot.state === 'completed') return 'Completed';
-  if (snapshot.state === 'failed') return notes.length > 0 ? notes[notes.length - 1].message : 'Failed';
+  const st = _liveChatNormState(snapshot.state) ?? 'idle';
+  if (st === 'running') return 'Running';
+  if (st === 'stopping') return 'Stopping';
+  if (st === 'completed') return 'Completed';
+  if (st === 'failed') return notes.length > 0 ? notes[notes.length - 1].message : 'Failed';
   return notes.length > 0 ? notes[notes.length - 1].message : 'Idle';
 }
 
 function updateLiveChatControls(snapshot) {
-  const current = snapshot || liveChatSnapshot || { state: 'idle' };
-  const running = current.state === 'running' || current.state === 'stopping';
+  if (snapshot !== undefined && snapshot !== null && typeof snapshot === 'object') {
+    const patch = Object.fromEntries(Object.entries(snapshot).filter(([, v]) => v !== undefined));
+    liveChatSnapshot = { ...(liveChatSnapshot || {}), ...patch };
+  }
+  const current = liveChatSnapshot || { state: 'idle' };
+  const norm = _liveChatNormState(current.state);
+  if (norm === 'idle' || norm === 'completed' || norm === 'failed') {
+    _liveChatStartLatch = false;
+  }
+  const sessionBusy =
+    _liveChatStartLatch || norm === 'running' || norm === 'stopping';
   const startBtn = document.getElementById('btn-livechat-start');
   const stopBtn = document.getElementById('btn-livechat-stop');
   const clearBtn = document.getElementById('btn-livechat-clear');
   if (startBtn) {
-    startBtn.disabled = running;
-    startBtn.title = running ? 'A Mock Live-Chat session is already running.' : '';
+    startBtn.disabled = sessionBusy;
+    if (sessionBusy) {
+      startBtn.setAttribute('aria-disabled', 'true');
+      startBtn.setAttribute('data-livechat-busy', '1');
+    } else {
+      startBtn.removeAttribute('aria-disabled');
+      startBtn.removeAttribute('data-livechat-busy');
+    }
+    startBtn.title = sessionBusy
+      ? 'Wait until this run finishes (Completed) before starting again.'
+      : '';
   }
-  if (stopBtn) stopBtn.disabled = !running;
-  if (clearBtn) clearBtn.disabled = running;
+  if (stopBtn) stopBtn.disabled = !sessionBusy;
+  if (clearBtn) clearBtn.disabled = sessionBusy;
 }
 
 function renderLiveChatPreview(preview) {
@@ -917,9 +1032,6 @@ function appendLiveChatMessage(message) {
   const avatarText = role === 'agent' ? 'AG' : 'CU';
   const sequenceChip = `<span class="livechat-kafka-chip" title="payload.sequenceNumber">seq ${message.sequence_number ?? '-'}</span>`;
   const offsetChip = `<span class="livechat-kafka-chip" title="Kafka offset">offset ${message.kafka_offset ?? '-'}</span>`;
-  const kafkaTimingChip = message.kafka_lag_ms == null
-    ? ''
-    : `<span class="livechat-kafka-chip" title="Elapsed time from WebSocket send to Kafka consume">Kafka ${message.kafka_lag_ms}ms</span>`;
   const card = document.createElement('div');
   card.className = 'livechat-row ' + role;
   card.dataset.messageId = message.message_id;
@@ -931,7 +1043,6 @@ function appendLiveChatMessage(message) {
         <span>${formatLiveChatTime(message.created_at)}</span>
         ${sequenceChip}
         ${offsetChip}
-        ${kafkaTimingChip}
       </div>
       <div class="livechat-payload">${escapeHtml(message.transcript || '')}</div>
     </div>
@@ -962,6 +1073,12 @@ function renderLiveChatTimeline(snapshot) {
 
 function applyLiveChatSnapshot(snapshot, options = {}) {
   liveChatSnapshot = snapshot || null;
+  if (liveChatSnapshot && snapshot && snapshot.state != null) {
+    const n = _liveChatNormState(snapshot.state);
+    if (n) {
+      liveChatSnapshot = { ...liveChatSnapshot, state: n };
+    }
+  }
   if (!snapshot) {
     renderLiveChatPreview(null);
     resetLiveChatThread();
@@ -1002,8 +1119,9 @@ function applyLiveChatSnapshot(snapshot, options = {}) {
     renderLiveChatTimeline(snapshot);
   }
   setLiveChatConversationPill(conversation_id);
-  setLiveChatStatusBanner(_liveChatPrimaryMessage(snapshot), state || 'idle');
-  updateLiveChatControls(snapshot);
+  const bannerState = _liveChatNormState(liveChatSnapshot?.state ?? state) ?? 'idle';
+  setLiveChatStatusBanner(_liveChatPrimaryMessage(liveChatSnapshot), bannerState);
+  updateLiveChatControls();
 }
 
 async function previewLiveChatCsv(showAll = false) {
@@ -1065,60 +1183,88 @@ async function handleLiveChatFileSelection(fileList) {
 
 async function startLiveChat() {
   switchTab('livechat');
-  if (!liveChatCsvText) {
-    setLiveChatCsvErrorState('CSV script required. Drop a CSV here or click Choose CSV before starting Mock Live-Chat.');
-    setLiveChatStatusBanner('CSV required', 'failed');
+  if (_liveChatStartInFlight) return;
+  const startBtnGuard = document.getElementById('btn-livechat-start');
+  if (
+    startBtnGuard &&
+    (startBtnGuard.disabled || startBtnGuard.getAttribute('data-livechat-busy') === '1')
+  ) {
     return;
   }
-  const previewReady = document.getElementById('livechat-preview-summary')?.dataset.ready === '1';
-  if (!previewReady) {
-    await previewLiveChatCsv(liveChatPreviewShowAll);
-    if (document.getElementById('livechat-preview-summary')?.dataset.ready !== '1') {
-      setLiveChatStatusBanner('Upload a valid CSV before starting', 'failed');
-      return;
-    }
-  }
-  const charsPerSecond = Number(document.getElementById('livechat-chars-per-second').value);
-  const jitterPct = Number(document.getElementById('livechat-jitter-pct').value);
-  if (!Number.isFinite(charsPerSecond) || charsPerSecond <= 0) {
-    const cpsInput = document.getElementById('livechat-chars-per-second');
-    if (cpsInput) cpsInput.focus();
-    setLiveChatStatusBanner('Chars per Second must be greater than 0', 'failed');
-    return;
-  }
-  if (!Number.isFinite(jitterPct) || jitterPct < 0 || jitterPct > 100) {
-    const jitterInput = document.getElementById('livechat-jitter-pct');
-    if (jitterInput) jitterInput.focus();
-    setLiveChatStatusBanner('Typing Jitter (%) must be between 0 and 100', 'failed');
-    return;
-  }
-  const conversationId = makeLiveChatConversationId();
-  const payload = {
-    csv_text: liveChatCsvText,
-    csv_filename: liveChatCsvFilename || 'conversation.csv',
-    ws_url: document.getElementById('livechat-ws-url').value,
-    kafka_bootstrap: document.getElementById('livechat-kafka-bootstrap').value,
-    kafka_topic: document.getElementById('livechat-kafka-topic').value,
-    conversation_id: conversationId,
-    chars_per_second: charsPerSecond,
-    pace_jitter_pct: jitterPct / 100,
-  };
+  _liveChatStartInFlight = true;
   try {
-    const resp = await fetch(`${API}/api/live/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      setLiveChatStatusBanner(data.detail || 'Start failed', 'failed');
-      updateLiveChatControls({ state: 'idle', preview: liveChatSnapshot?.preview });
+    if (!liveChatCsvText) {
+      setLiveChatCsvErrorState('CSV script required. Drop a CSV here or click Choose CSV before starting Mock Live-Chat.');
+      setLiveChatStatusBanner('CSV required', 'failed');
       return;
     }
-    applyLiveChatSnapshot(data, { renderTimeline: true, keepPreview: true });
-  } catch (e) {
-    setLiveChatStatusBanner('Start request failed', 'failed');
-    updateLiveChatControls({ state: 'idle', preview: liveChatSnapshot?.preview });
+    const previewReady = document.getElementById('livechat-preview-summary')?.dataset.ready === '1';
+    if (!previewReady) {
+      await previewLiveChatCsv(liveChatPreviewShowAll);
+      if (document.getElementById('livechat-preview-summary')?.dataset.ready !== '1') {
+        setLiveChatStatusBanner('Upload a valid CSV before starting', 'failed');
+        return;
+      }
+    }
+    const charsPerSecond = Number(document.getElementById('livechat-chars-per-second').value);
+    const jitterPct = Number(document.getElementById('livechat-jitter-pct').value);
+    if (!Number.isFinite(charsPerSecond) || charsPerSecond <= 0) {
+      const cpsInput = document.getElementById('livechat-chars-per-second');
+      if (cpsInput) cpsInput.focus();
+      setLiveChatStatusBanner('Chars per Second must be greater than 0', 'failed');
+      return;
+    }
+    if (!Number.isFinite(jitterPct) || jitterPct < 0 || jitterPct > 100) {
+      const jitterInput = document.getElementById('livechat-jitter-pct');
+      if (jitterInput) jitterInput.focus();
+      setLiveChatStatusBanner('Typing Jitter (%) must be between 0 and 100', 'failed');
+      return;
+    }
+    const existing = _liveChatNormState(liveChatSnapshot?.state);
+    if (existing === 'running' || existing === 'stopping') {
+      return;
+    }
+    const conversationId = makeLiveChatConversationId();
+    const payload = {
+      csv_text: liveChatCsvText,
+      csv_filename: liveChatCsvFilename || 'conversation.csv',
+      ws_url: document.getElementById('livechat-ws-url').value,
+      kafka_bootstrap: document.getElementById('livechat-kafka-bootstrap').value,
+      kafka_topic: document.getElementById('livechat-kafka-topic').value,
+      conversation_id: conversationId,
+      chars_per_second: charsPerSecond,
+      pace_jitter_pct: jitterPct / 100,
+    };
+    _liveChatStartLatch = true;
+    updateLiveChatControls({
+      state: 'running',
+      preview: liveChatSnapshot?.preview,
+    });
+    try {
+      const resp = await fetch(`${API}/api/live/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        setLiveChatStatusBanner(data.detail || 'Start failed', 'failed');
+        updateLiveChatControls({
+          state: 'idle',
+          preview: liveChatSnapshot?.preview,
+        });
+        return;
+      }
+      applyLiveChatSnapshot(data, { renderTimeline: true, keepPreview: true });
+    } catch (e) {
+      setLiveChatStatusBanner('Start request failed', 'failed');
+      updateLiveChatControls({
+        state: 'idle',
+        preview: liveChatSnapshot?.preview,
+      });
+    }
+  } finally {
+    _liveChatStartInFlight = false;
   }
 }
 
