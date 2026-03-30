@@ -488,13 +488,15 @@ def create_app(
     ownership_guard_refresh_interval_sec: float = OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
     log_ws_error_frames: bool = False,
     log_slow_message_threshold_ms: float = 0.0,
+    http_enable_docs: bool = False,
 ) -> FastAPI:
     """Build the FastAPI app with the WebSocket endpoint and health checks."""
     app = FastAPI(
         title=APP_TITLE,
         description=APP_TITLE,
-        docs_url="/docs",
-        redoc_url="/redoc",
+        docs_url="/docs" if http_enable_docs else None,
+        redoc_url="/redoc" if http_enable_docs else None,
+        openapi_url="/openapi.json" if http_enable_docs else None,
     )
 
     app.state.orchestrator = orchestrator

@@ -7,6 +7,7 @@
 - `KAFKA_TOPIC_NUM_PARTITIONS` only applies when creating a new topic; existing topics must be repartitioned separately
 - `WS_PING_INTERVAL` and `WS_PING_TIMEOUT` are passed from `main.py` into Uvicorn with `ws="websockets"` and control RFC WebSocket Ping/Pong keepalive, not business JSON behavior
 - If handshake JWT authentication is enabled, `AUTH_ENABLED`, `AUTH_JWT_SIGNING_MATERIAL`, and `AUTH_JWT_ALGORITHM` must also be set. The concurrency profile does not change those values; they are shared across all three profiles.
+- `HTTP_ENABLE_DOCS` only controls `/docs`, `/redoc`, and `/openapi.json`. It does not protect `/health`, `/ready`, or `/metrics`; those HTTP routes should be limited at the edge or on the internal network.
 
 ---
 
@@ -20,6 +21,7 @@
 | `REDIS_SEQUENCE_STATE_KEY_PREFIX` | realtime-transcribe-service:expect-transcript-seq-num | realtime-transcribe-service:expect-transcript-seq-num | realtime-transcribe-service:expect-transcript-seq-num |
 | `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | realtime-transcribe-service:conversation-owner | realtime-transcribe-service:conversation-owner | realtime-transcribe-service:conversation-owner |
 | `HTTP_BACKLOG`               | 4096           | 4096          | 4096           |
+| `HTTP_ENABLE_DOCS`           | false          | false         | false          |
 | `KAFKA_COMPRESSION_TYPE`     | lz4            | lz4           | lz4            |
 | `KAFKA_LINGER_MS`            | 1              | 1             | 1              |
 | `KAFKA_BATCH_SIZE`           | 32768          | 32768         | 32768          |
@@ -68,6 +70,7 @@ REDIS_OWNERSHIP_GUARD_TTL_SEC=30
 REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:expect-transcript-seq-num
 REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
+HTTP_ENABLE_DOCS=false
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768
@@ -89,6 +92,7 @@ REDIS_OWNERSHIP_GUARD_TTL_SEC=30
 REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:expect-transcript-seq-num
 REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
+HTTP_ENABLE_DOCS=false
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768
@@ -110,6 +114,7 @@ REDIS_OWNERSHIP_GUARD_TTL_SEC=30
 REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:expect-transcript-seq-num
 REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
+HTTP_ENABLE_DOCS=false
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768

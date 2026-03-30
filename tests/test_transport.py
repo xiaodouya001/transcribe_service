@@ -166,6 +166,35 @@ class TestHealthEndpoints:
             assert resp.status_code == 200
             assert "active_connections" in resp.json()
 
+    async def test_docs_routes_disabled_by_default(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        app = create_app(mock_orchestrator, shutdown, registry)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            assert (await client.get("/docs")).status_code == 404
+            assert (await client.get("/redoc")).status_code == 404
+            assert (await client.get("/openapi.json")).status_code == 404
+
+    async def test_docs_routes_enabled_when_http_enable_docs_true(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        app = create_app(
+            mock_orchestrator,
+            shutdown,
+            registry,
+            http_enable_docs=True,
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            assert (await client.get("/docs")).status_code == 200
+            assert (await client.get("/redoc")).status_code == 200
+            openapi = await client.get("/openapi.json")
+        assert openapi.status_code == 200
+        assert "/health" in openapi.json()["paths"]
+
     async def test_ready_without_checks_when_empty(self, mock_orchestrator, shutdown, registry):
         app = create_app(
             mock_orchestrator, shutdown, registry, redis_url="", producer=None

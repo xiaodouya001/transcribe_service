@@ -118,6 +118,7 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     settings.http_host = "127.0.0.1"
     settings.http_port = 18080
     settings.http_backlog = 4096
+    settings.http_enable_docs = True
     settings.kafka_startup_timeout_sec = 5.0
     settings.ws_ping_interval = 20.0
     settings.ws_ping_timeout = 21.0
@@ -223,6 +224,7 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     assert kw["backlog"] == 4096
     assert kw["log_config"] is None
     assert kw["log_level"] == "info"
+    assert create_app_kwargs["http_enable_docs"] is True
     assert isinstance(orchestrator_kwargs["message_converter"], KafkaMessageConverter)
     assert isinstance(create_app_kwargs["auth_backend"], JwtBearerAuthBackend)
 

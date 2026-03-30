@@ -5,7 +5,8 @@ from __future__ import annotations
 from realtime_transcribe_service.config.settings import get_settings
 
 
-def test_get_settings_cached_then_cleared(monkeypatch):
+def test_get_settings_cached_then_cleared(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("APP_ENV", "local")
     get_settings.cache_clear()
     a = get_settings()

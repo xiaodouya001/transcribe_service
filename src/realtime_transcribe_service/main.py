@@ -161,6 +161,7 @@ async def run() -> None:
         ownership_guard_refresh_interval_sec=settings.ws_ownership_guard_refresh_interval_sec,
         log_ws_error_frames=settings.log_ws_error_frames,
         log_slow_message_threshold_ms=settings.log_slow_message_threshold_ms,
+        http_enable_docs=settings.http_enable_docs,
     )
 
     config = uvicorn.Config(
