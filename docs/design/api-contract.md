@@ -6,7 +6,7 @@
 | Attribute             | Value                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------- |
 | **API major version** | **V1** (aligned with the WebSocket path prefix `/ws/v1/`)                           |
-| **Document version**  | **1.1.6** (semantic version of *this* contract document; independent patch counter) |
+| **Document version**  | **1.2.1** (semantic version of *this* contract document; independent patch counter) |
 
 
 ### Revision policy (normative)
@@ -35,13 +35,17 @@ Any normative edit to **§1–§6** must be accompanied by an update to the head
 | **MINOR** | Backward-compatible extension                                                           | New optional fields, additional non-breaking enumeration values, additive sections                                         |
 | **MAJOR** | Breaking change: a conforming implementation under the prior text may no longer conform | Removal or redefinition of fields, stricter validation, altered semantics of error codes or of Kafka or handshake behavior |
 
+**Pre-integration exception (normative)**
+
+Before the first external integration or published consumer commitment for **V1**, an unreleased contract refinement that would otherwise qualify as **MAJOR** may be recorded as a **MINOR** document-version increment when it creates no migration obligation for any integrated consumer. Once an external integration or published consumer commitment exists, the standard **MAJOR / MINOR / PATCH** rules apply without this exception.
+
 
 A new API major version (e.g. **V2**) and its URL prefix must be specified together with the protocol; the **Document version** field alone does not establish a new API major.
 
 **Procedure on modification**
 
 1. Modify **§1–§6** as required.
-2. Against the latest entry in **§7**, determine the semver increment and compute the new **Document version**.
+2. Against the latest entry in **§7**, determine the semver increment and compute the new **Document version**, applying the pre-integration exception above only when its conditions are satisfied.
 3. Set the header **Document version** to that value.
 4. Append a row to **§7 Revision History** giving the new version, the date (UTC), and a concise summary of the change.
 
@@ -153,15 +157,14 @@ Keepalive uses **RFC 6455** WebSocket **Ping** and **Pong** control frames. They
     "eventType": "SESSION_ONGOING"
   },
   "payload": {
-    "agentId": "3210001",
-    "customerId": null,
     "sequenceNumber": 0,
     "speaker": "Agent",
     "transcript": "thank you",
     "engineProvider": "FanoLabs",
     "dialect": "yue-x-auto",
     "isFinal": true,
-    "createdAtTimeStamp": "2025-03-21T10:32:20.000Z"
+    "speakTimeStamp": "2025-03-21T10:32:18.000Z",
+    "transcriptGenerateTimeStamp": "2025-03-21T10:32:20.000Z"
   }
 }
 ```
@@ -177,15 +180,14 @@ Keepalive uses **RFC 6455** WebSocket **Ping** and **Pong** control frames. They
     "eventType": "SESSION_ONGOING"
   },
   "payload": {
-    "agentId": null,
-    "customerId": "12345678",
     "sequenceNumber": 0,
     "speaker": "Customer",
     "transcript": "Hello",
     "engineProvider": "FanoLabs",
     "dialect": "yue-x-auto",
     "isFinal": true,
-    "createdAtTimeStamp": "2025-03-21T10:32:20.000Z"
+    "speakTimeStamp": "2025-03-21T10:32:18.000Z",
+    "transcriptGenerateTimeStamp": "2025-03-21T10:32:20.000Z"
   }
 }
 ```
@@ -201,15 +203,12 @@ Keepalive uses **RFC 6455** WebSocket **Ping** and **Pong** control frames. They
     "eventType": "SESSION_COMPLETE"
   },
   "payload": {
-    "agentId": null,
-    "customerId": null,
     "sequenceNumber": 42,
     "speaker": "System",
     "transcript": "EOL",
     "engineProvider": "FanoLabs",
     "dialect": "yue-x-auto",
-    "isFinal": true,
-    "createdAtTimeStamp": "2025-03-21T10:44:58.000Z"
+    "isFinal": true
   }
 }
 ```
@@ -230,29 +229,27 @@ Keepalive uses **RFC 6455** WebSocket **Ping** and **Pong** control frames. They
 #### `payload`
 
 
-| Field                | Required    | Type    | Max Length | Allowed Values / Format                                                        | Description                                  |
-| -------------------- | ----------- | ------- | ---------- | ------------------------------------------------------------------------------ | -------------------------------------------- |
-| `agentId`            | Conditional | string  | 32         | Agent staff ID; required when `speaker=Agent`, otherwise omitted or `null`     | Agent identifier                             |
-| `customerId`         | Conditional | string  | 64         | Customer number; required when `speaker=Customer`, otherwise omitted or `null` | Customer identifier                          |
-| `sequenceNumber`     | Yes         | integer | -          | `>= 0`; strictly increasing within the same `conversationId`                   | Transcript sequence number                   |
-| `speaker`            | Yes         | string  | 16         | `Agent`, `Customer`, or `System`                                               | Speaker role                                 |
-| `transcript`         | Yes         | string  | 8000       | Any regular string                                                             | Transcript text or system control text       |
-| `engineProvider`     | Yes         | string  | 64         | For example `FanoLabs`                                                         | Speech-to-text engine provider               |
-| `dialect`            | No          | string  | 32         | BCP-47, for example `yue-x-auto`; may be omitted or `null`                     | Language or dialect                          |
-| `isFinal`            | Yes         | boolean | -          | Must be `true`                                                                 | Indicates that the transcript chunk is final |
-| `createdAtTimeStamp` | Yes         | string  | 32         | ISO-8601 UTC                                                                   | Client-side transcript creation timestamp    |
+| Field                         | Required    | Type    | Max Length | Allowed Values / Format                                                                 | Description                                  |
+| ----------------------------- | ----------- | ------- | ---------- | --------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `sequenceNumber`              | Yes         | integer | -          | `>= 0`; strictly increasing within the same `conversationId`                            | Transcript sequence number                   |
+| `speaker`                     | Yes         | string  | 16         | `Agent`, `Customer`, or `System`                                                        | Speaker role                                 |
+| `transcript`                  | Yes         | string  | 8000       | Any regular string                                                                      | Transcript text or system control text       |
+| `engineProvider`              | Yes         | string  | 64         | For example `FanoLabs`                                                                  | Speech-to-text engine provider               |
+| `dialect`                     | Yes         | string  | 32         | BCP-47, for example `yue-x-auto`                                                        | Language or dialect                          |
+| `isFinal`                     | Yes         | boolean | -          | Must be `true`                                                                          | Indicates that the transcript chunk is final |
+| `speakTimeStamp`              | Conditional | string  | 32         | ISO-8601 UTC; required when `eventType=SESSION_ONGOING`, omitted for `SESSION_COMPLETE` | Time when the corresponding speaker spoke    |
+| `transcriptGenerateTimeStamp` | Conditional | string  | 32         | ISO-8601 UTC; required when `eventType=SESSION_ONGOING`, omitted for `SESSION_COMPLETE` | Time when ASR generated the transcript       |
 
 
 ### 2.3 Business Rules
 
 1. **Handshake and body identity**: `metaData.conversationId` must equal the `conversationId` query parameter on the WebSocket handshake URL.
 2. **Sequence progression**: Within the same `conversationId`, the first message must use `sequenceNumber` **0**, and each subsequent successful message must use the **next consecutive integer** (`1`, `2`, `3`, …). Gaps, reordering, or sending a higher number before the expected one is invalid (see `E1006` in §4).
-3. **SESSION_ONGOING rule**: `callEndTimeStamp` must be `null`.
+3. **SESSION_ONGOING rule**: `callEndTimeStamp` must be `null`, and `payload.speaker` must be `Agent` or `Customer`.
 4. **SESSION_COMPLETE rule**: `callEndTimeStamp` must be present, and `payload.speaker` must be `System`.
-5. **Participant fields**:
-  - When `speaker=Agent`, `agentId` is required and `customerId` must be omitted or `null`.
-  - When `speaker=Customer`, `customerId` is required and `agentId` must be omitted or `null`.
-  - When `speaker=System`, both `agentId` and `customerId` must be omitted or `null`.
+5. **Request payload timestamps**:
+  - When `eventType=SESSION_ONGOING`, both `speakTimeStamp` and `transcriptGenerateTimeStamp` are required.
+  - When `eventType=SESSION_COMPLETE`, both `speakTimeStamp` and `transcriptGenerateTimeStamp` must be omitted.
 6. **Idempotency**:
   - The pair `(conversationId, sequenceNumber)` is treated as an idempotency key.
   - When the server receives the same pair again, it returns the corresponding ACK again.
@@ -385,8 +382,8 @@ Keepalive uses **RFC 6455** WebSocket **Ping** and **Pong** control frames. They
 | ---------- | ----------- | ------------------------------------------------------------------------------------- | ----------------------------------------- | ---------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | E1001      | ERROR       | 400                                                                                   | 1007                                      | Yes        | Yes                             | JSON parsing fails or the client sends a payload that cannot be decoded                                                                     |
 | E1002      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | Enum value is outside the allowed set, such as an invalid `eventType`                                                                       |
-| E1003      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | A required contract field is missing, such as `conversationId` or `agentId`                                                                 |
-| E1004      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | A field type does not match the contract, for example a string where an integer is required                                                 |
+| E1003      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | A required contract field is missing, such as `conversationId` or `speakTimeStamp`                                                           |
+| E1004      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | A field type or shape does not match the contract, for example a string where an integer is required or an unexpected extra field is sent |
 | E1005      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | A timestamp is missing UTC format or is not valid ISO-8601 UTC                                                                              |
 | E1006      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | The sequence is not the expected next value; duplicate messages are handled idempotently and return ACK instead                             |
 | E1007      | ERROR       | 500                                                                                   | 1011                                      | Yes        | Yes                             | Unexpected server-side exception that is not caused by client input                                                                         |
@@ -430,15 +427,14 @@ Before closing the connection for a post-handshake error, the service sends an `
     "eventType": "SESSION_ONGOING"
   },
   "payload": {
-    "agentId": null,
-    "customerId": "12345678",
     "sequenceNumber": 0,
     "speaker": "Customer",
     "transcript": "Hello",
     "engineProvider": "FanoLabs",
     "dialect": "yue-x-auto",
     "isFinal": true,
-    "createdAtTimeStamp": "2025-03-21T10:32:20.000Z"
+    "speakTimeStamp": "2025-03-21T10:32:18.000Z",
+    "transcriptGenerateTimeStamp": "2025-03-21T10:32:20.000Z"
   }
 }
 ```
@@ -471,15 +467,12 @@ Before closing the connection for a post-handshake error, the service sends an `
     "eventType": "SESSION_COMPLETE"
   },
   "payload": {
-    "agentId": null,
-    "customerId": null,
     "sequenceNumber": 42,
     "speaker": "System",
     "transcript": "EOL",
     "engineProvider": "FanoLabs",
     "dialect": "yue-x-auto",
-    "isFinal": true,
-    "createdAtTimeStamp": "2025-03-21T10:32:20.000Z"
+    "isFinal": true
   }
 }
 ```
@@ -558,15 +551,14 @@ Kafka Message Value:
     "eventType": "SESSION_ONGOING"
   },
   "payload": {
-    "agentId": "3210001",
-    "customerId": null,
     "sequenceNumber": 0,
     "speaker": "Agent",
     "transcript": "thank you",
     "engineProvider": "FanoLabs",
     "dialect": "yue-x-auto",
     "isFinal": true,
-    "createdAtTimeStamp": "2025-03-21T10:32:20.000Z"
+    "speakTimeStamp": "2025-03-21T10:32:18.000Z",
+    "transcriptGenerateTimeStamp": "2025-03-21T10:32:20.000Z"
   },
   "enrich": {
     "eventProduceTimestamp": "2026-03-27T10:11:12.345Z"
@@ -593,15 +585,12 @@ Kafka Message Value:
     "eventType": "SESSION_COMPLETE"
   },
   "payload": {
-    "agentId": null,
-    "customerId": null,
     "sequenceNumber": 42,
     "speaker": "System",
     "transcript": "EOL",
     "engineProvider": "FanoLabs",
     "dialect": "yue-x-auto",
-    "isFinal": true,
-    "createdAtTimeStamp": "2025-03-21T10:44:58.000Z"
+    "isFinal": true
   },
   "enrich": {
     "eventProduceTimestamp": "2026-03-27T10:11:58.901Z"
@@ -625,6 +614,8 @@ The **Doc ver.** column states the **Document version** at each revision. The **
 
 | Doc ver. | Date (UTC) | Summary                                                                                                                                                                                                                            |
 | -------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.2.1    | 2026-03-30 | Tighten the request payload contract so `payload.dialect` is a required field for both `SESSION_ONGOING` and `SESSION_COMPLETE`. |
+| 1.2.0    | 2026-03-30 | Pre-integration V1 refinement: allow unreleased contract changes without consumer migration obligations to use a MINOR document-version increment; request payload removes `agentId` / `customerId`, renames `createdAtTimeStamp` to `speakTimeStamp`, adds `transcriptGenerateTimeStamp`, and omits both request timestamps for `SESSION_COMPLETE`. |
 | 1.1.6    | 2026-03-26 | **§3.1** Document optional `payload.serverProcessingMs` (aligned with `AckPayload` / transport); examples updated.                                                                                                                |
 | 1.1.5    | 2026-03-26 | Editorial: deduplicate headings (`## Document identification`, `### Revision policy`, §3 field tables); shorten redundant labels.                                                                                                  |
 | 1.1.4    | 2026-03-26 | **§2.3** Align with integration checklist: explicit query/body `conversationId` match; consecutive sequence from **0**; client single sender; lossless retry (resend same `sequenceNumber` until ACK).                             |

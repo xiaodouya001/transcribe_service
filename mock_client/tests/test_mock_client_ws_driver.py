@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import uvicorn
@@ -103,3 +103,76 @@ async def test_mock_client_e07_scenario_covers_non_object_json_and_wrong_type(
     assert wrong_type_step["conversation_id"].startswith("mock-E07-")
     close_codes = [step["close_code"] for step in result.steps if step["action"] == "verify_close"]
     assert close_codes == [1008, 1008]
+
+
+@pytest.mark.asyncio
+async def test_mock_client_n03_scenario_sends_default_dialect_for_ongoing_and_complete():
+    ws = AsyncMock()
+    ws.close = AsyncMock()
+    ws.wait_closed = AsyncMock(return_value=None)
+    ws.close_code = 1000
+    sent_messages: list[dict] = []
+
+    async def fake_send_and_recv(_ws, msg, *, on_sent=None):
+        sent_messages.append(msg)
+        if on_sent is not None:
+            on_sent()
+        event_type = msg["metaData"]["eventType"]
+        return {
+            "metaData": {
+                "eventType": "TRANSCRIPT_ACK"
+                if event_type == "SESSION_ONGOING"
+                else "EOL_ACK"
+            }
+        }
+
+    with (
+        patch.object(ws_driver, "_open_ws", new=AsyncMock(return_value=ws)),
+        patch.object(ws_driver, "_send_and_recv", new=AsyncMock(side_effect=fake_send_and_recv)),
+    ):
+        result = await ws_driver.scenario_g_session_complete(
+            "ws://unit-test", _collect_events, n_messages=2
+        )
+
+    assert result.passed is True
+    assert [msg["metaData"]["eventType"] for msg in sent_messages] == [
+        "SESSION_ONGOING",
+        "SESSION_COMPLETE",
+    ]
+    assert [msg["payload"]["dialect"] for msg in sent_messages] == [
+        "yue-x-auto",
+        "yue-x-auto",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_mock_client_e06_scenario_bad_schema_still_includes_default_dialect():
+    ws = AsyncMock()
+    ws.close = AsyncMock()
+    captured: dict[str, dict] = {}
+
+    async def fake_send_expect_error_and_close(
+        _ws,
+        msg,
+        *,
+        action,
+        expected_code,
+        expected_close,
+        expected_conversation_id=None,
+        result,
+        emit,
+    ):
+        captured["msg"] = msg
+
+    with (
+        patch.object(ws_driver, "_open_ws", new=AsyncMock(return_value=ws)),
+        patch.object(
+            ws_driver,
+            "_send_expect_error_and_close",
+            new=AsyncMock(side_effect=fake_send_expect_error_and_close),
+        ),
+    ):
+        result = await ws_driver.scenario_d2_schema_error("ws://unit-test", _collect_events)
+
+    assert result.passed is True
+    assert captured["msg"]["payload"]["dialect"] == "yue-x-auto"

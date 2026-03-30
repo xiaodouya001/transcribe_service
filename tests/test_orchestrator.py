@@ -187,6 +187,15 @@ class TestScenarioD:
         assert result.disconnect is True
         assert result.close_code == 1008
 
+    async def test_missing_required_dialect_returns_e1003(
+        self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
+    ):
+        del valid_ongoing_msg["payload"]["dialect"]
+        result = await orchestrator.handle_message(valid_ongoing_msg)
+        assert result.response["error"]["code"] == "E1003"
+        assert result.disconnect is True
+        assert result.close_code == 1008
+
     async def test_missing_field_uses_fallback_conversation_id(
         self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
     ):
@@ -229,6 +238,24 @@ class TestScenarioD:
         assert result.disconnect is True
         assert result.close_code == 1008
 
+    async def test_extra_payload_field_returns_e1004(
+        self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
+    ):
+        valid_ongoing_msg["payload"]["agentId"] = "A1"
+        result = await orchestrator.handle_message(valid_ongoing_msg)
+        assert result.response["error"]["code"] == "E1004"
+        assert result.disconnect is True
+        assert result.close_code == 1008
+
+    async def test_extra_metadata_field_returns_e1004(
+        self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
+    ):
+        valid_ongoing_msg["metaData"]["staffId"] = "S1"
+        result = await orchestrator.handle_message(valid_ongoing_msg)
+        assert result.response["error"]["code"] == "E1004"
+        assert result.disconnect is True
+        assert result.close_code == 1008
+
     async def test_invalid_timestamp_returns_e1005(
         self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
     ):
@@ -238,10 +265,21 @@ class TestScenarioD:
         assert result.disconnect is True
         assert result.close_code == 1008
 
-    async def test_non_utc_timestamp_returns_e1005(
+    async def test_non_utc_speak_timestamp_returns_e1005(
         self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
     ):
-        valid_ongoing_msg["payload"]["createdAtTimeStamp"] = "2025-03-21T18:32:20.000+08:00"
+        valid_ongoing_msg["payload"]["speakTimeStamp"] = "2025-03-21T18:32:20.000+08:00"
+        result = await orchestrator.handle_message(valid_ongoing_msg)
+        assert result.response["error"]["code"] == "E1005"
+        assert result.disconnect is True
+        assert result.close_code == 1008
+
+    async def test_non_utc_transcript_generate_timestamp_returns_e1005(
+        self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
+    ):
+        valid_ongoing_msg["payload"]["transcriptGenerateTimeStamp"] = (
+            "2025-03-21T18:32:20.000+08:00"
+        )
         result = await orchestrator.handle_message(valid_ongoing_msg)
         assert result.response["error"]["code"] == "E1005"
         assert result.disconnect is True
@@ -407,6 +445,13 @@ class TestClassifyValidationError:
         e.errors.return_value = [{"type": "boolean_error"}]
         c, w = TwoPhaseOrchestrator._classify_validation_error(e)
         assert c == ErrorCode.E1004
+
+    def test_branch_extra_forbidden(self):
+        e = MagicMock()
+        e.errors.return_value = [{"type": "extra_forbidden"}]
+        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert c == ErrorCode.E1004
+        assert w == WsCloseCode.POLICY_VIOLATION
 
     def test_branch_value_error(self):
         e = MagicMock()

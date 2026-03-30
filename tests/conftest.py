@@ -27,15 +27,14 @@ def valid_ongoing_msg(conversation_id: str) -> dict:
             "eventType": "SESSION_ONGOING",
         },
         "payload": {
-            "agentId": "3210001",
-            "customerId": None,
             "sequenceNumber": 0,
             "speaker": "Agent",
             "transcript": "thank you",
             "engineProvider": "FanoLabs",
             "dialect": "yue-x-auto",
             "isFinal": True,
-            "createdAtTimeStamp": "2025-03-21T10:32:20.000Z",
+            "speakTimeStamp": "2025-03-21T10:32:18.000Z",
+            "transcriptGenerateTimeStamp": "2025-03-21T10:32:20.000Z",
         },
     }
 
@@ -51,14 +50,11 @@ def valid_complete_msg(conversation_id: str) -> dict:
             "eventType": "SESSION_COMPLETE",
         },
         "payload": {
-            "agentId": None,
-            "customerId": None,
             "sequenceNumber": 42,
             "speaker": "System",
             "transcript": "session ended",
             "engineProvider": "FanoLabs",
             "dialect": "yue-x-auto",
             "isFinal": True,
-            "createdAtTimeStamp": "2025-03-21T10:44:58.000Z",
         },
     }

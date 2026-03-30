@@ -23,7 +23,7 @@ The items below define the long-term design semantics that must remain stable. C
 
 - Every inbound message must pass schema validation, and all timestamp fields must use ISO-8601 UTC.
 - The handshake query parameter `conversationId` is the connection-level identity.
-- `metaData` carries session-level fields only. `agentId` and `customerId` belong to `payload` and are conditionally required based on `speaker`.
+- `metaData` carries session-level fields only. Participant role is represented by `payload.speaker`, and request payload timestamps follow the API contract semantics for `speakTimeStamp` and `transcriptGenerateTimeStamp`.
 - If `metaData.conversationId` exists in the message body and is a string, it must match the handshake query value. A mismatch must be rejected directly in the transport layer as `E1009 + 1008`.
 - Only one connection may send messages for the same `conversationId` at any moment. If a new connection conflicts with an existing sender, the handshake must fail with HTTP `403` + `E1009`, and the request must not enter the orchestrator.
 - Missing fields, type errors, enum violations, and business-rule violations must continue to map to their established error codes. Implementation details must not silently change those mappings.

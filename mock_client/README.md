@@ -162,7 +162,7 @@ Runtime behavior:
 | `E-05` | `E-05` | Send a message with `eventType=INVALID` after the connection opens | `ERROR(E1002)` + close `1008` |
 | `E-06` | `E-06` | Send JSON missing required fields | `ERROR(E1003)` + close `1008` |
 | `E-07` | `E-07` | Change `metaData.conversationId` to a non-string type | `ERROR(E1004)` + close `1008` |
-| `E-08` | `E-08` | Change `createdAtTimeStamp` to a non-UTC or invalid timestamp | `ERROR(E1005)` + close `1008` |
+| `E-08` | `E-08` | Change `speakTimeStamp` or `transcriptGenerateTimeStamp` to a non-UTC or invalid timestamp | `ERROR(E1005)` + close `1008` |
 | `E-09` | `E-09` | Send `seq 0`, then jump to `seq=max(2, N)` | `ERROR(E1006)` + close `1008` |
 | `E-14` | `E-14` | Use different `conversationId` values in the query string and body | `ERROR(E1009)` + close `1008` |
 | `E-15` | `E-15` | Build a message that violates a business rule, such as `isFinal=false` | `ERROR(E1009)` + close `1008` |

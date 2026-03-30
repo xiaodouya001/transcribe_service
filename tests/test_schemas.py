@@ -20,14 +20,16 @@ class TestInboundMessage:
         assert msg.metaData.eventType == EventType.SESSION_ONGOING
         assert msg.payload.sequenceNumber == 0
         assert msg.payload.speaker == Speaker.AGENT
-        assert msg.payload.agentId == "3210001"
-        assert msg.payload.customerId is None
+        assert msg.payload.speakTimeStamp is not None
+        assert msg.payload.transcriptGenerateTimeStamp is not None
 
     def test_valid_complete(self, valid_complete_msg: dict):
         msg = InboundMessage.model_validate(valid_complete_msg)
         assert msg.metaData.eventType == EventType.SESSION_COMPLETE
         assert msg.metaData.callEndTimeStamp is not None
         assert msg.payload.speaker == Speaker.SYSTEM
+        assert msg.payload.speakTimeStamp is None
+        assert msg.payload.transcriptGenerateTimeStamp is None
 
     def test_complete_with_non_eol_transcript_still_valid(self, valid_complete_msg: dict):
         valid_complete_msg["payload"]["transcript"] = "goodbye and close"
@@ -51,68 +53,64 @@ class TestInboundMessage:
 
     def test_complete_with_non_system_speaker_fails(self, valid_complete_msg: dict):
         valid_complete_msg["payload"]["speaker"] = "Agent"
-        valid_complete_msg["payload"]["agentId"] = "3210001"
         with pytest.raises(ValidationError, match="speaker must be System"):
             InboundMessage.model_validate(valid_complete_msg)
 
     def test_ongoing_with_system_speaker_fails(self, valid_ongoing_msg: dict):
         valid_ongoing_msg["payload"]["speaker"] = "System"
-        valid_ongoing_msg["payload"]["agentId"] = None
         with pytest.raises(ValidationError, match="speaker must be Agent or Customer"):
             InboundMessage.model_validate(valid_ongoing_msg)
 
-    def test_agent_without_agent_id_fails(self, valid_ongoing_msg: dict):
-        valid_ongoing_msg["payload"]["agentId"] = None
-        with pytest.raises(ValidationError, match="agentId must be provided"):
+    def test_ongoing_missing_speak_timestamp_fails(self, valid_ongoing_msg: dict):
+        del valid_ongoing_msg["payload"]["speakTimeStamp"]
+        with pytest.raises(ValidationError, match="speakTimeStamp must be provided"):
             InboundMessage.model_validate(valid_ongoing_msg)
 
-    def test_blank_agent_id_fails(self, valid_ongoing_msg: dict):
-        valid_ongoing_msg["payload"]["agentId"] = "   "
-        with pytest.raises(ValidationError, match="identifier must not be empty"):
+    def test_ongoing_missing_transcript_generate_timestamp_fails(
+        self, valid_ongoing_msg: dict
+    ):
+        del valid_ongoing_msg["payload"]["transcriptGenerateTimeStamp"]
+        with pytest.raises(
+            ValidationError,
+            match="transcriptGenerateTimeStamp must be provided",
+        ):
             InboundMessage.model_validate(valid_ongoing_msg)
 
-    def test_customer_without_customer_id_fails(self, valid_ongoing_msg: dict):
+    def test_missing_dialect_fails(self, valid_ongoing_msg: dict):
+        del valid_ongoing_msg["payload"]["dialect"]
+        with pytest.raises(ValidationError):
+            InboundMessage.model_validate(valid_ongoing_msg)
+
+    def test_complete_with_speak_timestamp_fails(self, valid_complete_msg: dict):
+        valid_complete_msg["payload"]["speakTimeStamp"] = "2025-03-21T10:44:58.000Z"
+        with pytest.raises(ValidationError, match="speakTimeStamp must be omitted"):
+            InboundMessage.model_validate(valid_complete_msg)
+
+    def test_complete_with_null_speak_timestamp_fails(self, valid_complete_msg: dict):
+        valid_complete_msg["payload"]["speakTimeStamp"] = None
+        with pytest.raises(ValidationError, match="speakTimeStamp must be omitted"):
+            InboundMessage.model_validate(valid_complete_msg)
+
+    def test_complete_with_transcript_generate_timestamp_fails(
+        self, valid_complete_msg: dict
+    ):
+        valid_complete_msg["payload"]["transcriptGenerateTimeStamp"] = (
+            "2025-03-21T10:44:58.000Z"
+        )
+        with pytest.raises(
+            ValidationError,
+            match="transcriptGenerateTimeStamp must be omitted",
+        ):
+            InboundMessage.model_validate(valid_complete_msg)
+
+    def test_customer_ongoing_without_participant_ids_is_valid(
+        self, valid_ongoing_msg: dict
+    ):
         valid_ongoing_msg["payload"]["speaker"] = "Customer"
-        valid_ongoing_msg["payload"]["agentId"] = None
-        valid_ongoing_msg["payload"]["customerId"] = None
-        with pytest.raises(ValidationError, match="customerId must be provided"):
-            InboundMessage.model_validate(valid_ongoing_msg)
-
-    def test_agent_with_customer_id_fails(self, valid_ongoing_msg: dict):
-        valid_ongoing_msg["payload"]["customerId"] = "12345678"
-        with pytest.raises(ValidationError, match="customerId must be null or omitted"):
-            InboundMessage.model_validate(valid_ongoing_msg)
-
-    def test_customer_with_agent_id_fails(self, valid_ongoing_msg: dict):
-        valid_ongoing_msg["payload"]["speaker"] = "Customer"
-        valid_ongoing_msg["payload"]["customerId"] = "12345678"
-        with pytest.raises(ValidationError, match="agentId must be null or omitted"):
-            InboundMessage.model_validate(valid_ongoing_msg)
-
-    def test_customer_with_missing_non_applicable_agent_id_is_valid(self, valid_ongoing_msg: dict):
-        valid_ongoing_msg["payload"]["speaker"] = "Customer"
-        valid_ongoing_msg["payload"]["customerId"] = "12345678"
-        del valid_ongoing_msg["payload"]["agentId"]
         msg = InboundMessage.model_validate(valid_ongoing_msg)
         assert msg.payload.speaker == Speaker.CUSTOMER
-        assert msg.payload.agentId is None
-        assert msg.payload.customerId == "12345678"
-
-    def test_agent_with_missing_non_applicable_customer_id_is_valid(self, valid_ongoing_msg: dict):
-        del valid_ongoing_msg["payload"]["customerId"]
-        msg = InboundMessage.model_validate(valid_ongoing_msg)
-        assert msg.payload.speaker == Speaker.AGENT
-        assert msg.payload.customerId is None
-
-    def test_system_with_business_identity_fails(self, valid_complete_msg: dict):
-        valid_complete_msg["payload"]["agentId"] = "3210001"
-        with pytest.raises(ValidationError, match="agentId must be null or omitted"):
-            InboundMessage.model_validate(valid_complete_msg)
-
-    def test_system_with_customer_id_fails(self, valid_complete_msg: dict):
-        valid_complete_msg["payload"]["customerId"] = "12345678"
-        with pytest.raises(ValidationError, match="customerId must be null or omitted"):
-            InboundMessage.model_validate(valid_complete_msg)
+        assert msg.payload.speakTimeStamp is not None
+        assert msg.payload.transcriptGenerateTimeStamp is not None
 
     def test_missing_conversation_id_fails(self, valid_ongoing_msg: dict):
         del valid_ongoing_msg["metaData"]["conversationId"]
@@ -129,6 +127,11 @@ class TestInboundMessage:
         with pytest.raises(ValidationError):
             InboundMessage.model_validate(valid_ongoing_msg)
 
+    def test_null_dialect_fails(self, valid_ongoing_msg: dict):
+        valid_ongoing_msg["payload"]["dialect"] = None
+        with pytest.raises(ValidationError):
+            InboundMessage.model_validate(valid_ongoing_msg)
+
     def test_removed_metadata_agent_id_field_is_rejected(self, valid_ongoing_msg: dict):
         valid_ongoing_msg["metaData"]["agentId"] = "3210001"
         with pytest.raises(ValidationError):
@@ -136,6 +139,16 @@ class TestInboundMessage:
 
     def test_removed_staff_id_field_is_rejected(self, valid_ongoing_msg: dict):
         valid_ongoing_msg["metaData"]["staffId"] = "45163407"
+        with pytest.raises(ValidationError):
+            InboundMessage.model_validate(valid_ongoing_msg)
+
+    def test_legacy_agent_id_field_is_rejected(self, valid_ongoing_msg: dict):
+        valid_ongoing_msg["payload"]["agentId"] = "3210001"
+        with pytest.raises(ValidationError):
+            InboundMessage.model_validate(valid_ongoing_msg)
+
+    def test_legacy_customer_id_field_is_rejected(self, valid_ongoing_msg: dict):
+        valid_ongoing_msg["payload"]["customerId"] = "12345678"
         with pytest.raises(ValidationError):
             InboundMessage.model_validate(valid_ongoing_msg)
 
@@ -154,8 +167,17 @@ class TestInboundMessage:
         with pytest.raises(ValidationError):
             InboundMessage.model_validate(valid_ongoing_msg)
 
-    def test_non_utc_timestamp_fails(self, valid_ongoing_msg: dict):
-        valid_ongoing_msg["payload"]["createdAtTimeStamp"] = "2025-03-21T18:32:20.000+08:00"
+    def test_non_utc_speak_timestamp_fails(self, valid_ongoing_msg: dict):
+        valid_ongoing_msg["payload"]["speakTimeStamp"] = "2025-03-21T18:32:20.000+08:00"
+        with pytest.raises(ValidationError):
+            InboundMessage.model_validate(valid_ongoing_msg)
+
+    def test_non_utc_transcript_generate_timestamp_fails(
+        self, valid_ongoing_msg: dict
+    ):
+        valid_ongoing_msg["payload"]["transcriptGenerateTimeStamp"] = (
+            "2025-03-21T18:32:20.000+08:00"
+        )
         with pytest.raises(ValidationError):
             InboundMessage.model_validate(valid_ongoing_msg)
 
@@ -191,4 +213,3 @@ class TestBuildError:
     def test_error_without_details(self, conversation_id: str):
         err = build_error(conversation_id, "E1007", "Internal error")
         assert err["error"]["details"] is None
-

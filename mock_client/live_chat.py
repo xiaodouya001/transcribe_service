@@ -126,8 +126,6 @@ class LiveChatSessionState:
     ack_count: int = 0
     kafka_messages: int = 0
     stop_requested: bool = False
-    agent_id: str | None = None
-    customer_id: str | None = None
 
     def as_dict(self, *, include_history: bool = True) -> dict[str, Any]:
         payload = {
@@ -147,8 +145,6 @@ class LiveChatSessionState:
             "ack_count": self.ack_count,
             "kafka_messages": self.kafka_messages,
             "stop_requested": self.stop_requested,
-            "agent_id": self.agent_id,
-            "customer_id": self.customer_id,
             "status_notes": [note.as_dict() for note in self.status_notes],
         }
         if include_history:
@@ -270,8 +266,6 @@ def _build_live_chat_message(
     sequence_number: int,
     event_type: str,
     start_ts: str,
-    agent_id: str,
-    customer_id: str,
     speaker: Speaker | Literal["System"],
     transcript: str,
 ) -> dict[str, Any]:
@@ -281,18 +275,12 @@ def _build_live_chat_message(
         "speaker": speaker,
         "transcript": transcript,
         "engineProvider": "FanoLabs",
+        "dialect": "yue-x-auto",
         "isFinal": True,
-        "createdAtTimeStamp": now,
     }
-    if speaker == "Agent":
-        payload["agentId"] = agent_id
-        payload["customerId"] = None
-    elif speaker == "Customer":
-        payload["agentId"] = None
-        payload["customerId"] = customer_id
-    else:
-        payload["agentId"] = None
-        payload["customerId"] = None
+    if event_type == "SESSION_ONGOING":
+        payload["speakTimeStamp"] = now
+        payload["transcriptGenerateTimeStamp"] = now
 
     return {
         "metaData": {
@@ -390,8 +378,6 @@ class LiveChatManager:
                 chars_per_second=float(request.chars_per_second),
                 pace_jitter_pct=float(request.pace_jitter_pct),
                 started_at=now,
-                agent_id=f"AGT-{_random_hex(6)}",
-                customer_id=f"CST-{_random_hex(6)}",
             )
             self._upsert_note(
                 "connection-state",
@@ -554,8 +540,6 @@ class LiveChatManager:
                     sequence_number=sequence_number,
                     event_type="SESSION_ONGOING",
                     start_ts=start_ts,
-                    agent_id=self._state.agent_id or "",
-                    customer_id=self._state.customer_id or "",
                     speaker=row.speaker,
                     transcript=row.transcript,
                 )
@@ -580,8 +564,6 @@ class LiveChatManager:
                 sequence_number=complete_sequence,
                 event_type="SESSION_COMPLETE",
                 start_ts=start_ts,
-                agent_id=self._state.agent_id or "",
-                customer_id=self._state.customer_id or "",
                 speaker="System",
                 transcript="EOL",
             )
@@ -657,13 +639,11 @@ class LiveChatManager:
                 "speaker": payload.get("speaker"),
                 "transcript": payload.get("transcript"),
                 "sequence_number": sequence_number,
-                "created_at": payload.get("createdAtTimeStamp") or meta.get("callEndTimeStamp"),
+                "created_at": payload.get("speakTimeStamp") or meta.get("callEndTimeStamp"),
                 "kafka_partition": message.partition,
                 "kafka_offset": message.offset,
                 "kafka_timestamp": message.timestamp,
                 "kafka_lag_ms": lag_ms,
-                "agent_id": payload.get("agentId"),
-                "customer_id": payload.get("customerId"),
             }
             self._append_history(item)
             self._state.kafka_messages += 1

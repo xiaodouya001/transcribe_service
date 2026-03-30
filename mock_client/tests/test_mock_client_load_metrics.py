@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -80,3 +81,31 @@ async def test_load_single_conversation_does_not_count_send_when_socket_write_fa
     assert stats.ack == 0
     assert stats.error == 1
     assert stats.active_connections == 0
+
+
+@pytest.mark.asyncio
+async def test_load_single_conversation_sends_default_dialect_for_ongoing_and_complete():
+    stats = ws_driver.Stats()
+    ws = AsyncMock()
+    ws.send = AsyncMock()
+    ws.recv = AsyncMock(
+        side_effect=[
+            json.dumps({"metaData": {"eventType": "TRANSCRIPT_ACK"}, "payload": {}}),
+            json.dumps({"metaData": {"eventType": "EOL_ACK"}, "payload": {}}),
+        ]
+    )
+    ws.close = AsyncMock()
+
+    with patch.object(ws_driver, "_open_ws", new=AsyncMock(return_value=ws)):
+        await ws_driver._load_single_conversation(
+            ws_url="ws://unit-test",
+            stats=stats,
+            emit=_emit,
+            n_messages=2,
+            interval_ms=0,
+        )
+
+    assert ws.send.await_count == 2
+    sent_payloads = [json.loads(call.args[0]) for call in ws.send.await_args_list]
+    assert sent_payloads[0]["payload"]["dialect"] == "yue-x-auto"
+    assert sent_payloads[1]["payload"]["dialect"] == "yue-x-auto"

@@ -39,28 +39,20 @@ class Payload(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    agentId: Optional[str] = Field(None, max_length=32)
-    customerId: Optional[str] = Field(None, max_length=64)
     sequenceNumber: int = Field(..., ge=0)
     speaker: Speaker
     transcript: str = Field(..., max_length=8000)
     engineProvider: str = Field(..., max_length=64)
-    dialect: Optional[str] = Field(None, max_length=32)
+    dialect: str = Field(..., max_length=32)
     isFinal: bool
-    createdAtTimeStamp: datetime
+    speakTimeStamp: Optional[datetime] = None
+    transcriptGenerateTimeStamp: Optional[datetime] = None
 
-    @field_validator("agentId", "customerId")
+    @field_validator("speakTimeStamp", "transcriptGenerateTimeStamp")
     @classmethod
-    def _ensure_non_blank_identifier(cls, value: str | None) -> str | None:
+    def _ensure_utc_timestamp(cls, value: datetime | None) -> datetime | None:
         if value is None:
             return None
-        if not value.strip():
-            raise ValueError("identifier must not be empty")
-        return value
-
-    @field_validator("createdAtTimeStamp")
-    @classmethod
-    def _ensure_utc_timestamp(cls, value: datetime) -> datetime:
         if value.utcoffset() != timezone.utc.utcoffset(None):
             raise PydanticCustomError(
                 "datetime_not_utc",
@@ -91,6 +83,14 @@ class InboundMessage(BaseModel):
                 raise ValueError(
                     "speaker must be Agent or Customer when eventType=SESSION_ONGOING"
                 )
+            if self.payload.speakTimeStamp is None:
+                raise ValueError(
+                    "speakTimeStamp must be provided when eventType=SESSION_ONGOING"
+                )
+            if self.payload.transcriptGenerateTimeStamp is None:
+                raise ValueError(
+                    "transcriptGenerateTimeStamp must be provided when eventType=SESSION_ONGOING"
+                )
 
         if evt == EventType.SESSION_COMPLETE:
             if not self.metaData.callEndTimeStamp:
@@ -99,25 +99,17 @@ class InboundMessage(BaseModel):
                 )
             if speaker != Speaker.SYSTEM:
                 raise ValueError("speaker must be System when eventType=SESSION_COMPLETE")
+            if "speakTimeStamp" in self.payload.model_fields_set:
+                raise ValueError(
+                    "speakTimeStamp must be omitted when eventType=SESSION_COMPLETE"
+                )
+            if "transcriptGenerateTimeStamp" in self.payload.model_fields_set:
+                raise ValueError(
+                    "transcriptGenerateTimeStamp must be omitted when eventType=SESSION_COMPLETE"
+                )
 
         if not self.payload.isFinal:
             raise ValueError("isFinal must be true")
-
-        if speaker == Speaker.AGENT:
-            if self.payload.agentId is None:
-                raise ValueError("agentId must be provided when speaker=Agent")
-            if self.payload.customerId is not None:
-                raise ValueError("customerId must be null or omitted when speaker=Agent")
-        elif speaker == Speaker.CUSTOMER:
-            if self.payload.customerId is None:
-                raise ValueError("customerId must be provided when speaker=Customer")
-            if self.payload.agentId is not None:
-                raise ValueError("agentId must be null or omitted when speaker=Customer")
-        elif speaker == Speaker.SYSTEM:
-            if self.payload.agentId is not None:
-                raise ValueError("agentId must be null or omitted when speaker=System")
-            if self.payload.customerId is not None:
-                raise ValueError("customerId must be null or omitted when speaker=System")
 
         return self
 
