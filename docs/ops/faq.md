@@ -55,6 +55,7 @@ Because the first Ping is sent after `WS_PING_INTERVAL` seconds (default `20s`),
 To preserve ordering, idempotency, and lossless retry behavior, clients must follow these rules:
 
 - The WebSocket handshake must include the `conversationId` query parameter
+- When deployment authentication is enabled, the handshake must include `Authorization: Bearer <JWT>`; missing, malformed, invalid, or expired credentials are rejected with HTTP `401` + `E1010` before the WebSocket upgrade
 - If the body includes `metaData.conversationId`, it must exactly match the handshake query
 - Only one active sending connection may exist for the same `conversationId`
 - `sequenceNumber` must start at `0` and advance strictly as `0, 1, 2, 3, ...`
@@ -69,3 +70,11 @@ For the canonical error-code matrix and normal/error flow examples, see:
 
 - `docs/design/api-contract.md`
 - `docs/design/protocol-scenario-matrix.md`
+
+---
+
+## Q9. Why does the handshake fail with HTTP 401 and `E1010`?
+
+When `AUTH_ENABLED=true`, the service validates the `Authorization: Bearer <JWT>` header during the handshake before the WebSocket upgrade completes and before the ownership guard is claimed. Missing, malformed, invalid, or expired credentials are rejected directly as HTTP `401` + `E1010`.
+
+**What to do:** generate a fresh HS256 token with the shared signing material, confirm the `exp` claim is still valid, and verify that the client is actually sending the header on the WebSocket upgrade request.
