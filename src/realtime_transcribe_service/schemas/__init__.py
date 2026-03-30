@@ -7,7 +7,6 @@ from realtime_transcribe_service.schemas.request import (
     MetaData,
     Payload,
 )
-from realtime_transcribe_service.schemas.kafka_outbound import KafkaEnrich, KafkaOutboundMessage
 from realtime_transcribe_service.schemas.response import (
     EolAckResponse,
     ErrorResponse,
@@ -27,8 +26,6 @@ __all__ = [
     "InboundMessage",
     "MetaData",
     "Payload",
-    "KafkaEnrich",
-    "KafkaOutboundMessage",
     "Speaker",
     "EolAckResponse",
     "ErrorResponse",

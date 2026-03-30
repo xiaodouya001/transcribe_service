@@ -28,6 +28,12 @@
 
 ## 2. WebSocket Connection Problems
 
+### Handshake rejected with HTTP 401
+
+**Cause:** handshake authentication is enabled and the client did not send a valid `Authorization: Bearer <JWT>` header. The service rejects the request with `E1010` before the WebSocket upgrade completes.
+
+**Resolution:** confirm `AUTH_ENABLED`, send a non-expired HS256 Bearer token, and make sure the client and service use the same signing material.
+
 ### Handshake rejected with HTTP 503
 
 **Cause:** the service is draining during graceful shutdown.

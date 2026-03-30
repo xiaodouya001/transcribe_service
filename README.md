@@ -1,6 +1,6 @@
 # Realtime Transcribe Service
 
-> A multi-cloud real-time data gateway. Fano Assist connects to this service over WebSocket, and Realtime Transcribe Service runs a two-phase commit flow (Redis Lua for sequence ordering plus Kafka persistence) to deliver transcripts reliably into Kafka.
+> A multi-cloud real-time data gateway. Fano Assist connects to this service over WebSocket, and Realtime Transcribe Service runs a two-phase commit flow (Redis Lua for sequence ordering plus Kafka persistence) to deliver transcripts reliably into Kafka, with optional handshake-time Bearer JWT authentication.
 
 ---
 
@@ -29,6 +29,7 @@ python -m realtime_transcribe_service.main
 realtime_transcribe_service/
 ├── src/realtime_transcribe_service/
 │   ├── config/                      # Runtime settings and logging configuration
+│   ├── auth/                        # Optional handshake JWT authentication
 │   ├── main.py                      # Main entrypoint (DI + lifecycle wiring)
 │   ├── schemas/                     # Contract layer: Pydantic request/response models
 │   ├── transport/                   # Ingress layer: WebSocket server
@@ -100,5 +101,7 @@ docker run --rm -p 8080:8080 \
   -e KAFKA_BOOTSTRAP_SERVERS=<broker-1>:9092,<broker-2>:9092 \
   realtime-transcribe-service:latest
 ```
+
+If handshake authentication is enabled for the deployment, also pass `AUTH_ENABLED=true` and `AUTH_JWT_SIGNING_MATERIAL=<shared-signing-material>` (the default `AUTH_JWT_ALGORITHM` is `HS256`).
 
 Target environment: AWS ECS Fargate. See [docs/cicd/ci-cd.md](docs/cicd/ci-cd.md) for details.

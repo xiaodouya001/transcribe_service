@@ -102,6 +102,7 @@ sequenceDiagram
     end
 
     Main->>Main: Record startup check duration
+    Main->>Main: If AUTH_ENABLED, initialize JwtBearerAuthBackend
     Main->>Main: Start Uvicorn (FastAPI service on 0.0.0.0:8080)
 ```
 
@@ -116,15 +117,20 @@ sequenceDiagram
     participant RedisState as Redis (Sequence State Machine)
     participant Kafka as Kafka
 
-    Upstream->>Trans: Start WebSocket handshake (conversationId)
-    Trans->>RedisOwnership: claim_or_refresh(conversationId, ownershipToken) during handshake
-    alt Ownership already held by another connection
-        RedisOwnership-->>Trans: BUSY
-        Trans-->>Upstream: Reject handshake (HTTP 403 + E1009)
-    else Ownership acquired
-        RedisOwnership-->>Trans: OWNED
-        Trans->>Upstream: Accept WebSocket upgrade
-        Trans->>Trans: Start background refresh loop
+    Upstream->>Trans: Start WebSocket handshake (conversationId, optional Authorization)
+    alt AUTH_ENABLED and Authorization is missing or invalid
+        Trans->>Trans: Validate Bearer JWT during handshake
+        Trans-->>Upstream: Reject handshake (HTTP 401 + E1010)
+    else Authentication passes or is disabled
+        Trans->>RedisOwnership: claim_or_refresh(conversationId, ownershipToken) during handshake
+        alt Ownership already held by another connection
+            RedisOwnership-->>Trans: BUSY
+            Trans-->>Upstream: Reject handshake (HTTP 403 + E1009)
+        else Ownership acquired
+            RedisOwnership-->>Trans: OWNED
+            Trans->>Upstream: Accept WebSocket upgrade
+            Trans->>Trans: Start background refresh loop
+        end
     end
 
     Upstream->>Trans: Send SESSION_ONGOING (seq=N)
@@ -216,7 +222,7 @@ sequenceDiagram
     participant Kafka as Kafka
 
     Upstream->>Trans: Send message (SESSION_ONGOING or SESSION_COMPLETE)
-    Trans->>Trans: Handshake claim already passed before message processing starts
+    Trans->>Trans: Handshake admission already passed before message processing starts
     Trans->>Trans: Background ownership refresh continues during request processing
     Trans->>Trans: Validate schema and orchestrate the request
 
@@ -303,8 +309,9 @@ The application follows a dependency-inversion architecture. The orchestrator si
 
 | Module | Primary Responsibility | Allowed Core Actions | Architectural No-Go Zone |
 | --- | --- | --- | --- |
-| `main.py` | Application lifecycle and dependency assembly | Initialize Redis and Kafka components; wire the app; handle graceful shutdown | No business decisions and no JSON parsing |
+| `main.py` | Application lifecycle and dependency assembly | Initialize Redis, Kafka, and optional auth components; wire the app; handle graceful shutdown | No business decisions and no JSON parsing |
 | `config/` | Environment-backed settings and logging bootstrap | Load and validate `Settings` (Pydantic Settings / `.env`); derive local defaults vs. deployed required keys; configure structlog and stdlib logging (`LOG_LEVEL`, `LOG_FORMAT`) | No WebSocket or protocol handling; no Redis, Kafka, or orchestration calls |
+| `auth/` | Handshake authentication boundary | Validate `Authorization: Bearer <JWT>` during handshake and expose the authenticated subject to the transport scope | No ownership claims, no sequence advancement, and no Kafka/orchestrator calls |
 | `schemas/` | Protocol contract and validation layer | Validate fields, types, timestamps, and business rules; build standard responses | No network I/O and no data-store calls |
 | `converter/` | Kafka outbound conversion layer | Build `KafkaOutboundMessage` from validated `InboundMessage`, set `enrich.eventProduceTimestamp` immediately before `producer.send`, and validate outbound schema | Must not perform network I/O or mutate caller input |
 | `utils/` | Shared utility helpers | Provide reusable pure helpers such as canonical UTC timestamp formatting | No business orchestration and no network/data-store I/O |
@@ -332,6 +339,7 @@ The handshake query parameter `conversationId` is the connection-level session i
 | Mechanism | Design |
 | --- | --- |
 | **Connection identity** | The handshake query `conversationId` is the unique connection-level identifier. If `metaData.conversationId` is provided as a string in the message body, it must match the handshake value |
+| **Handshake authentication** | When `AUTH_ENABLED=true`, the service validates `Authorization: Bearer <JWT>` before shutdown admission or ownership claim. Missing, malformed, invalid, or expired credentials reject the handshake with HTTP `401` + `E1010` |
 | **Ownership acquisition** | During the handshake, the service calls `claim_or_refresh(conversationId, ownershipToken)` before accepting the WebSocket upgrade |
 | **Conflict handling** | If ownership is already held by another connection, the service rejects the handshake immediately with HTTP `403` and `E1009`; the request never reaches the orchestrator |
 | **Liveness during the session** | After the connection is established, a background task keeps refreshing the ownership TTL. If refresh detects a conflict or the backing store becomes unavailable, the service sends `ERROR` and closes the connection |

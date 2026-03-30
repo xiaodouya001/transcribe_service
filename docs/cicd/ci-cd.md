@@ -91,12 +91,20 @@ The minimum production configuration is:
 | `LOG_FORMAT` | Usually `json` in production |
 | `LOG_LEVEL` | Typical values include `INFO` or `WARNING` |
 
+If handshake authentication is enabled for the deployment, also inject:
+
+| Variable | Description |
+|------|------|
+| `AUTH_ENABLED` | Set to `true` to enforce handshake-time `Authorization: Bearer <JWT>` validation |
+| `AUTH_JWT_SIGNING_MATERIAL` | HS256 signing material shared with trusted clients |
+| `AUTH_JWT_ALGORITHM` | Defaults to `HS256`; V1 currently supports only `HS256` |
+
 Deployed environments should inject these values as real process environment variables. Do not rely on `.env` files in ECS or other deployed runtimes.
 
 For AWS ECS, use:
 
 - task definition `environment` for non-sensitive values such as `APP_ENV`, `KAFKA_TOPIC`, `HTTP_HOST`, and `HTTP_PORT`
-- task definition `secrets` or AWS Secrets Manager / SSM for sensitive values such as `REDIS_URL`
+- task definition `secrets` or AWS Secrets Manager / SSM for sensitive values such as `REDIS_URL` and `AUTH_JWT_SIGNING_MATERIAL`
 
 Startup is fail-fast:
 
