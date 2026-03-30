@@ -302,6 +302,8 @@ class TwoPhaseOrchestrator:
                 return ErrorCode.E1003, WsCloseCode.POLICY_VIOLATION
             if "enum" in err_type or "literal" in err_type:
                 return ErrorCode.E1002, WsCloseCode.POLICY_VIOLATION
+            if err_type == "extra_forbidden":
+                return ErrorCode.E1004, WsCloseCode.POLICY_VIOLATION
             if "type" in err_type or "int" in err_type or "bool" in err_type:
                 return ErrorCode.E1004, WsCloseCode.POLICY_VIOLATION
             if err_type == "value_error":

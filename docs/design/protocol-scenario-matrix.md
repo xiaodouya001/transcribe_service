@@ -21,8 +21,8 @@ Business constraints such as handshake/body `conversationId` matching, continuou
 | E-03   | Connection limit exceeded (`WS_MAX_CONNECTIONS`) | Pre-handshake | **E1008** | **429** | - | Yes, handshake rejected | See E-03 below |
 | E-04   | JSON decode failed | Post-handshake | **E1001** | - | **1007** (`Invalid Payload`) | Yes | See E-04 below |
 | E-05   | Invalid enum value, such as `eventType` | Post-handshake | **E1002** | - | **1008** (`Policy Violation`) | Yes | See E-05 below |
-| E-06   | Missing required field | Post-handshake | **E1003** | - | **1008** (`Policy Violation`) | Yes | See E-06 below |
-| E-07   | Field type mismatch | Post-handshake | **E1004** | - | **1008** (`Policy Violation`) | Yes | See E-07 below |
+| E-06   | Missing required field, such as `payload.dialect` | Post-handshake | **E1003** | - | **1008** (`Policy Violation`) | Yes | See E-06 below |
+| E-07   | Field type mismatch or unexpected extra field | Post-handshake | **E1004** | - | **1008** (`Policy Violation`) | Yes | See E-07 below |
 | E-08   | Invalid timestamp format | Post-handshake | **E1005** | - | **1008** (`Policy Violation`) | Yes | See E-08 below |
 | E-09   | Sequence number out of order | Post-handshake | **E1006** | - | **1008** (`Policy Violation`) | Yes | See E-09 below |
 | E-10   | Kafka timeout | Post-handshake | **E1011** | - | **1013** (`Try Again Later`) | Yes | See E-10 below |
@@ -50,7 +50,7 @@ Business constraints such as handshake/body `conversationId` matching, continuou
 
 ## 3. Normal Response Examples
 
-Field definitions follow **section 3.1** of the API contract, including optional `serverProcessingMs`.
+Field definitions follow **section 3.1** of the API contract, including optional `serverProcessingMs`. Request-side timestamp validation now uses `speakTimeStamp` and `transcriptGenerateTimeStamp`; the ACK / ERROR examples below intentionally keep response-side `createdAtTimeStamp`.
 
 ### N-01 `SESSION_ONGOING` succeeds
 
@@ -181,13 +181,13 @@ This scenario does not produce a business JSON response. The server sends a WebS
   "error": {
     "code": "E1003",
     "message": "Validation failed",
-    "details": "Field required: metaData.conversationId",
+    "details": "Field required: payload.dialect",
     "createdAtTimeStamp": "2026-03-21T03:00:00.000Z"
   }
 }
 ```
 
-### E-07 Field type mismatch (close 1008)
+### E-07 Field type mismatch or unexpected extra field (close 1008)
 
 ```json
 {
@@ -209,11 +209,13 @@ This scenario does not produce a business JSON response. The server sends a WebS
   "error": {
     "code": "E1005",
     "message": "Validation failed",
-    "details": "createdAtTimeStamp must be a valid ISO-8601 UTC timestamp",
+    "details": "speakTimeStamp must be a valid ISO-8601 UTC timestamp",
     "createdAtTimeStamp": "2026-03-21T03:00:00.000Z"
   }
 }
 ```
+
+This mapping also covers schema-rejected extra fields, such as legacy request fields that are no longer part of the contract.
 
 ### E-09 Sequence number out of order (close 1008)
 

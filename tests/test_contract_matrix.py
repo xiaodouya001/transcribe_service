@@ -234,7 +234,7 @@ class TestOrchestratorContractMatrix:
                 id="E-05",
             ),
             pytest.param(
-                lambda msg: msg["metaData"].pop("conversationId"),
+                lambda msg: msg["payload"].pop("dialect"),
                 "E1003",
                 1008,
                 id="E-06",
@@ -247,23 +247,25 @@ class TestOrchestratorContractMatrix:
             ),
             pytest.param(
                 lambda msg: msg["payload"].__setitem__(
-                    "createdAtTimeStamp", "2025-03-21T18:32:20.000+08:00"
+                    "speakTimeStamp", "2025-03-21T18:32:20.000+08:00"
                 ),
                 "E1005",
                 1008,
-                id="E-08",
+                id="E-08-speak",
+            ),
+            pytest.param(
+                lambda msg: msg["payload"].__setitem__(
+                    "transcriptGenerateTimeStamp", "2025-03-21T18:32:20.000+08:00"
+                ),
+                "E1005",
+                1008,
+                id="E-08-asr",
             ),
             pytest.param(
                 lambda msg: msg["payload"].__setitem__("isFinal", False),
                 "E1009",
                 1008,
                 id="E-15",
-            ),
-            pytest.param(
-                lambda msg: msg["metaData"].__setitem__("staffId", "S1"),
-                "E1003",
-                1008,
-                id="E-17",
             ),
         ],
     )

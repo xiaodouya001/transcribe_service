@@ -80,22 +80,18 @@ def generate_message(
     seq: int,
     *,
     event_type: str = "SESSION_ONGOING",
-    agent_id: str | None = None,
-    customer_id: str | None = None,
     start_ts: str | None = None,
 ) -> dict[str, Any]:
     """Generate one message that matches the InboundMessage schema."""
     now = _utc_now_iso()
     if event_type == "SESSION_COMPLETE":
         payload = {
-            "agentId": None,
-            "customerId": None,
             "sequenceNumber": seq,
             "speaker": "System",
             "transcript": "EOL",
             "engineProvider": "FanoLabs",
+            "dialect": "yue-x-auto",
             "isFinal": True,
-            "createdAtTimeStamp": now,
         }
     else:
         speaker = random.choice(["Agent", "Customer"])
@@ -104,15 +100,11 @@ def generate_message(
             "speaker": speaker,
             "transcript": random_transcript(),
             "engineProvider": "FanoLabs",
+            "dialect": "yue-x-auto",
             "isFinal": True,
-            "createdAtTimeStamp": now,
+            "speakTimeStamp": now,
+            "transcriptGenerateTimeStamp": now,
         }
-        if speaker == "Agent":
-            payload["agentId"] = agent_id or f"AGT-{_random_hex(4)}"
-            payload["customerId"] = None
-        else:
-            payload["agentId"] = None
-            payload["customerId"] = customer_id or f"CST-{_random_hex(4)}"
     return {
         "metaData": {
             "conversationId": conversation_id,
@@ -476,7 +468,7 @@ async def scenario_a_normal_flow(
     result = ScenarioResult(name="N-01", passed=True)
     cid = f"mock-N01-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"start_ts": start_ts}
     await emit(
                 "conversation_registered",
                 {"conversation_id": cid, "scenario": result.name},
@@ -512,7 +504,7 @@ async def scenario_b_idempotent(
     result = ScenarioResult(name="N-02", passed=True)
     cid = f"mock-N02-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"start_ts": start_ts}
     await emit(
                 "conversation_registered",
                 {"conversation_id": cid, "scenario": result.name},
@@ -568,7 +560,7 @@ async def scenario_c_out_of_order(
     jump_seq = max(2, n_messages)
     cid = f"mock-E09-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"start_ts": start_ts}
     await emit(
                 "conversation_registered",
                 {"conversation_id": cid, "scenario": result.name},
@@ -736,7 +728,10 @@ async def scenario_d2_schema_error(ws_url: str, emit: EventCallback) -> Scenario
         return result
 
     try:
-        bad_msg = {"metaData": {"eventType": "SESSION_ONGOING"}, "payload": {}}
+        bad_msg = {
+            "metaData": {"eventType": "SESSION_ONGOING"},
+            "payload": {"dialect": "yue-x-auto"},
+        }
         await _send_expect_error_and_close(
             ws,
             bad_msg,
@@ -761,7 +756,7 @@ async def scenario_e05_invalid_enum(ws_url: str, emit: EventCallback) -> Scenari
     result = ScenarioResult(name="E-05", passed=True)
     cid = f"mock-E05-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"start_ts": start_ts}
     await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
 
     try:
@@ -798,7 +793,7 @@ async def scenario_e07_wrong_type(ws_url: str, emit: EventCallback) -> ScenarioR
     result = ScenarioResult(name="E-07", passed=True)
     cid = f"mock-E07-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"start_ts": start_ts}
     await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
 
     async def _run_subcase(msg: dict | str, *, action: str) -> None:
@@ -841,7 +836,7 @@ async def scenario_e08_invalid_timestamp(ws_url: str, emit: EventCallback) -> Sc
     result = ScenarioResult(name="E-08", passed=True)
     cid = f"mock-E08-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"start_ts": start_ts}
     await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
 
     try:
@@ -854,7 +849,7 @@ async def scenario_e08_invalid_timestamp(ws_url: str, emit: EventCallback) -> Sc
 
     try:
         bad_msg = generate_message(cid, 0, event_type="SESSION_ONGOING", **meta_base)
-        bad_msg["payload"]["createdAtTimeStamp"] = "2025-03-21T18:32:20.000+08:00"
+        bad_msg["payload"]["speakTimeStamp"] = "2025-03-21T18:32:20.000+08:00"
         await _send_expect_error_and_close(
             ws,
             bad_msg,
@@ -880,7 +875,7 @@ async def scenario_e14_conversation_id_mismatch(ws_url: str, emit: EventCallback
     result = ScenarioResult(name="E-14", passed=True)
     cid = f"mock-E14-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"start_ts": start_ts}
     await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
 
     try:
@@ -917,7 +912,7 @@ async def scenario_e15_business_rule_violation(ws_url: str, emit: EventCallback)
     result = ScenarioResult(name="E-15", passed=True)
     cid = f"mock-E15-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"start_ts": start_ts}
     await emit("conversation_registered", {"conversation_id": cid, "scenario": result.name})
 
     try:
@@ -958,7 +953,7 @@ async def scenario_g_session_complete(
     result = ScenarioResult(name="N-03", passed=True)
     cid = f"mock-N03-{_random_hex(6)}"
     start_ts = _utc_now_iso()
-    meta_base = {"agent_id": f"AGT-{_random_hex()}", "customer_id": f"CST-{_random_hex()}", "start_ts": start_ts}
+    meta_base = {"start_ts": start_ts}
     await emit(
                 "conversation_registered",
                 {"conversation_id": cid, "scenario": result.name},
@@ -1025,11 +1020,7 @@ async def _load_single_conversation(
     if sse_register_cid:
         await emit("conversation_registered", {"conversation_id": cid})
     start_ts = _utc_now_iso()
-    meta_base = {
-        "agent_id": f"AGT-{_random_hex()}",
-        "customer_id": f"CST-{_random_hex()}",
-        "start_ts": start_ts,
-    }
+    meta_base = {"start_ts": start_ts}
     interval = interval_ms / 1000.0
 
     def mark_sent() -> None:

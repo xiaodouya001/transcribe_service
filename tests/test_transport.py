@@ -69,15 +69,11 @@ def _ongoing_message(
         "speaker": speaker,
         "transcript": "Hello",
         "engineProvider": "FanoLabs",
+        "dialect": "yue-x-auto",
         "isFinal": True,
-        "createdAtTimeStamp": "2025-01-01T00:00:01Z",
+        "speakTimeStamp": "2025-01-01T00:00:00Z",
+        "transcriptGenerateTimeStamp": "2025-01-01T00:00:01Z",
     }
-    if speaker == "Customer":
-        payload["agentId"] = None
-        payload["customerId"] = "C1"
-    else:
-        payload["agentId"] = "A1"
-        payload["customerId"] = None
 
     return {
         "metaData": {
@@ -99,14 +95,12 @@ def _complete_message(conversation_id: str = "conv-1", *, seq: int = 42) -> dict
             "eventType": "SESSION_COMPLETE",
         },
         "payload": {
-            "agentId": None,
-            "customerId": None,
             "sequenceNumber": seq,
             "speaker": "System",
             "transcript": "session ended",
             "engineProvider": "FanoLabs",
+            "dialect": "yue-x-auto",
             "isFinal": True,
-            "createdAtTimeStamp": "2025-01-01T00:05:00Z",
         },
     }
 
@@ -628,14 +622,14 @@ class TestWebSocket:
                 "eventType": "SESSION_ONGOING",
             },
             "payload": {
-                "agentId": "A1",
-                "customerId": None,
                 "sequenceNumber": 0,
                 "speaker": "Agent",
                 "transcript": "Hello",
                 "engineProvider": "FanoLabs",
+                "dialect": "yue-x-auto",
                 "isFinal": True,
-                "createdAtTimeStamp": "2025-01-01T00:00:01Z",
+                "speakTimeStamp": "2025-01-01T00:00:00Z",
+                "transcriptGenerateTimeStamp": "2025-01-01T00:00:01Z",
             },
         }
         with client.websocket_connect(
@@ -675,14 +669,14 @@ class TestWebSocket:
                 "eventType": "SESSION_ONGOING",
             },
             "payload": {
-                "agentId": "A1",
-                "customerId": None,
                 "sequenceNumber": 0,
                 "speaker": "Agent",
                 "transcript": "Hello",
                 "engineProvider": "FanoLabs",
+                "dialect": "yue-x-auto",
                 "isFinal": True,
-                "createdAtTimeStamp": "2025-01-01T00:00:01Z",
+                "speakTimeStamp": "2025-01-01T00:00:00Z",
+                "transcriptGenerateTimeStamp": "2025-01-01T00:00:01Z",
             },
         }
         with client.websocket_connect(
