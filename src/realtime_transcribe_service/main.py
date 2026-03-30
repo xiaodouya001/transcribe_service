@@ -9,6 +9,7 @@ from typing import Any
 import uvicorn
 from pydantic import ValidationError
 
+from realtime_transcribe_service.auth.jwt_bearer import JwtBearerAuthBackend
 from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
 from realtime_transcribe_service.config.logging_config import configure_logging, get_logger
 from realtime_transcribe_service.config.settings import get_settings
@@ -140,11 +141,19 @@ async def run() -> None:
         wall_ms=round((time.perf_counter() - t_checks) * 1000, 2),
     )
 
+    auth_backend = None
+    if settings.auth_enabled is True:
+        auth_backend = JwtBearerAuthBackend(
+            signing_material=settings.auth_jwt_signing_material or "",
+            algorithm=settings.auth_jwt_algorithm,
+        )
+
     # --- Build the FastAPI application ---
     app = create_app(
         orchestrator=orchestrator,
         shutdown=shutdown,
         registry=registry,
+        auth_backend=auth_backend,
         ownership_guard=ownership_guard,
         redis_url=settings.redis_url,
         producer=producer,

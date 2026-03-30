@@ -9,6 +9,7 @@ requires-python = ">=3.11"
 dependencies = [
     "aiokafka[lz4]>=0.10.0",
     "orjson>=3.9.0",
+    "PyJWT>=2.8.0",
     "redis>=5.0.0",
     "pydantic-settings>=2.0",
     "structlog>=24.0",
@@ -60,6 +61,7 @@ packages = [
 python = ">=3.11"
 aiokafka = {extras = ["lz4"], version = ">=0.10.0"}
 orjson = ">=3.9.0"
+PyJWT = ">=2.8.0"
 redis = ">=5.0.0"
 pydantic-settings = ">=2.0"
 structlog = ">=24.0"

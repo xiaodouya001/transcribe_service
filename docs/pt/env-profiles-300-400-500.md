@@ -6,6 +6,7 @@
 - They are tuned for low-latency real-time traffic, prioritizing `P95` and stability over raw peak throughput
 - `KAFKA_TOPIC_NUM_PARTITIONS` only applies when creating a new topic; existing topics must be repartitioned separately
 - `WS_PING_INTERVAL` and `WS_PING_TIMEOUT` are passed from `main.py` into Uvicorn with `ws="websockets"` and control RFC WebSocket Ping/Pong keepalive, not business JSON behavior
+- If handshake JWT authentication is enabled, `AUTH_ENABLED`, `AUTH_JWT_SIGNING_MATERIAL`, and `AUTH_JWT_ALGORITHM` must also be set. The concurrency profile does not change those values; they are shared across all three profiles.
 
 ---
 
@@ -16,7 +17,7 @@
 | `WS_MAX_CONNECTIONS`         | 360            | 480           | 600            |
 | `REDIS_MAX_CONNECTIONS`      | 900            | 1200          | 1600           |
 | `REDIS_OWNERSHIP_GUARD_TTL_SEC` | 30       | 30            | 30             |
-| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | realtime-transcribe-service:transcript-checker | realtime-transcribe-service:transcript-checker | realtime-transcribe-service:transcript-checker |
+| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | realtime-transcribe-service:expect-transcript-seq-num | realtime-transcribe-service:expect-transcript-seq-num | realtime-transcribe-service:expect-transcript-seq-num |
 | `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | realtime-transcribe-service:conversation-owner | realtime-transcribe-service:conversation-owner | realtime-transcribe-service:conversation-owner |
 | `HTTP_BACKLOG`               | 4096           | 4096          | 4096           |
 | `KAFKA_COMPRESSION_TYPE`     | lz4            | lz4           | lz4            |
@@ -28,6 +29,9 @@
 | `WS_PING_INTERVAL`           | 20.0           | 20.0          | 20.0           |
 | `WS_PING_TIMEOUT`            | 10.0           | 10.0          | 10.0           |
 | `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 5.0 | 5.0 | 5.0 |
+| `AUTH_ENABLED`               | false by default; set true when handshake auth is enabled | false by default; set true when handshake auth is enabled | false by default; set true when handshake auth is enabled |
+| `AUTH_JWT_SIGNING_MATERIAL`  | signing material from secure config when auth is enabled | signing material from secure config when auth is enabled | signing material from secure config when auth is enabled |
+| `AUTH_JWT_ALGORITHM`         | HS256          | HS256         | HS256          |
 | `STOP_TIMEOUT`               | 120            | 120           | 120            |
 
 ---
@@ -61,7 +65,7 @@
 WS_MAX_CONNECTIONS=360
 REDIS_MAX_CONNECTIONS=900
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:transcript-checker
+REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:expect-transcript-seq-num
 REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
@@ -71,6 +75,9 @@ KAFKA_SEND_TIMEOUT_SEC=5
 KAFKA_TOPIC_NUM_PARTITIONS=100
 LOG_LEVEL=WARNING
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
+AUTH_ENABLED=true
+AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material-from-secure-config
+AUTH_JWT_ALGORITHM=HS256
 ```
 
 ### 400 concurrency per instance
@@ -79,7 +86,7 @@ WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 WS_MAX_CONNECTIONS=480
 REDIS_MAX_CONNECTIONS=1200
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:transcript-checker
+REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:expect-transcript-seq-num
 REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
@@ -89,6 +96,9 @@ KAFKA_SEND_TIMEOUT_SEC=5
 KAFKA_TOPIC_NUM_PARTITIONS=100
 LOG_LEVEL=WARNING
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
+AUTH_ENABLED=true
+AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material-from-secure-config
+AUTH_JWT_ALGORITHM=HS256
 ```
 
 ### 500 concurrency per instance
@@ -97,7 +107,7 @@ WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 WS_MAX_CONNECTIONS=600
 REDIS_MAX_CONNECTIONS=1600
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:transcript-checker
+REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:expect-transcript-seq-num
 REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
 KAFKA_COMPRESSION_TYPE=lz4
@@ -107,4 +117,7 @@ KAFKA_SEND_TIMEOUT_SEC=5
 KAFKA_TOPIC_NUM_PARTITIONS=100
 LOG_LEVEL=WARNING
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
+AUTH_ENABLED=true
+AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material-from-secure-config
+AUTH_JWT_ALGORITHM=HS256
 ```

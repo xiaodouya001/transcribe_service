@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 import realtime_transcribe_service.main as main_mod
+from realtime_transcribe_service.auth.jwt_bearer import JwtBearerAuthBackend
 from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
 from realtime_transcribe_service.config.settings import Settings
 
@@ -126,6 +127,9 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
     settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
+    settings.auth_enabled = True
+    settings.auth_jwt_signing_material = "signing-material"
+    settings.auth_jwt_algorithm = "HS256"
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
@@ -164,11 +168,13 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     monkeypatch.setattr(main_mod, "ConnectionRegistry", lambda: reg)
 
     app_obj = object()
-    monkeypatch.setattr(
-        main_mod,
-        "create_app",
-        lambda **kw: app_obj,
-    )
+    create_app_kwargs: dict = {}
+
+    def capture_create_app(**kw):
+        create_app_kwargs.update(kw)
+        return app_obj
+
+    monkeypatch.setattr(main_mod, "create_app", capture_create_app)
 
     monkeypatch.setattr(main_mod, "_check_redis", AsyncMock())
     monkeypatch.setattr(main_mod, "_check_kafka", AsyncMock())
@@ -218,6 +224,7 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     assert kw["log_config"] is None
     assert kw["log_level"] == "info"
     assert isinstance(orchestrator_kwargs["message_converter"], KafkaMessageConverter)
+    assert isinstance(create_app_kwargs["auth_backend"], JwtBearerAuthBackend)
 
     reg.close_all.assert_awaited()
     prod.flush.assert_awaited()

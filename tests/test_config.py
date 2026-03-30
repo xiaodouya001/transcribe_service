@@ -41,6 +41,9 @@ class TestSettings:
         )
         assert s.ws_ownership_guard_refresh_interval_sec == 5.0
         assert s.log_slow_message_threshold_ms == 0.0
+        assert s.auth_enabled is False
+        assert s.auth_jwt_signing_material is None
+        assert s.auth_jwt_algorithm == "HS256"
 
     def test_deployed_requires_explicit_dependency_addresses(self):
         with pytest.raises(ValidationError, match="APP_ENV=deployed"):
@@ -104,5 +107,26 @@ class TestSettings:
 
         assert Settings._normalize_app_env(marker) is marker
         assert Settings._normalize_log_level(marker) is marker
+        assert Settings._normalize_auth_jwt_algorithm(marker) is marker
         assert Settings._normalize_lowercase_enums(marker) is marker
         assert Settings._reject_blank_strings(marker) is marker
+
+    def test_auth_enabled_requires_jwt_signing_material(self):
+        with pytest.raises(
+            ValidationError,
+            match="AUTH_JWT_SIGNING_MATERIAL must be set",
+        ):
+            Settings(
+                _env_file=None,
+                app_env="local",
+                auth_enabled=True,
+            )
+
+    def test_auth_jwt_algorithm_is_normalized_to_uppercase(self):
+        s = Settings(
+            _env_file=None,
+            app_env="local",
+            auth_jwt_signing_material="signing-material",
+            auth_jwt_algorithm="hs256",
+        )
+        assert s.auth_jwt_algorithm == "HS256"

@@ -6,7 +6,7 @@
 | Attribute             | Value                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------- |
 | **API major version** | **V1** (aligned with the WebSocket path prefix `/ws/v1/`)                           |
-| **Document version**  | **1.2.1** (semantic version of *this* contract document; independent patch counter) |
+| **Document version**  | **1.3.0** (semantic version of *this* contract document; independent patch counter) |
 
 
 ### Revision policy (normative)
@@ -91,14 +91,14 @@ Edits that affect normative behavior, codes, fields, or examples require a **§7
 | `conversationId` | Yes      | string | Uses the Genesys Call ID and uniquely identifies the transcription session | `/ws/v1/realtime-transcriptions?conversationId=39449992-32f3-4581-a8a1-99d4109f37d4` |
 
 
-### 1.2 Headers (Reserved)
+### 1.2 Headers
 
-> The complete header list is still under review. Authentication is not enforced in the current implementation, so the header below remains reserved.
+> The full handshake header set may expand later. In V1, `Authorization` is the only normative handshake header beyond the standard WebSocket upgrade headers. When deployment authentication is enabled, the service validates the Bearer JWT signature and `exp` claim during the handshake.
 
 
-| Header          | Required     | Type   | Max Length | Description                                                                                                                                    |
-| --------------- | ------------ | ------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Authorization` | No, reserved | string | 4096       | Placeholder for a bearer token or other credentials. Whether it becomes mandatory will be decided when the authentication design is finalized. |
+| Header          | Required    | Type   | Max Length | Description                                                                                       |
+| --------------- | ----------- | ------ | ---------- | ------------------------------------------------------------------------------------------------- |
+| `Authorization` | Conditional | string | 4096       | `Bearer <JWT>` signed with HS256; required when deployment authentication is enabled, otherwise not required |
 
 
 ### 1.3 Event Types and Message Flow
@@ -352,7 +352,7 @@ Keepalive uses **RFC 6455** WebSocket **Ping** and **Pong** control frames. They
 | ------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------- |
 | WebSocket upgrade accepted                  | 101    | Switching Protocols                                                                                                       |
 | Invalid request, query parameter, or header | 400    | Bad Request                                                                                                               |
-| Unauthorized                                | 401    | Reserved for invalid or expired credentials once authentication is enabled                                                |
+| Unauthorized                                | 401    | Invalid, expired, missing, or malformed Bearer credentials during the handshake                                           |
 | Forbidden                                   | 403    | Forbidden; used for policy conflicts known at handshake time, such as an existing active sender for the same conversation |
 | Rate limited                                | 429    | Too Many Requests                                                                                                         |
 | Internal handshake error                    | 500    | Internal Server Error                                                                                                     |
@@ -389,7 +389,7 @@ Keepalive uses **RFC 6455** WebSocket **Ping** and **Pong** control frames. They
 | E1007      | ERROR       | 500                                                                                   | 1011                                      | Yes        | Yes                             | Unexpected server-side exception that is not caused by client input                                                                         |
 | E1008      | ERROR       | 503 / 429                                                                             | 1013                                      | Yes        | Yes                             | A downstream dependency such as Kafka or Redis is unavailable, or the service is throttling requests                                        |
 | E1009      | ERROR       | 403 for initial concurrent sender conflict, otherwise not applicable during handshake | 1008 for post-handshake policy violations | Yes        | Yes                             | Disallowed business action or policy conflict, such as a concurrent sender at handshake time or a `conversationId` mismatch after handshake |
-| E1010      | ERROR       | 401                                                                                   | 1008                                      | Yes        | Yes                             | Reserved. Authentication is not enabled yet; once enabled, this code is used for missing, invalid, or unauthorized credentials              |
+| E1010      | ERROR       | 401                                                                                   | 1008                                      | Yes        | Yes                             | Handshake authentication failed because the Bearer credentials were missing, malformed, invalid, or expired                                  |
 | E1011      | ERROR       | 504                                                                                   | 1013                                      | Yes        | Yes                             | Timeout when waiting for an upstream or downstream dependency such as Kafka                                                                 |
 
 
@@ -614,6 +614,7 @@ The **Doc ver.** column states the **Document version** at each revision. The **
 
 | Doc ver. | Date (UTC) | Summary                                                                                                                                                                                                                            |
 | -------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.3.0    | 2026-03-30 | Enable optional handshake authentication for V1 deployments using `Authorization: Bearer <JWT>` with `E1010` for missing, malformed, invalid, or expired credentials, and implement the minimum HS256-based validation flow. |
 | 1.2.1    | 2026-03-30 | Tighten the request payload contract so `payload.dialect` is a required field for both `SESSION_ONGOING` and `SESSION_COMPLETE`. |
 | 1.2.0    | 2026-03-30 | Pre-integration V1 refinement: allow unreleased contract changes without consumer migration obligations to use a MINOR document-version increment; request payload removes `agentId` / `customerId`, renames `createdAtTimeStamp` to `speakTimeStamp`, adds `transcriptGenerateTimeStamp`, and omits both request timestamps for `SESSION_COMPLETE`. |
 | 1.1.6    | 2026-03-26 | **§3.1** Document optional `payload.serverProcessingMs` (aligned with `AckPayload` / transport); examples updated.                                                                                                                |

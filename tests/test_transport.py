@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from datetime import datetime, timedelta, timezone
 from unittest.mock import ANY, AsyncMock, MagicMock
 
 import fakeredis.aioredis
+import jwt
 import orjson
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -19,6 +21,7 @@ from realtime_transcribe_service.orchestrator.protocols import OrchestratorResul
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
 from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
+from realtime_transcribe_service.auth.jwt_bearer import JwtBearerAuthBackend
 from realtime_transcribe_service.schemas.response import (
     build_eol_ack,
     build_error,
@@ -31,6 +34,9 @@ from realtime_transcribe_service.transport.websocket_handler import (
     _ownership_refresh_loop,
     create_app,
 )
+
+AUTH_SIGNING_MATERIAL = "signing-material-0123456789-material-012345"
+WRONG_AUTH_SIGNING_MATERIAL = "wrong-material-0123456789-material-012345"
 
 
 class ScriptedOwnerBackend:
@@ -103,6 +109,15 @@ def _complete_message(conversation_id: str = "conv-1", *, seq: int = 42) -> dict
             "isFinal": True,
         },
     }
+
+
+def _bearer_headers(signing_material: str, *, exp_delta_sec: int = 3600) -> dict[str, str]:
+    token = jwt.encode(
+        {"sub": "fano-backend", "exp": datetime.now(timezone.utc) + timedelta(seconds=exp_delta_sec)},
+        signing_material,
+        algorithm="HS256",
+    )
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
@@ -241,6 +256,152 @@ class TestWebSocket:
             resp = orjson.loads(ws.receive_text())
             assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
         mock_orchestrator.handle_message.assert_awaited_once()
+
+    def test_ws_missing_authorization_returns_e1010_and_http_401(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        client = TestClient(
+            create_app(
+                mock_orchestrator,
+                shutdown,
+                registry,
+                auth_backend=JwtBearerAuthBackend(signing_material=AUTH_SIGNING_MATERIAL),
+            )
+        )
+
+        with pytest.raises(Exception) as ei:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ):
+                pass
+
+        assert hasattr(ei.value, "status_code") and ei.value.status_code == 401
+        body = getattr(ei.value, "text", "")
+        assert "E1010" in body
+        assert "Authorization header with Bearer token is required" in body
+        mock_orchestrator.handle_message.assert_not_awaited()
+
+    def test_ws_malformed_authorization_returns_e1010_and_http_401(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        client = TestClient(
+            create_app(
+                mock_orchestrator,
+                shutdown,
+                registry,
+                auth_backend=JwtBearerAuthBackend(signing_material=AUTH_SIGNING_MATERIAL),
+            )
+        )
+
+        with pytest.raises(Exception) as ei:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1",
+                headers={"Authorization": "Token abc"},
+            ):
+                pass
+
+        assert hasattr(ei.value, "status_code") and ei.value.status_code == 401
+        body = getattr(ei.value, "text", "")
+        assert "E1010" in body
+        assert "Authorization header must use the Bearer scheme" in body
+        mock_orchestrator.handle_message.assert_not_awaited()
+
+    def test_ws_invalid_signature_returns_e1010_and_http_401(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        client = TestClient(
+            create_app(
+                mock_orchestrator,
+                shutdown,
+                registry,
+                auth_backend=JwtBearerAuthBackend(signing_material=AUTH_SIGNING_MATERIAL),
+            )
+        )
+
+        with pytest.raises(Exception) as ei:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1",
+                headers=_bearer_headers(WRONG_AUTH_SIGNING_MATERIAL),
+            ):
+                pass
+
+        assert hasattr(ei.value, "status_code") and ei.value.status_code == 401
+        body = getattr(ei.value, "text", "")
+        assert "E1010" in body
+        assert "Bearer token is invalid" in body
+        mock_orchestrator.handle_message.assert_not_awaited()
+
+    def test_ws_expired_token_returns_e1010_and_http_401(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        client = TestClient(
+            create_app(
+                mock_orchestrator,
+                shutdown,
+                registry,
+                auth_backend=JwtBearerAuthBackend(signing_material=AUTH_SIGNING_MATERIAL),
+            )
+        )
+
+        with pytest.raises(Exception) as ei:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1",
+                headers=_bearer_headers(AUTH_SIGNING_MATERIAL, exp_delta_sec=-60),
+            ):
+                pass
+
+        assert hasattr(ei.value, "status_code") and ei.value.status_code == 401
+        body = getattr(ei.value, "text", "")
+        assert "E1010" in body
+        assert "Bearer token has expired" in body
+        mock_orchestrator.handle_message.assert_not_awaited()
+
+    def test_ws_valid_authorization_allows_normal_flow(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        client = TestClient(
+            create_app(
+                mock_orchestrator,
+                shutdown,
+                registry,
+                auth_backend=JwtBearerAuthBackend(signing_material=AUTH_SIGNING_MATERIAL),
+            )
+        )
+
+        with client.websocket_connect(
+            "/ws/v1/realtime-transcriptions?conversationId=conv-1",
+            headers=_bearer_headers(AUTH_SIGNING_MATERIAL),
+        ) as ws:
+            ws.send_text(orjson.dumps(_ongoing_message()).decode())
+            resp = orjson.loads(ws.receive_text())
+            assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+
+        mock_orchestrator.handle_message.assert_awaited_once()
+
+    def test_missing_conversation_id_still_precedes_authentication(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        client = TestClient(
+            create_app(
+                mock_orchestrator,
+                shutdown,
+                registry,
+                auth_backend=JwtBearerAuthBackend(signing_material=AUTH_SIGNING_MATERIAL),
+            )
+        )
+
+        with pytest.raises(Exception) as ei:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions",
+                headers=_bearer_headers(AUTH_SIGNING_MATERIAL),
+            ):
+                pass
+
+        assert hasattr(ei.value, "status_code") and ei.value.status_code == 400
+        body = getattr(ei.value, "text", "")
+        assert "E1003" in body
+        assert "conversationId" in body
+        mock_orchestrator.handle_message.assert_not_awaited()
 
     def test_ws_complete_ack_includes_server_processing_ms_and_closes(
         self, mock_orchestrator, shutdown, registry

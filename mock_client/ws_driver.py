@@ -17,6 +17,11 @@ from typing import Any, Callable, Coroutine
 import websockets
 import websockets.exceptions
 
+try:
+    from .settings import build_auth_token, get_settings
+except ImportError:  # pragma: no cover - direct script execution fallback
+    from settings import build_auth_token, get_settings
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -279,17 +284,39 @@ def _format_ws_connect_error(exc: BaseException) -> tuple[str, dict | None]:
     return f"{type(exc).__name__}: {exc}", None
 
 
+def _resolve_auth_token(auth_token: str | None) -> str | None:
+    settings = get_settings()
+    if not settings.auth_enabled:
+        return None
+    if auth_token is not None:
+        normalized = auth_token.strip()
+        return normalized or None
+    return build_auth_token(settings)
+
+
+def _build_ws_headers(auth_token: str | None) -> dict[str, str] | None:
+    resolved = _resolve_auth_token(auth_token)
+    if resolved is None:
+        return None
+    return {"Authorization": f"Bearer {resolved}"}
+
+
 async def _open_ws(
     ws_url: str,
     conversation_id: str | None,
+    auth_token: str | None = None,
     retries: int = 3,
     retry_delay: float = 0.5,
 ) -> websockets.WebSocketClientProtocol:
     uri = ws_url if conversation_id is None else f"{ws_url}?conversationId={conversation_id}"
+    headers = _build_ws_headers(auth_token)
     last_exc: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
-            return await websockets.connect(uri, open_timeout=30)
+            connect_kwargs: dict[str, Any] = {"open_timeout": 30}
+            if headers is not None:
+                connect_kwargs["additional_headers"] = headers
+            return await websockets.connect(uri, **connect_kwargs)
         except Exception as e:
             last_exc = e
             if attempt < retries:

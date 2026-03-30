@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -26,6 +27,16 @@ pytestmark = [
         "ignore:remove second argument of ws_handler:DeprecationWarning"
     ),
 ]
+
+
+@pytest.fixture(autouse=True)
+def disable_ambient_auth_token(monkeypatch):
+    monkeypatch.setattr(ws_driver, "build_auth_token", lambda: None)
+    monkeypatch.setattr(
+        ws_driver,
+        "get_settings",
+        lambda: SimpleNamespace(auth_enabled=False),
+    )
 
 
 @pytest.fixture
@@ -176,3 +187,123 @@ async def test_mock_client_e06_scenario_bad_schema_still_includes_default_dialec
 
     assert result.passed is True
     assert captured["msg"]["payload"]["dialect"] == "yue-x-auto"
+
+
+@pytest.mark.asyncio
+async def test_open_ws_includes_authorization_header_from_settings():
+    fake_ws = AsyncMock()
+
+    with (
+        patch.object(
+            ws_driver,
+            "build_auth_token",
+            return_value="jwt-token",
+        ),
+        patch.object(
+            ws_driver,
+            "get_settings",
+            return_value=SimpleNamespace(auth_enabled=True),
+        ),
+        patch.object(
+            ws_driver.websockets,
+            "connect",
+            new=AsyncMock(return_value=fake_ws),
+        ) as connect_mock,
+    ):
+        ws = await ws_driver._open_ws("ws://unit-test", "conv-1", retries=1)
+
+    assert ws is fake_ws
+    connect_mock.assert_awaited_once_with(
+        "ws://unit-test?conversationId=conv-1",
+        open_timeout=30,
+        additional_headers={"Authorization": "Bearer jwt-token"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_open_ws_omits_authorization_header_when_no_token_is_configured():
+    fake_ws = AsyncMock()
+
+    with (
+        patch.object(
+            ws_driver,
+            "build_auth_token",
+            return_value=None,
+        ),
+        patch.object(
+            ws_driver,
+            "get_settings",
+            return_value=SimpleNamespace(auth_enabled=True),
+        ),
+        patch.object(
+            ws_driver.websockets,
+            "connect",
+            new=AsyncMock(return_value=fake_ws),
+        ) as connect_mock,
+    ):
+        ws = await ws_driver._open_ws("ws://unit-test", "conv-1", retries=1)
+
+    assert ws is fake_ws
+    connect_mock.assert_awaited_once_with(
+        "ws://unit-test?conversationId=conv-1",
+        open_timeout=30,
+    )
+
+
+@pytest.mark.asyncio
+async def test_open_ws_omits_authorization_header_when_auth_is_disabled():
+    fake_ws = AsyncMock()
+
+    with patch.object(
+        ws_driver.websockets,
+        "connect",
+        new=AsyncMock(return_value=fake_ws),
+    ) as connect_mock:
+        ws = await ws_driver._open_ws(
+            "ws://unit-test",
+            "conv-1",
+            auth_token="explicit-token",
+            retries=1,
+        )
+
+    assert ws is fake_ws
+    connect_mock.assert_awaited_once_with(
+        "ws://unit-test?conversationId=conv-1",
+        open_timeout=30,
+    )
+
+
+@pytest.mark.asyncio
+async def test_open_ws_uses_explicit_auth_token_over_generated_token():
+    fake_ws = AsyncMock()
+
+    with (
+        patch.object(
+            ws_driver,
+            "build_auth_token",
+            return_value="generated-token",
+        ),
+        patch.object(
+            ws_driver,
+            "get_settings",
+            return_value=SimpleNamespace(auth_enabled=True),
+        ),
+        patch.object(
+            ws_driver.websockets,
+            "connect",
+            new=AsyncMock(return_value=fake_ws),
+        ) as connect_mock,
+    ):
+        ws = await ws_driver._open_ws(
+            "ws://unit-test",
+            "conv-1",
+            auth_token="explicit-token",
+            retries=1,
+        )
+
+    assert ws is fake_ws
+    connect_mock.assert_awaited_once_with(
+        "ws://unit-test?conversationId=conv-1",
+        open_timeout=30,
+        additional_headers={"Authorization": "Bearer explicit-token"},
+    )

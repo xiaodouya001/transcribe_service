@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     # Background ownership-guard refresh interval in seconds, used only while the connection is alive.
     ws_ownership_guard_refresh_interval_sec: float = Field(default=5.0, gt=0)
 
+    # --- Handshake authentication ---
+    auth_enabled: bool = False
+    auth_jwt_signing_material: str | None = None
+    auth_jwt_algorithm: Literal["HS256"] = "HS256"
+
     # --- HTTP / Uvicorn ---
     http_host: str = Field(default="0.0.0.0", min_length=1)
     http_port: int = Field(default=8080, ge=1, le=65535)
@@ -101,6 +106,13 @@ class Settings(BaseSettings):
             return value.strip().upper()
         return value
 
+    @field_validator("auth_jwt_algorithm", mode="before")
+    @classmethod
+    def _normalize_auth_jwt_algorithm(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().upper()
+        return value
+
     @field_validator("log_format", "kafka_compression_type", mode="before")
     @classmethod
     def _normalize_lowercase_enums(cls, value: object) -> object:
@@ -115,6 +127,7 @@ class Settings(BaseSettings):
         "redis_sequence_state_key_prefix",
         "redis_ownership_guard_key_prefix",
         "http_host",
+        "auth_jwt_signing_material",
         mode="before",
     )
     @classmethod
@@ -154,6 +167,11 @@ class Settings(BaseSettings):
             raise ValueError(
                 "WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC must be < "
                 "REDIS_OWNERSHIP_GUARD_TTL_SEC"
+            )
+
+        if self.auth_enabled and self.auth_jwt_signing_material is None:
+            raise ValueError(
+                "AUTH_JWT_SIGNING_MATERIAL must be set when AUTH_ENABLED=true"
             )
 
         return self

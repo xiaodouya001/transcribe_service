@@ -3,23 +3,23 @@
 Goal: lock the most important error-code, close-code, and ACK semantics into one
 test suite so later implementation changes cannot drift away from the API contract
 and established design.
-
-Note: `E1010` is reserved in the contract, but authentication is not implemented yet,
-so it is intentionally excluded from this executable matrix.
 """
 
 from __future__ import annotations
 
 import copy
 import json
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import fakeredis.aioredis
+import jwt
 import orjson
 import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from realtime_transcribe_service.auth.jwt_bearer import JwtBearerAuthBackend
 from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
@@ -27,6 +27,9 @@ from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareR
 from realtime_transcribe_service.schemas.response import build_transcript_ack
 from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
 from realtime_transcribe_service.transport.websocket_handler import ConnectionRegistry, create_app
+
+AUTH_SIGNING_MATERIAL = "signing-material-0123456789-material-012345"
+WRONG_AUTH_SIGNING_MATERIAL = "wrong-material-0123456789-material-012345"
 
 
 @pytest.fixture
@@ -47,6 +50,15 @@ def mock_producer():
 
 def _build_app(orchestrator):
     return create_app(orchestrator, GracefulShutdown(), ConnectionRegistry())
+
+
+def _bearer_headers(signing_material: str, *, exp_delta_sec: int = 3600) -> dict[str, str]:
+    token = jwt.encode(
+        {"sub": "fano-backend", "exp": datetime.now(timezone.utc) + timedelta(seconds=exp_delta_sec)},
+        signing_material,
+        algorithm="HS256",
+    )
+    return {"Authorization": f"Bearer {token}"}
 
 
 class TestTransportContractMatrix:
@@ -107,6 +119,32 @@ class TestTransportContractMatrix:
         body = getattr(ei.value, "text", "")
         assert "E1008" in body
         assert "Too many connections" in body
+        orchestrator.handle_message.assert_not_awaited()
+
+    def test_missing_or_invalid_bearer_jwt_returns_e1010_and_http_401(self):
+        """E-17: missing or invalid Bearer JWT during handshake returns HTTP 401 / E1010."""
+        orchestrator = AsyncMock()
+        orchestrator.handle_message = AsyncMock()
+        client = TestClient(
+            create_app(
+                orchestrator,
+                GracefulShutdown(),
+                ConnectionRegistry(),
+                auth_backend=JwtBearerAuthBackend(signing_material=AUTH_SIGNING_MATERIAL),
+            )
+        )
+
+        with pytest.raises(Exception) as ei:
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1",
+                headers=_bearer_headers(WRONG_AUTH_SIGNING_MATERIAL),
+            ):
+                pass
+
+        assert hasattr(ei.value, "status_code") and ei.value.status_code == 401
+        body = getattr(ei.value, "text", "")
+        assert "E1010" in body
+        assert "Authentication failed" in body
         orchestrator.handle_message.assert_not_awaited()
 
     def test_invalid_json_returns_e1001_and_close_1007(self):
