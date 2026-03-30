@@ -24,6 +24,7 @@ Do not rely on `.env`. Inject configuration as process environment variables and
 - Blank string values fail startup
 - Unknown keys in `.env` fail startup
 - `REDIS_URL` and `KAFKA_BOOTSTRAP_SERVERS` are required when `APP_ENV=deployed`
+- `AUTH_JWT_SIGNING_MATERIAL` is required when `AUTH_ENABLED=true`
 
 ---
 
@@ -70,6 +71,16 @@ Do not rely on `.env`. Inject configuration as process environment variables and
 | `WS_MAX_CONNECTIONS` | 0 | Maximum concurrent WebSocket connections. Must be `>= 0`. `0` means unlimited |
 
 > The service enables the WebSocket runtime with `uvicorn.Config(ws="websockets", ...)`. `WS_PING_INTERVAL` and `WS_PING_TIMEOUT` are enforced by the Uvicorn `websockets` backend rather than by application-level JSON messages.
+
+### Handshake Authentication
+
+| Variable | Default | Description |
+|------|------|------|
+| `AUTH_ENABLED` | false | Enables handshake-time `Authorization: Bearer <JWT>` validation |
+| `AUTH_JWT_SIGNING_MATERIAL` | None | Signing material for HS256 Bearer JWT validation. Required when `AUTH_ENABLED=true` |
+| `AUTH_JWT_ALGORITHM` | `HS256` | JWT algorithm. V1 currently supports only `HS256` |
+
+> V1 currently uses **HS256 signing material**. It does not use an RSA `private key` / `public key` pair, so there is no private-key generation step in the current implementation.
 
 ### HTTP / Uvicorn
 
@@ -119,4 +130,6 @@ KAFKA_TOPIC=AI_STAGING_TRANSCRIPTION
 KAFKA_TOPIC_NUM_PARTITIONS=100
 KAFKA_REPLICATION_FACTOR=3
 LOG_FORMAT=json
+AUTH_ENABLED=true
+AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material
 ```

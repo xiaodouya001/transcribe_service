@@ -19,6 +19,7 @@ from starlette import status
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.websockets import WebSocketState
 
+from realtime_transcribe_service.auth.protocols import AuthenticationError
 from realtime_transcribe_service.constants import (
     APP_TITLE,
     MAX_ERROR_DETAILS_LEN,
@@ -30,6 +31,7 @@ from realtime_transcribe_service.schemas.events import ResponseEventType
 from realtime_transcribe_service.schemas.response import build_error
 
 if TYPE_CHECKING:  # pragma: no cover
+    from realtime_transcribe_service.auth.protocols import HandshakeAuthBackend
     from realtime_transcribe_service.orchestrator.protocols import OrchestratorBackend
     from realtime_transcribe_service.redis.protocols import ConversationOwnershipGuardBackend
     from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
@@ -38,6 +40,7 @@ log = structlog.get_logger(__name__)
 OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC = 5.0
 SCOPE_OWNERSHIP_TOKEN = "realtime_transcribe_service.ownership_token"
 SCOPE_OWNERSHIP_ACQUIRED = "realtime_transcribe_service.ownership_acquired"
+SCOPE_AUTH_SUBJECT = "realtime_transcribe_service.auth_subject"
 SLOW_MESSAGE_LOG_WINDOW_SEC = 1.0
 SLOW_MESSAGE_LOG_MAX_PER_WINDOW = 1
 _slow_message_log_window_started_at = 0.0
@@ -271,7 +274,7 @@ class ConnectionRegistry:
 class _WsGuardMiddleware:
     """ASGI middleware that enforces handshake admission checks before accepting WebSockets.
 
-    Check order: conversationId -> draining -> connection limit -> ownership guard.
+    Check order: conversationId -> auth -> draining -> connection limit -> ownership guard.
     Rejections use the ASGI WebSocket denial response protocol to return a JSON ERROR
     body together with the HTTP status code.
     """
@@ -282,12 +285,14 @@ class _WsGuardMiddleware:
         shutdown: GracefulShutdown,
         registry: ConnectionRegistry,
         max_connections: int,
+        auth_backend: HandshakeAuthBackend | None = None,
         ownership_guard: ConversationOwnershipGuardBackend | None = None,
     ) -> None:
         self._app = app
         self._shutdown = shutdown
         self._registry = registry
         self._max_connections = max_connections
+        self._auth_backend = auth_backend
         self._ownership_guard = ownership_guard
 
     @staticmethod
@@ -299,6 +304,13 @@ class _WsGuardMiddleware:
         params = parse_qs(qs)
         vals = params.get("conversationId")
         return vals[0] if vals else ""
+
+    @staticmethod
+    def _extract_header(scope: Scope, header_name: bytes) -> str | None:
+        for raw_name, raw_value in scope.get("headers", []):
+            if raw_name.lower() == header_name:
+                return raw_value.decode("latin-1")
+        return None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "websocket":
@@ -332,6 +344,35 @@ class _WsGuardMiddleware:
                 error_response=error_response,
             )
             return
+
+        if self._auth_backend is not None:
+            authorization_header = self._extract_header(scope, b"authorization")
+            try:
+                principal = self._auth_backend.authenticate(authorization_header)
+            except AuthenticationError as exc:
+                error_response = build_error(
+                    cid,
+                    ErrorCode.E1010.value,
+                    "Authentication failed",
+                    exc.details,
+                )
+                _log_handshake_reject(
+                    scope,
+                    reason="Transport: Authentication failed during handshake",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    error_response=error_response,
+                    conversation_id=cid,
+                    auth_result="failed",
+                )
+                await _deny_websocket(
+                    receive,
+                    send,
+                    status=status.HTTP_401_UNAUTHORIZED,
+                    error_response=error_response,
+                )
+                return
+
+            scope[SCOPE_AUTH_SUBJECT] = principal.subject
 
         if self._shutdown.draining:
             error_response = build_error(
@@ -439,6 +480,7 @@ def create_app(
     shutdown: GracefulShutdown,
     registry: ConnectionRegistry,
     *,
+    auth_backend: HandshakeAuthBackend | None = None,
     ownership_guard: ConversationOwnershipGuardBackend | None = None,
     redis_url: str = "",
     producer: object | None = None,
@@ -458,6 +500,7 @@ def create_app(
     app.state.orchestrator = orchestrator
     app.state.shutdown = shutdown
     app.state.registry = registry
+    app.state.auth_backend = auth_backend
     app.state.ownership_guard = ownership_guard
     app.state.log_slow_message_threshold_ms = log_slow_message_threshold_ms
 
@@ -466,6 +509,7 @@ def create_app(
         shutdown=shutdown,
         registry=registry,
         max_connections=max_connections,
+        auth_backend=auth_backend,
         ownership_guard=ownership_guard,
     )
 
@@ -513,10 +557,12 @@ def create_app(
         scope_token = ws.scope.get(SCOPE_OWNERSHIP_TOKEN)
         ownership_token = scope_token if isinstance(scope_token, str) else uuid.uuid4().hex
         ownership_acquired = bool(ws.scope.get(SCOPE_OWNERSHIP_ACQUIRED))
+        auth_subject = ws.scope.get(SCOPE_AUTH_SUBJECT)
         ownership_refresh_task: asyncio.Task[None] | None = None
         log.info(
             "Transport: About to accept WebSocket",
             conversation_id=conversationId,
+            auth_subject=auth_subject if isinstance(auth_subject, str) else None,
         )
         try:
             await ws.accept()
@@ -577,6 +623,7 @@ def create_app(
         log.info(
             "Transport: Connection established",
             conversation_id=conversationId,
+            auth_subject=auth_subject if isinstance(auth_subject, str) else None,
         )
         if ownership_guard is not None and ownership_acquired:
             ownership_refresh_task = asyncio.create_task(

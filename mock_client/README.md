@@ -40,8 +40,63 @@ Supported mock-client variables:
 - `MOCK_CLIENT_LOG_LEVEL`
 - `MOCK_CLIENT_LOG_FORMAT`
 - `MOCK_CLIENT_DEFAULT_WS_URL`
+- `AUTH_ENABLED`
+- `MOCK_CLIENT_AUTH_TOKEN`
+- `MOCK_CLIENT_AUTH_SIGNING_MATERIAL`
+- `MOCK_CLIENT_AUTH_SUBJECT`
+- `MOCK_CLIENT_AUTH_TTL_DAYS`
 - `MOCK_CLIENT_DEFAULT_KAFKA_BOOTSTRAP`
 - `MOCK_CLIENT_DEFAULT_KAFKA_TOPIC`
+
+When `AUTH_ENABLED=true`, the mock client resolves credentials in this order:
+
+1. `MOCK_CLIENT_AUTH_TOKEN`
+2. `MOCK_CLIENT_AUTH_SIGNING_MATERIAL` -> auto-generate a long-lived HS256 JWT locally
+
+The mock client then automatically sends:
+
+```text
+Authorization: Bearer <token>
+```
+
+The mock client only uses its own environment variables and `mock_client/.env`. It does not read the main service `.env`.
+
+When `AUTH_ENABLED=false`, the mock client does not generate a token and does not send `Authorization`, even if `MOCK_CLIENT_AUTH_TOKEN` or `MOCK_CLIENT_AUTH_SIGNING_MATERIAL` is configured.
+
+If you still want the mock client to generate one explicit token for copy/paste or external callers, run:
+
+```bash
+poetry run python -m mock_client.generate_jwt
+```
+
+This command uses the mock client's own auth settings:
+
+- `AUTH_ENABLED`
+- `MOCK_CLIENT_AUTH_SIGNING_MATERIAL`
+- `MOCK_CLIENT_AUTH_SUBJECT`
+- `MOCK_CLIENT_AUTH_TTL_DAYS`
+
+Use it when you already configured those values in `mock_client/.env` and only want the raw token printed to stdout for quick copy/paste. The generator requires `AUTH_ENABLED=true`.
+
+Examples:
+
+```bash
+poetry run python -m mock_client.generate_jwt --sub fano-backend --days 30
+```
+
+Generates a raw token while overriding the default `sub` claim and lifetime. Use this when Fano Labs wants a token that clearly identifies the caller as `fano-backend` or when you want a shorter or longer TTL than `MOCK_CLIENT_AUTH_TTL_DAYS`.
+
+```bash
+poetry run python -m mock_client.generate_jwt --json
+```
+
+Prints a JSON object containing the token, decoded claims, and a ready-to-copy `authorization_header`. Use this when you want to inspect `sub`, `iat`, `exp`, and `jti` instead of only getting the opaque JWT string.
+
+```bash
+poetry run python -m mock_client.generate_jwt --signing-material "replace-with-signing-material" --sub fano-backend
+```
+
+Ignores `mock_client/.env` for the signing material and signs the token with the explicit `--signing-material` value. Use this when you do not want to persist the signing material in `mock_client/.env`, or when you need to generate a token for another environment temporarily.
 
 ## Run Mock-Client Tests
 

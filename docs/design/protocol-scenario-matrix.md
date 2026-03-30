@@ -32,6 +32,7 @@ Business constraints such as handshake/body `conversationId` matching, continuou
 | E-14   | Query `conversationId` does not match `metaData.conversationId` in the body | Post-handshake | **E1009** | - | **1008** (`Policy Violation`) | Yes | See E-14 below |
 | E-15   | Business-rule validation failed, for example `SESSION_ONGOING` with `callEndTimeStamp` or `isFinal=false` | Post-handshake | **E1009** | - | **1008** (`Policy Violation`) | Yes | See E-15 below |
 | E-16   | A second concurrent sender tries to use the same `conversationId` | Pre-handshake | **E1009** | **403** | - | Yes, handshake rejected | See E-16 below |
+| E-17   | Missing or invalid Bearer JWT during the handshake | Pre-handshake | **E1010** | **401** | - | Yes, handshake rejected | See E-17 below |
 
 > During pre-handshake rejection, the WebSocket connection has not been established yet, so the service cannot send a WebSocket text frame. Only HTTP + JSON is available. Post-handshake errors send a WebSocket `ERROR` frame and then close the connection with the mapped close code.
 
@@ -337,10 +338,28 @@ Validation happens during handshake. If another active sending connection alread
 
 ---
 
-## 5. Reserved Error-Code Notes
+### E-17 Missing or invalid Bearer JWT during the handshake (HTTP 401)
+
+Validation happens during handshake. If deployment authentication is enabled and the caller does not send a valid `Authorization: Bearer <JWT>` header, the service rejects the handshake directly with **HTTP 401 + E1010**. No WebSocket session is established, the orchestrator is never entered, and no WebSocket close frame is sent.
+
+```json
+{
+  "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
+  "error": {
+    "code": "E1010",
+    "message": "Authentication failed",
+    "details": "Bearer token is invalid",
+    "createdAtTimeStamp": "2026-03-21T03:00:00.000Z"
+  }
+}
+```
+
+---
+
+## 5. Error-Code Notes
 
 - `E1009` is intentionally reused for three categories: query/body `conversationId` mismatch, business-rule validation after schema validation passes, and concurrent-sender conflicts on the same `conversationId`. The first two are post-handshake `ERROR + 1008`; the last one is a handshake-time `HTTP 403`
-- `E1010` is reserved for authentication failure. This service does not implement authentication, so the matrix contains no executable `E1010` scenario
+- `E1010` is reserved exclusively for handshake authentication failure. In V1 it is emitted as `HTTP 401` before the WebSocket upgrade completes
 
 ---
 

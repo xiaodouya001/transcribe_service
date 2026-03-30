@@ -10,7 +10,7 @@ It does not replace the detailed design documents. Its role is to freeze the lon
 
 The two items below are explicitly **out of current defect scope**. If they need to be delivered, they must be handled as separate work items and must not be introduced incompletely as part of routine code changes:
 
-- Authentication and authorization (`Authorization` / token validation) are not implemented yet. `Authorization` and `E1010` remain reserved in the contract only.
+- Fine-grained authorization remains out of scope. The current authentication baseline is handshake-only `Authorization: Bearer <JWT>` validation; it must not silently expand into per-message authorization, scope checks, or conversation-bound claims without an explicit contract change.
 - Kafka `max_in_flight=1` and a circuit breaker are not implemented yet.
 
 ---
