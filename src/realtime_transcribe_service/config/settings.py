@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     # listen() backlog. If set too low, bursty connection spikes can cause peers to get reset
     # before they read the 101 Switching Protocols response.
     http_backlog: int = Field(default=4096, gt=0)
+    # Only an explicit true exposes /docs, /redoc, and /openapi.json.
+    http_enable_docs: bool = False
     # Maximum concurrent WebSocket connections. New handshakes beyond the limit are rejected.
     # 0 means unlimited.
     ws_max_connections: int = Field(default=0, ge=0)

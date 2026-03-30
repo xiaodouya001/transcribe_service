@@ -89,6 +89,9 @@ Do not rely on `.env`. Inject configuration as process environment variables and
 | `HTTP_HOST` | `0.0.0.0` | Bind address. Must not be empty |
 | `HTTP_PORT` | 8080 | Listen port. Must be in `1..65535` |
 | `HTTP_BACKLOG` | 4096 | Uvicorn `listen(backlog)` value. Must be `> 0` |
+| `HTTP_ENABLE_DOCS` | false | Only `true` exposes `/docs`, `/redoc`, and `/openapi.json`; any other value keeps them disabled |
+
+> `HTTP_ENABLE_DOCS` controls only the FastAPI documentation surface. It does not protect or disable `/health`, `/ready`, or `/metrics`; those routes should be restricted by ingress, load balancer, security-group, or internal-network policy.
 
 ### Startup Checks
 
@@ -118,6 +121,7 @@ REDIS_URL=redis://127.0.0.1:6379/0
 KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092
 KAFKA_COMPRESSION_TYPE=zstd
 LOG_FORMAT=console
+HTTP_ENABLE_DOCS=false
 ```
 
 **Production / deployed**
@@ -132,4 +136,5 @@ KAFKA_REPLICATION_FACTOR=3
 LOG_FORMAT=json
 AUTH_ENABLED=true
 AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material
+HTTP_ENABLE_DOCS=false
 ```

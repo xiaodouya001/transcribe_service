@@ -29,6 +29,7 @@ class TestSettings:
         assert s.http_host == "0.0.0.0"
         assert s.http_port == 8080
         assert s.http_backlog == 4096
+        assert s.http_enable_docs is False
         assert s.kafka_startup_timeout_sec == 30.0
         assert s.redis_ownership_guard_ttl_sec == 30
         assert (
@@ -130,3 +131,19 @@ class TestSettings:
             auth_jwt_algorithm="hs256",
         )
         assert s.auth_jwt_algorithm == "HS256"
+
+    def test_http_enable_docs_accepts_true(self):
+        s = Settings(
+            _env_file=None,
+            app_env="local",
+            http_enable_docs=True,
+        )
+        assert s.http_enable_docs is True
+
+    def test_http_enable_docs_accepts_false(self):
+        s = Settings(
+            _env_file=None,
+            app_env="local",
+            http_enable_docs=False,
+        )
+        assert s.http_enable_docs is False
