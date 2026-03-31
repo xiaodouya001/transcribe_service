@@ -34,8 +34,10 @@ For the opt-in real Kafka connectivity check in [tests/test_kafka_real_connectiv
 
 - `RUN_REAL_KAFKA_TEST=true`
 - `REAL_KAFKA_BOOTSTRAP_SERVERS`
-- `REAL_KAFKA_MODE` (`admin` or `aws_msk`) when non-default behavior is required
-- `REAL_KAFKA_SECURITY_PROTOCOL` plus the matching `REAL_KAFKA_SASL_*` variables for SASL/SCRAM environments
+- `REAL_KAFKA_MODE` — defaults to **`admin`** (PLAINTEXT, local/docker Kafka only); set **`aws_msk`** for MSK IAM (requires `REAL_KAFKA_AWS_REGION`)
+- optional `REAL_KAFKA_SSL_CA_FILE` for **`aws_msk`** when the broker TLS chain is non-public
+- `REAL_KAFKA_AWS_REGION` when `REAL_KAFKA_MODE=aws_msk`
+- optional `REAL_KAFKA_AWS_DEBUG_CREDS=true` if you need the MSK IAM signer to log which AWS identity was used
 - `REAL_KAFKA_TOPIC` and `REAL_KAFKA_ASSERT_SEND=true` if you also want one real send to succeed
 
 ---
@@ -94,6 +96,7 @@ The minimum production configuration is:
 | `KAFKA_TOPIC_NUM_PARTITIONS` | Only relevant when the service is allowed to create the topic |
 | `KAFKA_REPLICATION_FACTOR` | Typically `>= 2` in production |
 | `KAFKA_COMPRESSION_TYPE` | Defaults to `zstd`, but other supported codecs can be used |
+| `KAFKA_AWS_REGION` | Required when `KAFKA_MODE=aws_msk`; used for MSK IAM token generation |
 | `HTTP_HOST` / `HTTP_PORT` | Bind address and port, typically `0.0.0.0:8080` inside the container |
 | `KAFKA_STARTUP_TIMEOUT_SEC` | Kafka startup connectivity timeout |
 | `LOG_FORMAT` | Usually `json` in production |
@@ -113,6 +116,7 @@ For AWS ECS, use:
 
 - task definition `environment` for non-sensitive values such as `APP_ENV`, `KAFKA_TOPIC`, `HTTP_HOST`, and `HTTP_PORT`
 - task definition `secrets` or AWS Secrets Manager / SSM for sensitive values such as `REDIS_URL` and `AUTH_JWT_SIGNING_MATERIAL`
+- ECS task role or another AWS default credential-chain source for `KAFKA_MODE=aws_msk` so the service can mint IAM auth tokens for MSK
 
 Startup is fail-fast:
 

@@ -8,12 +8,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from realtime_transcribe_service.constants import (
     APP_ENV,
+    APP_ENV_DEPLOYED,
     COMPRESSION_TYPE,
     LOG_LEVEL,
     LOG_FORMAT,
     KAFKA_MODE,
-    KAFKA_SASL_MECHANISM,
-    KAFKA_SECURITY_PROTOCOL,
     APP_ENV_LOCAL,
     LOCAL_REDIS_URL,
     LOCAL_KAFKA_BOOTSTRAP_SERVERS,
@@ -54,11 +53,9 @@ class Settings(BaseSettings):
     kafka_topic_num_partitions: int = Field(default=50, gt=0)
     kafka_replication_factor: int = Field(default=1, gt=0)
     kafka_compression_type: COMPRESSION_TYPE = "zstd"
-    kafka_security_protocol: KAFKA_SECURITY_PROTOCOL = "PLAINTEXT"
     kafka_ssl_ca_file: str | None = None
-    kafka_sasl_mechanism: KAFKA_SASL_MECHANISM | None = None
-    kafka_sasl_username: str | None = None
-    kafka_sasl_password: str | None = None
+    kafka_aws_region: str | None = None
+    kafka_aws_debug_creds: bool = False
     kafka_send_timeout_sec: float = Field(default=2.0, gt=0)
     kafka_linger_ms: int = Field(default=1, ge=0)
     kafka_batch_size: int = Field(default=32768, gt=0)
@@ -110,7 +107,7 @@ class Settings(BaseSettings):
             return value.strip().lower()
         return value
 
-    @field_validator("log_level", "kafka_security_protocol", "kafka_sasl_mechanism", mode="before")
+    @field_validator("log_level", mode="before")
     @classmethod
     def _normalize_uppercase_enums(cls, value: object) -> object:
         if isinstance(value, str):
@@ -131,21 +128,12 @@ class Settings(BaseSettings):
             return value.strip().lower()
         return value
 
-    @field_validator("kafka_sasl_username", "kafka_sasl_password", mode="before")
-    @classmethod
-    def _normalize_optional_secret_strings(cls, value: object) -> object:
-        if value is None:
-            return value
-        if isinstance(value, str):
-            normalized = value.strip()
-            return normalized or None
-        return value
-
     @field_validator(
         "redis_url",
         "kafka_bootstrap_servers",
         "kafka_topic",
         "kafka_ssl_ca_file",
+        "kafka_aws_region",
         "redis_sequence_state_key_prefix",
         "redis_ownership_guard_key_prefix",
         "http_host",
@@ -196,19 +184,22 @@ class Settings(BaseSettings):
                 "AUTH_JWT_SIGNING_MATERIAL must be set when AUTH_ENABLED=true"
             )
 
-        if self.kafka_security_protocol.startswith("SASL_"):
-            missing: list[str] = []
-            if self.kafka_sasl_mechanism is None:
-                missing.append("KAFKA_SASL_MECHANISM")
-            if self.kafka_sasl_username is None:
-                missing.append("KAFKA_SASL_USERNAME")
-            if self.kafka_sasl_password is None:
-                missing.append("KAFKA_SASL_PASSWORD")
-            if missing:
+        if self.app_env == APP_ENV_DEPLOYED and self.kafka_mode != "aws_msk":
+            raise ValueError(
+                "APP_ENV=deployed requires KAFKA_MODE=aws_msk "
+                "(KAFKA_MODE=admin is for local docker-compose only)"
+            )
+
+        if self.kafka_mode == "admin" and self.kafka_ssl_ca_file is not None:
+            raise ValueError(
+                "KAFKA_SSL_CA_FILE is only used when KAFKA_MODE=aws_msk; "
+                "admin mode is PLAINTEXT local docker-compose only"
+            )
+
+        if self.kafka_mode == "aws_msk":
+            if self.kafka_aws_region is None:
                 raise ValueError(
-                    "Missing required SASL configuration for "
-                    f"KAFKA_SECURITY_PROTOCOL={self.kafka_security_protocol}: "
-                    + ", ".join(missing)
+                    "KAFKA_AWS_REGION must be set when KAFKA_MODE=aws_msk"
                 )
 
         return self
@@ -217,4 +208,4 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Cached settings instance."""
-    return Settings()
+    return Settings()  # pyright: ignore[reportCallIssue]

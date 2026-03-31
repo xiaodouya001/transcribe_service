@@ -26,14 +26,6 @@ def _require_env(name: str) -> str:
     return value.strip()
 
 
-def _redact_secret(value: str | None) -> str | None:
-    if value is None:
-        return None
-    if len(value) <= 4:
-        return "*" * len(value)
-    return f"{value[:2]}***{value[-2:]}"
-
-
 @pytest.mark.asyncio
 async def test_real_kafka_connectivity_from_env():
     """Validate connectivity to a real Kafka environment when explicitly enabled.
@@ -43,13 +35,11 @@ async def test_real_kafka_connectivity_from_env():
     - REAL_KAFKA_BOOTSTRAP_SERVERS=<host:port[,host:port...]>
 
     Optional environment variables:
-    - REAL_KAFKA_MODE=admin|aws_msk                (default: aws_msk)
+    - REAL_KAFKA_MODE=admin|aws_msk                (default: admin, for local docker-compose PLAINTEXT)
     - REAL_KAFKA_TOPIC=<topic-name>               (default: RT_KAFKA_CONNECTIVITY_TEST)
-    - REAL_KAFKA_SECURITY_PROTOCOL=...            (default: PLAINTEXT)
-    - REAL_KAFKA_SSL_CA_FILE=<path-to-ca-bundle>
-    - REAL_KAFKA_SASL_MECHANISM=SCRAM-SHA-256|SCRAM-SHA-512
-    - REAL_KAFKA_SASL_USERNAME=...
-    - REAL_KAFKA_SASL_PASSWORD=...
+    - REAL_KAFKA_SSL_CA_FILE=<path-to-ca-bundle>  (aws_msk only, when broker chain is non-public)
+    - REAL_KAFKA_AWS_REGION=<aws-region>          (required when mode=aws_msk)
+    - REAL_KAFKA_AWS_DEBUG_CREDS=true|false       (default: false)
     - REAL_KAFKA_ASSERT_SEND=true|false           (default: false)
 
     When REAL_KAFKA_ASSERT_SEND=true the test also sends one probe message to REAL_KAFKA_TOPIC.
@@ -58,42 +48,34 @@ async def test_real_kafka_connectivity_from_env():
         pytest.skip("Set RUN_REAL_KAFKA_TEST=true to validate connectivity against a real Kafka cluster.")
 
     bootstrap_servers = _require_env("REAL_KAFKA_BOOTSTRAP_SERVERS")
-    mode = os.getenv("REAL_KAFKA_MODE", "aws_msk").strip().lower()
+    mode = os.getenv("REAL_KAFKA_MODE", "admin").strip().lower()
     topic = os.getenv("REAL_KAFKA_TOPIC", "RT_KAFKA_CONNECTIVITY_TEST").strip()
-    security_protocol = os.getenv("REAL_KAFKA_SECURITY_PROTOCOL", "PLAINTEXT").strip().upper()
     ssl_ca_file = os.getenv("REAL_KAFKA_SSL_CA_FILE")
-    sasl_mechanism = os.getenv("REAL_KAFKA_SASL_MECHANISM")
-    sasl_username = os.getenv("REAL_KAFKA_SASL_USERNAME")
-    sasl_password = os.getenv("REAL_KAFKA_SASL_PASSWORD")
+    aws_region = os.getenv("REAL_KAFKA_AWS_REGION")
+    aws_debug_creds = _env_flag("REAL_KAFKA_AWS_DEBUG_CREDS")
     assert_send = _env_flag("REAL_KAFKA_ASSERT_SEND")
     debug_summary = {
         "bootstrap_servers": bootstrap_servers,
         "mode": mode,
         "topic": topic,
-        "security_protocol": security_protocol,
         "ssl_ca_file": ssl_ca_file,
-        "sasl_mechanism": sasl_mechanism,
-        "sasl_username": _redact_secret(sasl_username),
+        "aws_region": aws_region,
+        "aws_debug_creds": aws_debug_creds,
         "assert_send": assert_send,
     }
 
-    if security_protocol.startswith("SASL_"):
-        sasl_mechanism = _require_env("REAL_KAFKA_SASL_MECHANISM")
-        sasl_username = _require_env("REAL_KAFKA_SASL_USERNAME")
-        sasl_password = _require_env("REAL_KAFKA_SASL_PASSWORD")
-        debug_summary["sasl_mechanism"] = sasl_mechanism
-        debug_summary["sasl_username"] = _redact_secret(sasl_username)
+    if mode == "aws_msk":
+        aws_region = _require_env("REAL_KAFKA_AWS_REGION")
+        debug_summary["aws_region"] = aws_region
 
     producer = KafkaProducer(
         bootstrap_servers=bootstrap_servers,
         topic=topic,
         mode=mode,
         compression_type="none",
-        security_protocol=security_protocol,
         ssl_ca_file=ssl_ca_file,
-        sasl_mechanism=sasl_mechanism,
-        sasl_username=sasl_username,
-        sasl_password=sasl_password,
+        aws_region=aws_region,
+        aws_debug_creds=aws_debug_creds,
         send_timeout_sec=10.0,
         linger_ms=0,
         batch_size=16384,

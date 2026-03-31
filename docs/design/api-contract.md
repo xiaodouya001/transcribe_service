@@ -6,7 +6,7 @@
 | Attribute             | Value                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------- |
 | **API major version** | **V1** (aligned with the WebSocket path prefix `/ws/v1/`)                           |
-| **Document version**  | **1.3.0** (semantic version of *this* contract document; independent patch counter) |
+| **Document version**  | **1.3.1** (semantic version of *this* contract document; independent patch counter) |
 
 
 ### Revision policy (normative)
@@ -393,6 +393,8 @@ Keepalive uses **RFC 6455** WebSocket **Ping** and **Pong** control frames. They
 | E1011      | ERROR       | 504                                                                                   | 1013                                      | Yes        | Yes                             | Timeout when waiting for an upstream or downstream dependency such as Kafka                                                                 |
 
 
+> **Normative clarification (§4.3).** The **HTTP Handshake** column applies **only** when the failure is reported **before** the WebSocket upgrade completes (the HTTP response that rejects the handshake). After the upgrade succeeds, the same application error codes are reported as WebSocket `ERROR` text frames followed by closure using the **WS Close** code in this table; the client does **not** receive a new HTTP status for those post-handshake failures. Values such as **400**, **500**, or **504** in the HTTP column describe the **handshake-time** analogue where applicable (for example missing query parameters or auth at upgrade time), not an HTTP response after messages are already flowing.
+
 Before closing the connection for a post-handshake error, the service sends an `ERROR` frame such as:
 
 ```json
@@ -614,6 +616,7 @@ The **Doc ver.** column states the **Document version** at each revision. The **
 
 | Doc ver. | Date (UTC) | Summary                                                                                                                                                                                                                            |
 | -------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.3.1    | 2026-03-31 | **§4.3** Clarify that the HTTP Handshake column applies only to pre-upgrade failures; post-handshake errors use WS `ERROR` + close codes without a further HTTP status.                                                           |
 | 1.3.0    | 2026-03-30 | Enable optional handshake authentication for V1 deployments using `Authorization: Bearer <JWT>` with `E1010` for missing, malformed, invalid, or expired credentials, and implement the minimum HS256-based validation flow. |
 | 1.2.1    | 2026-03-30 | Tighten the request payload contract so `payload.dialect` is a required field for both `SESSION_ONGOING` and `SESSION_COMPLETE`. |
 | 1.2.0    | 2026-03-30 | Pre-integration V1 refinement: allow unreleased contract changes without consumer migration obligations to use a MINOR document-version increment; request payload removes `agentId` / `customerId`, renames `createdAtTimeStamp` to `speakTimeStamp`, adds `transcriptGenerateTimeStamp`, and omits both request timestamps for `SESSION_COMPLETE`. |

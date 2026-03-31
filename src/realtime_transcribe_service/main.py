@@ -4,7 +4,7 @@ import asyncio
 import sys
 import time
 from collections.abc import Awaitable
-from typing import Any
+from typing import Any, cast
 
 import uvicorn
 from pydantic import ValidationError
@@ -34,7 +34,7 @@ async def _check_redis(redis_url: str) -> None:
 
     client = Redis.from_url(redis_url, decode_responses=True)
     try:
-        await client.ping()
+        await cast(Awaitable[Any], client.ping())
     except Exception as e:
         log.error("Startup failed: Redis unavailable", redis_url=redis_url, error=str(e))
         raise RuntimeError(f"Redis unavailable: {redis_url} - {e}") from e
@@ -103,30 +103,33 @@ async def run() -> None:
     settings = get_settings()
     configure_logging(level=settings.log_level, format=settings.log_format)
 
+    redis_url = settings.redis_url
+    kafka_bootstrap_servers = settings.kafka_bootstrap_servers
+    assert redis_url is not None
+    assert kafka_bootstrap_servers is not None
+
     # --- Initialize components ---
     sequence_state_machine = RedisSequenceStateMachine(
-        redis_url=settings.redis_url,
+        redis_url=redis_url,
         max_connections=settings.redis_max_connections,
         active_ttl_sec=settings.redis_active_ttl_sec,
         final_ttl_sec=settings.redis_final_ttl_sec,
         key_prefix=settings.redis_sequence_state_key_prefix,
     )
     ownership_guard = RedisConversationOwnershipGuard(
-        redis_url=settings.redis_url,
+        redis_url=redis_url,
         max_connections=settings.redis_max_connections,
         guard_ttl_sec=settings.redis_ownership_guard_ttl_sec,
         key_prefix=settings.redis_ownership_guard_key_prefix,
     )
     producer = KafkaProducer(
-        bootstrap_servers=settings.kafka_bootstrap_servers,
+        bootstrap_servers=kafka_bootstrap_servers,
         topic=settings.kafka_topic,
         mode=settings.kafka_mode,
         compression_type=settings.kafka_compression_type,
-        security_protocol=settings.kafka_security_protocol,
         ssl_ca_file=settings.kafka_ssl_ca_file,
-        sasl_mechanism=settings.kafka_sasl_mechanism,
-        sasl_username=settings.kafka_sasl_username,
-        sasl_password=settings.kafka_sasl_password,
+        aws_region=settings.kafka_aws_region,
+        aws_debug_creds=settings.kafka_aws_debug_creds,
         send_timeout_sec=settings.kafka_send_timeout_sec,
         linger_ms=settings.kafka_linger_ms,
         batch_size=settings.kafka_batch_size,
@@ -145,7 +148,7 @@ async def run() -> None:
     # --- Pre-start checks (Redis and Kafka run in parallel to reduce cold-start latency) ---
     t_checks = time.perf_counter()
     await asyncio.gather(
-        _startup_phase_timed("redis", _check_redis(settings.redis_url)),
+        _startup_phase_timed("redis", _check_redis(redis_url)),
         _startup_phase_timed(
             "kafka",
             _check_kafka(producer, settings.kafka_startup_timeout_sec),
@@ -170,7 +173,7 @@ async def run() -> None:
         registry=registry,
         auth_backend=auth_backend,
         ownership_guard=ownership_guard,
-        redis_url=settings.redis_url,
+        redis_url=redis_url,
         producer=producer,
         max_connections=settings.ws_max_connections,
         ownership_guard_refresh_interval_sec=settings.ws_ownership_guard_refresh_interval_sec,

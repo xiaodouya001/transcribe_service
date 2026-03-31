@@ -28,6 +28,10 @@
 
 ## 2. WebSocket Connection Problems
 
+### Local `ws` vs production `wss`
+
+The [API contract §1.1](../design/api-contract.md) specifies **`wss`** (TLS) as the normative transport for V1. Local `docker compose` and default Uvicorn HTTP use **`ws://`** only for developer convenience. Production or external clients must use TLS (ingress, load balancer, or mTLS as required) and connect with **`wss`**.
+
 ### Handshake rejected with HTTP 401
 
 **Cause:** handshake authentication is enabled and the client did not send a valid `Authorization: Bearer <JWT>` header. The service rejects the request with `E1010` before the WebSocket upgrade completes.

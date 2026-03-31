@@ -24,6 +24,7 @@ Do not rely on `.env`. Inject configuration as process environment variables and
 - Blank string values fail startup
 - Unknown keys in `.env` fail startup
 - `REDIS_URL` and `KAFKA_BOOTSTRAP_SERVERS` are required when `APP_ENV=deployed`
+- `APP_ENV=deployed` requires `KAFKA_MODE=aws_msk` (MSK IAM). `KAFKA_MODE=admin` is for local docker-compose only
 - `AUTH_JWT_SIGNING_MATERIAL` is required when `AUTH_ENABLED=true`
 
 ---
@@ -53,21 +54,39 @@ Do not rely on `.env`. Inject configuration as process environment variables and
 | Variable | Default | Description |
 |------|------|------|
 | `KAFKA_BOOTSTRAP_SERVERS` | local only: `127.0.0.1:9092` | Kafka bootstrap servers. Required when `APP_ENV=deployed` |
-| `KAFKA_MODE` | `admin` | Topic-management mode. `admin` auto-creates the topic during startup; `aws_msk` skips topic creation and expects the topic to already exist |
+| `KAFKA_MODE` | `admin` | `admin` = local docker-compose only: **wire protocol is fixed PLAINTEXT in code** (no env knob), auto-creates the topic at startup. `aws_msk` = deployed / remote MSK: **wire protocol is fixed SASL_SSL + OAUTHBEARER (MSK IAM) in code**, no topic creation (topic must exist) |
 | `KAFKA_TOPIC` | `AI_STAGING_TRANSCRIPTION` | Topic name. Must not be empty |
-| `KAFKA_TOPIC_NUM_PARTITIONS` | 50 | Partition count when the service creates a new topic in `KAFKA_MODE=admin`. Must be `> 0` |
-| `KAFKA_REPLICATION_FACTOR` | 1 | Replication factor when the service creates a new topic in `KAFKA_MODE=admin`. Must be `> 0`. Use `>= 2` in production |
+| `KAFKA_TOPIC_NUM_PARTITIONS` | 50 | Partition count when the service creates a new topic in `KAFKA_MODE=admin`. Must be `> 0`. Example files may set `100` to **override** this default for higher throughput; omit the variable to use **50**. |
+| `KAFKA_REPLICATION_FACTOR` | 1 | Replication factor when the service creates a new topic in `KAFKA_MODE=admin` only. Must be `> 0`. For MSK, set replication when you create the topic out of band |
 | `KAFKA_COMPRESSION_TYPE` | `zstd` | Compression codec: `none`, `gzip`, `snappy`, `lz4`, or `zstd` |
-| `KAFKA_SECURITY_PROTOCOL` | `PLAINTEXT` | Kafka security protocol: `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT`, or `SASL_SSL` |
-| `KAFKA_SASL_MECHANISM` | None | Required when `KAFKA_SECURITY_PROTOCOL` is `SASL_PLAINTEXT` or `SASL_SSL`. Supported SCRAM values: `SCRAM-SHA-256`, `SCRAM-SHA-512` |
-| `KAFKA_SASL_USERNAME` | None | Required for SASL/SCRAM authentication |
-| `KAFKA_SASL_PASSWORD` | None | Required for SASL/SCRAM authentication |
+| `KAFKA_SSL_CA_FILE` | None | Optional CA bundle path for `KAFKA_MODE=aws_msk` when the broker or NLB certificate chain is not trusted by the system default trust store. **Not allowed** when `KAFKA_MODE=admin` |
+| `KAFKA_AWS_REGION` | None | Required when `KAFKA_MODE=aws_msk`. Unused when `KAFKA_MODE=admin` |
+| `KAFKA_AWS_DEBUG_CREDS` | false | Only effective when `KAFKA_MODE=aws_msk`. When `true`, the IAM signer logs which AWS identity was used (troubleshooting only; keep `false` in production) |
 | `KAFKA_SEND_TIMEOUT_SEC` | 2.0 | Kafka send timeout in seconds. Must be `> 0` |
 | `KAFKA_LINGER_MS` | 1 | Producer linger in milliseconds. Must be `>= 0` |
 | `KAFKA_BATCH_SIZE` | 32768 | Producer batch size in bytes. Must be `> 0` |
 
-> `KAFKA_MODE=admin` is suitable for environments where the service is allowed to create topics through Kafka Admin APIs.
-> `KAFKA_MODE=aws_msk` is intended for AWS MSK style setups where topics are managed externally and auto-creation must stay disabled.
+#### Kafka: which settings go together
+
+Pick **one** row and treat it as a bundle. Do not rely on “leftover” variables from another bundle (for example `KAFKA_AWS_REGION` does nothing when `KAFKA_MODE=admin`).
+
+| Scenario | `KAFKA_MODE` | Turn **on** / set | Turn **off** / omit / ignore |
+| -------- | ------------ | ------------------- | ---------------------------- |
+| **Local docker-compose** (this repo) | `admin` | `APP_ENV=local`, `KAFKA_BOOTSTRAP_SERVERS` (e.g. `127.0.0.1:9092`), topic + partition/replication if you rely on auto-create; **PLAINTEXT is fixed in code** | Omit `KAFKA_AWS_REGION`, `KAFKA_SSL_CA_FILE`. Keep `KAFKA_AWS_DEBUG_CREDS=false` (or omit) |
+| **Deployed / remote Kafka (ECS, etc.)** | `aws_msk` | `APP_ENV=deployed`, `KAFKA_AWS_REGION`, `KAFKA_BOOTSTRAP_SERVERS` on **MSK IAM** endpoints (commonly `:9098`), AWS credentials via the [default credential chain](https://docs.aws.amazon.com/sdkref/latest/guide/overview.html); optional `KAFKA_SSL_CA_FILE` if TLS chain is non-public; **SASL_SSL + OAUTHBEARER is fixed in code** | Create `KAFKA_TOPIC` **before** deploy; partition/replication env vars are **not** used to auto-create the topic in this mode |
+| **Debug “which AWS identity signs the token?”** | `aws_msk` only | Temporarily set `KAFKA_AWS_DEBUG_CREDS=true`, reproduce once, read logs | Set back to **`false`** after troubleshooting (avoid in steady-state production) |
+
+**Do not mix:** `APP_ENV=deployed` **must** use `KAFKA_MODE=aws_msk`. There is **no** `KAFKA_SECURITY_PROTOCOL` (or similar) environment variable; wire security follows `KAFKA_MODE` only. **`KAFKA_MODE=admin` never uses MSK IAM** and must not set `KAFKA_SSL_CA_FILE`; `KAFKA_AWS_REGION` / `KAFKA_AWS_DEBUG_CREDS` have **no effect** on the Kafka client in admin mode.
+
+#### Kafka authentication
+
+- **Not supported:** SASL **SCRAM** or SASL **PLAIN** (username / password) to Kafka. There are no `KAFKA_SASL_*` settings.
+- **`KAFKA_MODE=admin`:** **Local docker-compose only**. The client always uses **PLAINTEXT** (not configurable). The service uses the Kafka Admin API to create the topic when allowed. Do not use for `APP_ENV=deployed`.
+- **`KAFKA_MODE=aws_msk`:** **AWS MSK IAM** for all deployed / remote Kafka. The client always uses **`SASL_SSL`** + **`OAUTHBEARER`** (not configurable). Tokens from **`aws-msk-iam-sasl-signer-python`**. Set **`KAFKA_AWS_REGION`** and AWS credentials (e.g. ECS task role). Optional **`KAFKA_SSL_CA_FILE`** if the broker chain is not in the default trust store.
+
+> `KAFKA_MODE=admin` is only for local debugging with this repo’s docker-compose broker.
+> `KAFKA_MODE=aws_msk` never attempts topic creation; create the topic out of band.
+> In `KAFKA_MODE=aws_msk`, AWS credentials come from the standard AWS default credential chain, for example ECS task role, exported STS credentials, or `AWS_PROFILE`.
 
 ### WebSocket
 
@@ -133,34 +152,17 @@ LOG_FORMAT=console
 HTTP_ENABLE_DOCS=false
 ```
 
-**Deployed with Kafka Admin topic creation**
+**Deployed on AWS MSK with IAM**
 
 ```env
 APP_ENV=deployed
 REDIS_URL=redis://your-elasticache:6379/0
-KAFKA_BOOTSTRAP_SERVERS=your-kafka:9092
-KAFKA_MODE=admin
-KAFKA_TOPIC=AI_STAGING_TRANSCRIPTION
-KAFKA_TOPIC_NUM_PARTITIONS=100
-KAFKA_REPLICATION_FACTOR=3
-LOG_FORMAT=json
-AUTH_ENABLED=true
-AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material
-HTTP_ENABLE_DOCS=false
-```
-
-**Deployed on AWS MSK with SASL/SCRAM**
-
-```env
-APP_ENV=deployed
-REDIS_URL=redis://your-elasticache:6379/0
-KAFKA_BOOTSTRAP_SERVERS=b-1.example.msk.amazonaws.com:9096,b-2.example.msk.amazonaws.com:9096
+KAFKA_BOOTSTRAP_SERVERS=b-1.example.msk.amazonaws.com:9098,b-2.example.msk.amazonaws.com:9098
 KAFKA_MODE=aws_msk
 KAFKA_TOPIC=AI_STAGING_TRANSCRIPTION
-KAFKA_SECURITY_PROTOCOL=SASL_SSL
-KAFKA_SASL_MECHANISM=SCRAM-SHA-512
-KAFKA_SASL_USERNAME=replace-with-username
-KAFKA_SASL_PASSWORD=replace-with-password
+KAFKA_AWS_REGION=ap-east-1
+KAFKA_SSL_CA_FILE=/path/to/custom-ca-chain.pem
+KAFKA_AWS_DEBUG_CREDS=false
 LOG_FORMAT=json
 AUTH_ENABLED=true
 AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material

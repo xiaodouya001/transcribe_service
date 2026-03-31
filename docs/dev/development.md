@@ -118,6 +118,8 @@ python -m realtime_transcribe_service.main
 
 The service listens on `0.0.0.0:8080`, with the WebSocket endpoint at `/ws/v1/realtime-transcriptions?conversationId=xxx`.
 
+**Contract vs local dev:** The V1 API contract ([api-contract.md §1.1](../design/api-contract.md)) requires **`wss`** (TLS) for production integrations. Local development uses **`ws://127.0.0.1:8080/...`** as a convenience only; do not treat unencrypted `ws` as the production transport.
+
 ### 3.5 Local addresses
 
 | Service | Address |
@@ -127,6 +129,11 @@ The service listens on `0.0.0.0:8080`, with the WebSocket endpoint at `/ws/v1/re
 | Kafka UI | http://127.0.0.1:8090 |
 
 See [kafka-ui-usage.md](../ops/kafka-ui-usage.md) for Kafka UI details.
+
+### 3.6 Kafka: local broker vs AWS MSK
+
+- **Local (`docker compose`)** — keep defaults: `APP_ENV=local`, `KAFKA_MODE=admin`, `KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092`. Admin uses **PLAINTEXT fixed in code** and may auto-create the topic via the Kafka admin client.
+- **Deployed / remote Kafka** — use `APP_ENV=deployed` with **`KAFKA_MODE=aws_msk`** (MSK IAM only in this project). Set `KAFKA_AWS_REGION` and bootstrap servers for the **IAM** port (often `:9098`). Not SCRAM. See [configuration.md](../config/configuration.md#kafka-authentication).
 
 ---
 

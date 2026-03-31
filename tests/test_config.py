@@ -29,11 +29,9 @@ class TestSettings:
         assert s.kafka_mode == "admin"
         assert s.kafka_topic == "AI_STAGING_TRANSCRIPTION"
         assert s.kafka_compression_type == "zstd"
-        assert s.kafka_security_protocol == "PLAINTEXT"
         assert s.kafka_ssl_ca_file is None
-        assert s.kafka_sasl_mechanism is None
-        assert s.kafka_sasl_username is None
-        assert s.kafka_sasl_password is None
+        assert s.kafka_aws_region is None
+        assert s.kafka_aws_debug_creds is False
         assert s.kafka_send_timeout_sec == 2.0
         assert s.ws_ping_interval == 20.0
         assert s.ws_ping_timeout == 10.0
@@ -122,7 +120,6 @@ class TestSettings:
         assert Settings._normalize_uppercase_enums(marker) is marker
         assert Settings._normalize_auth_jwt_algorithm(marker) is marker
         assert Settings._normalize_lowercase_enums(marker) is marker
-        assert Settings._normalize_optional_secret_strings(marker) is marker
         assert Settings._reject_blank_strings(marker) is marker
 
     def test_auth_enabled_requires_jwt_signing_material(self):
@@ -166,41 +163,53 @@ class TestSettings:
             _env_file=None,
             app_env="local",
             kafka_mode="AWS_MSK",
+            kafka_aws_region="ap-east-1",
         )
         assert s.kafka_mode == "aws_msk"
 
-    def test_kafka_security_protocol_and_mechanism_are_normalized_to_uppercase(self):
-        s = _settings(
-            _env_file=None,
-            app_env="local",
-            kafka_security_protocol="sasl_ssl",
-            kafka_sasl_mechanism="scram-sha-512",
-            kafka_sasl_username="alice",
-            kafka_sasl_password="secret",
-        )
-        assert s.kafka_security_protocol == "SASL_SSL"
-        assert s.kafka_sasl_mechanism == "SCRAM-SHA-512"
+    def test_deployed_requires_aws_msk_for_kafka(self):
+        with pytest.raises(ValidationError, match="APP_ENV=deployed requires KAFKA_MODE=aws_msk"):
+            _settings(
+                _env_file=None,
+                app_env="deployed",
+                redis_url="redis://127.0.0.1:6379/0",
+                kafka_bootstrap_servers="127.0.0.1:9092",
+                kafka_mode="admin",
+            )
 
-    def test_sasl_protocol_requires_scram_credentials(self):
-        with pytest.raises(
-            ValidationError,
-            match="Missing required SASL configuration",
-        ):
+    def test_admin_mode_rejects_ssl_ca_file(self):
+        with pytest.raises(ValidationError, match="KAFKA_SSL_CA_FILE is only used when KAFKA_MODE=aws_msk"):
             _settings(
                 _env_file=None,
                 app_env="local",
-                kafka_security_protocol="SASL_SSL",
+                kafka_ssl_ca_file="/tmp/ca.pem",
             )
 
-    def test_blank_sasl_values_are_normalized_to_none(self):
+    def test_aws_msk_mode_requires_aws_region(self):
+        with pytest.raises(
+            ValidationError,
+            match="KAFKA_AWS_REGION must be set",
+        ):
+            _settings(
+                _env_file=None,
+                app_env="deployed",
+                redis_url="redis://127.0.0.1:6379/0",
+                kafka_bootstrap_servers="b-1.example.amazonaws.com:9098",
+                kafka_mode="aws_msk",
+            )
+
+    def test_aws_msk_mode_accepts_region_and_debug_flag(self):
         s = _settings(
             _env_file=None,
-            app_env="local",
-            kafka_sasl_username="   ",
-            kafka_sasl_password="   ",
+            app_env="deployed",
+            redis_url="redis://127.0.0.1:6379/0",
+            kafka_bootstrap_servers="b-1.example.amazonaws.com:9098",
+            kafka_mode="aws_msk",
+            kafka_aws_region="ap-east-1",
+            kafka_aws_debug_creds=True,
         )
-        assert s.kafka_sasl_username is None
-        assert s.kafka_sasl_password is None
+        assert s.kafka_aws_region == "ap-east-1"
+        assert s.kafka_aws_debug_creds is True
 
     def test_blank_kafka_ssl_ca_file_is_rejected(self):
         with pytest.raises(ValidationError, match="must not be empty"):

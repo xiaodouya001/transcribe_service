@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import ssl
+import sys
+import types
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -37,37 +39,93 @@ async def test_ensure_topic_raises_on_unexpected_error(monkeypatch):
     warn_mock.assert_called_once()
 
 
-def test_build_kafka_client_kwargs_for_sasl_ssl():
+def test_build_kafka_client_kwargs_for_admin_is_plaintext_only():
     kwargs = kp._build_kafka_client_kwargs(
-        "broker-a:9094",
-        security_protocol="SASL_SSL",
-        sasl_mechanism="SCRAM-SHA-512",
-        sasl_username="alice",
-        sasl_password="secret",
+        "127.0.0.1:9092",
+        mode="admin",
     )
 
-    assert kwargs["bootstrap_servers"] == "broker-a:9094"
-    assert kwargs["security_protocol"] == "SASL_SSL"
-    assert kwargs["sasl_mechanism"] == "SCRAM-SHA-512"
-    assert kwargs["sasl_plain_username"] == "alice"
-    assert kwargs["sasl_plain_password"] == "secret"
-    assert isinstance(kwargs["ssl_context"], ssl.SSLContext)
+    assert kwargs["bootstrap_servers"] == "127.0.0.1:9092"
+    assert kwargs["security_protocol"] == "PLAINTEXT"
+    assert "ssl_context" not in kwargs
 
 
-def test_build_kafka_client_kwargs_uses_explicit_ca_file():
+def test_build_kafka_client_kwargs_for_aws_msk_iam():
     ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    with patch.object(kp.ssl, "create_default_context", return_value=ssl_ctx) as create_ctx:
+    token_provider = MagicMock()
+    with patch.object(kp.ssl, "create_default_context", return_value=ssl_ctx) as create_ctx, patch.object(
+        kp, "MSKTokenProvider", return_value=token_provider
+    ) as provider_ctor:
         kwargs = kp._build_kafka_client_kwargs(
-            "broker-a:9094",
-            security_protocol="SASL_SSL",
-            ssl_ca_file="/tmp/msk-ca.pem",
-            sasl_mechanism="SCRAM-SHA-512",
-            sasl_username="alice",
-            sasl_password="secret",
+            "b-1.example.amazonaws.com:9098",
+            mode="aws_msk",
+            ssl_ca_file="/tmp/ca.pem",
+            aws_region="ap-east-1",
+            aws_debug_creds=True,
         )
 
-    create_ctx.assert_called_once_with(cafile="/tmp/msk-ca.pem")
+    create_ctx.assert_called_once_with(cafile="/tmp/ca.pem")
+    provider_ctor.assert_called_once_with("ap-east-1", aws_debug_creds=True)
+    assert kwargs["bootstrap_servers"] == "b-1.example.amazonaws.com:9098"
+    assert kwargs["security_protocol"] == "SASL_SSL"
+    assert kwargs["sasl_mechanism"] == "OAUTHBEARER"
+    assert kwargs["sasl_oauth_token_provider"] is token_provider
     assert kwargs["ssl_context"] is ssl_ctx
+
+
+def test_build_kafka_client_kwargs_for_aws_msk_requires_region():
+    with pytest.raises(ValueError, match="aws_region is required"):
+        kp._build_kafka_client_kwargs(
+            "b-1.example.amazonaws.com:9098",
+            mode="aws_msk",
+        )
+
+
+@pytest.mark.asyncio
+async def test_msk_token_provider_refreshes_and_caches():
+    with patch.object(
+        kp,
+        "_generate_msk_auth_token",
+        side_effect=[("token-1", 9999999999999), ("token-2", 1)],
+    ) as gen:
+        provider = kp.MSKTokenProvider("ap-east-1", aws_debug_creds=True)
+        token_1 = await provider.token()
+        token_2 = await provider.token()
+
+    assert token_1 == "token-1"
+    assert token_2 == "token-1"
+    gen.assert_called_once_with("ap-east-1", aws_debug_creds=True)
+
+
+def test_generate_msk_auth_token_success():
+    signer_module = types.SimpleNamespace(
+        MSKAuthTokenProvider=types.SimpleNamespace(
+            generate_auth_token=MagicMock(return_value=("token-1", 1234567890))
+        )
+    )
+    with patch.dict(sys.modules, {"aws_msk_iam_sasl_signer": signer_module}):
+        token, expiry_ms = kp._generate_msk_auth_token("ap-east-1", aws_debug_creds=True)
+
+    assert token == "token-1"
+    assert expiry_ms == 1234567890
+    signer_module.MSKAuthTokenProvider.generate_auth_token.assert_called_once_with(
+        "ap-east-1",
+        aws_debug_creds=True,
+    )
+
+
+def test_generate_msk_auth_token_import_error():
+    import_error = ImportError("missing signer")
+    real_import = __import__
+
+    def fail_signer_import(name, *args, **kwargs):
+        if name == "aws_msk_iam_sasl_signer":
+            raise import_error
+        return real_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=fail_signer_import):
+        with pytest.raises(RuntimeError, match="aws-msk-iam-sasl-signer-python"):
+            kp._generate_msk_auth_token("ap-east-1")
 
 
 @pytest.mark.asyncio
@@ -105,8 +163,7 @@ async def test_kafka_producer_none_compression():
 
 
 @pytest.mark.asyncio
-async def test_kafka_producer_admin_mode_passes_sasl_kwargs_to_admin_and_producer():
-    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+async def test_kafka_producer_admin_mode_passes_plaintext_to_admin_and_producer():
     send_mock = AsyncMock()
     prod_mock = MagicMock()
     prod_mock.start = AsyncMock()
@@ -119,58 +176,49 @@ async def test_kafka_producer_admin_mode_passes_sasl_kwargs_to_admin_and_produce
     admin.create_topics = AsyncMock()
     admin.close = AsyncMock()
 
-    with patch.object(kp.ssl, "create_default_context", return_value=ssl_ctx) as create_ctx, patch.object(
-        kp, "AIOKafkaAdminClient", return_value=admin
-    ) as admin_ctor, patch.object(kp, "AIOKafkaProducer", return_value=prod_mock) as producer_ctor:
+    with patch.object(kp, "AIOKafkaAdminClient", return_value=admin) as admin_ctor, patch.object(
+        kp, "AIOKafkaProducer", return_value=prod_mock
+    ) as producer_ctor:
         p = kp.KafkaProducer(
-            bootstrap_servers="broker-a:9094",
+            bootstrap_servers="127.0.0.1:9092",
             mode="admin",
-            security_protocol="SASL_SSL",
-            ssl_ca_file="/tmp/msk-ca.pem",
-            sasl_mechanism="SCRAM-SHA-512",
-            sasl_username="alice",
-            sasl_password="secret",
         )
         await p.ensure_ready()
 
-    create_ctx.assert_called_once_with(cafile="/tmp/msk-ca.pem")
-
     admin_kwargs = admin_ctor.call_args.kwargs
     producer_kwargs = producer_ctor.call_args.kwargs
-    assert admin_kwargs["bootstrap_servers"] == "broker-a:9094"
-    assert admin_kwargs["security_protocol"] == "SASL_SSL"
-    assert admin_kwargs["sasl_mechanism"] == "SCRAM-SHA-512"
-    assert admin_kwargs["sasl_plain_username"] == "alice"
-    assert admin_kwargs["sasl_plain_password"] == "secret"
-    assert admin_kwargs["ssl_context"] is ssl_ctx
-    assert producer_kwargs["bootstrap_servers"] == "broker-a:9094"
-    assert producer_kwargs["security_protocol"] == "SASL_SSL"
-    assert producer_kwargs["sasl_mechanism"] == "SCRAM-SHA-512"
-    assert producer_kwargs["sasl_plain_username"] == "alice"
-    assert producer_kwargs["sasl_plain_password"] == "secret"
-    assert producer_kwargs["ssl_context"] is ssl_ctx
+    assert admin_kwargs["bootstrap_servers"] == "127.0.0.1:9092"
+    assert admin_kwargs["security_protocol"] == "PLAINTEXT"
+    assert "ssl_context" not in admin_kwargs
+    assert producer_kwargs["bootstrap_servers"] == "127.0.0.1:9092"
+    assert producer_kwargs["security_protocol"] == "PLAINTEXT"
+    assert "ssl_context" not in producer_kwargs
 
 
 @pytest.mark.asyncio
-async def test_kafka_producer_aws_msk_mode_skips_topic_creation():
+async def test_kafka_producer_aws_msk_mode_uses_iam_and_skips_topic_creation():
     prod_mock = MagicMock()
     prod_mock.start = AsyncMock()
     prod_mock.stop = AsyncMock()
+    token_provider = MagicMock()
 
     with patch.object(kp, "_ensure_topic", new=AsyncMock()) as ensure_topic, patch.object(
         kp, "AIOKafkaProducer", return_value=prod_mock
-    ):
+    ) as producer_ctor, patch.object(kp, "MSKTokenProvider", return_value=token_provider) as provider_ctor:
         p = kp.KafkaProducer(
-            bootstrap_servers="127.0.0.1:9092",
+            bootstrap_servers="b-1.example.amazonaws.com:9098",
             mode="aws_msk",
-            security_protocol="SASL_SSL",
-            sasl_mechanism="SCRAM-SHA-256",
-            sasl_username="alice",
-            sasl_password="secret",
+            aws_region="ap-east-1",
+            aws_debug_creds=True,
         )
         await p.ensure_ready()
 
     ensure_topic.assert_not_awaited()
+    provider_ctor.assert_called_once_with("ap-east-1", aws_debug_creds=True)
+    producer_kwargs = producer_ctor.call_args.kwargs
+    assert producer_kwargs["security_protocol"] == "SASL_SSL"
+    assert producer_kwargs["sasl_mechanism"] == "OAUTHBEARER"
+    assert producer_kwargs["sasl_oauth_token_provider"] is token_provider
 
 
 @pytest.mark.asyncio

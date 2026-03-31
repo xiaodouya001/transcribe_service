@@ -1,39 +1,94 @@
-"""Kafka producer — conversationId routing, acks=all, zstd compression, and fast failure."""
+"""Kafka producer — conversationId routing, acks=all, zstd compression, and fast failure.
+
+- **Local docker-compose** (`KAFKA_MODE=admin`): ``PLAINTEXT`` only; the service may auto-create
+  the topic via the Kafka Admin API. Not used when ``APP_ENV=deployed``.
+- **AWS MSK with IAM** (`KAFKA_MODE=aws_msk`): MSK IAM via ``SASL_SSL`` + ``OAUTHBEARER`` and
+  `aws-msk-iam-sasl-signer-python` (not SCRAM / SASL PLAIN). Required for deployed / remote Kafka.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import ssl
+import threading
+import time
 from typing import Any
 
 import orjson
 import structlog
 from aiokafka import AIOKafkaProducer
+from aiokafka.abc import AbstractTokenProvider
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 
 log = structlog.get_logger(__name__)
 
 
+def _generate_msk_auth_token(region: str, *, aws_debug_creds: bool = False) -> tuple[str, int]:
+    """Generate an MSK IAM auth token using the default AWS credential chain."""
+    try:
+        from aws_msk_iam_sasl_signer import MSKAuthTokenProvider  # pyright: ignore[reportMissingImports]
+    except ImportError as exc:  # pragma: no cover - exercised when dependency is missing
+        raise RuntimeError(
+            "aws-msk-iam-sasl-signer-python is required when KAFKA_MODE=aws_msk"
+        ) from exc
+    return MSKAuthTokenProvider.generate_auth_token(
+        region,
+        aws_debug_creds=aws_debug_creds,
+    )
+
+
+class MSKTokenProvider(AbstractTokenProvider):
+    """Async aiokafka token provider backed by the AWS MSK IAM signer."""
+
+    def __init__(self, region: str, *, aws_debug_creds: bool = False) -> None:
+        self._region = region
+        self._aws_debug_creds = aws_debug_creds
+        self._token: str | None = None
+        self._expiry_ms = 0
+        self._lock = threading.Lock()
+
+    def _refresh_token(self) -> str:
+        now_ms = int(time.time() * 1000)
+        with self._lock:
+            if self._token is not None and now_ms < self._expiry_ms - 60_000:
+                return self._token
+
+            token, expiry_ms = _generate_msk_auth_token(
+                self._region,
+                aws_debug_creds=self._aws_debug_creds,
+            )
+            self._token = token
+            self._expiry_ms = expiry_ms
+            return token
+
+    async def token(self) -> str:  # pyright: ignore[reportIncompatibleMethodOverride]  # upstream ABC omits return type
+        return await asyncio.get_running_loop().run_in_executor(None, self._refresh_token)
+
+
 def _build_kafka_client_kwargs(
     bootstrap_servers: str,
     *,
-    security_protocol: str = "PLAINTEXT",
+    mode: str = "admin",
     ssl_ca_file: str | None = None,
-    sasl_mechanism: str | None = None,
-    sasl_username: str | None = None,
-    sasl_password: str | None = None,
+    aws_region: str | None = None,
+    aws_debug_creds: bool = False,
 ) -> dict[str, Any]:
     """Build shared Kafka connection kwargs for admin and producer clients."""
-    kwargs: dict[str, Any] = {
-        "bootstrap_servers": bootstrap_servers,
-        "security_protocol": security_protocol,
-    }
-    if security_protocol in {"SSL", "SASL_SSL"}:
+    kwargs: dict[str, Any] = {"bootstrap_servers": bootstrap_servers}
+
+    if mode == "aws_msk":
+        if aws_region is None:
+            raise ValueError("aws_region is required when mode=aws_msk")
+        kwargs["security_protocol"] = "SASL_SSL"
         kwargs["ssl_context"] = ssl.create_default_context(cafile=ssl_ca_file)
-    if security_protocol.startswith("SASL_"):
-        kwargs["sasl_mechanism"] = sasl_mechanism
-        kwargs["sasl_plain_username"] = sasl_username
-        kwargs["sasl_plain_password"] = sasl_password
+        kwargs["sasl_mechanism"] = "OAUTHBEARER"
+        kwargs["sasl_oauth_token_provider"] = MSKTokenProvider(
+            aws_region,
+            aws_debug_creds=aws_debug_creds,
+        )
+        return kwargs
+
+    kwargs["security_protocol"] = "PLAINTEXT"
     return kwargs
 
 
@@ -96,11 +151,9 @@ class KafkaProducer:
         *,
         mode: str = "admin",
         compression_type: str = "zstd",
-        security_protocol: str = "PLAINTEXT",
         ssl_ca_file: str | None = None,
-        sasl_mechanism: str | None = None,
-        sasl_username: str | None = None,
-        sasl_password: str | None = None,
+        aws_region: str | None = None,
+        aws_debug_creds: bool = False,
         send_timeout_sec: float = 2.0,
         linger_ms: int = 1,
         batch_size: int = 32768,
@@ -113,11 +166,10 @@ class KafkaProducer:
         self._compression_type = compression_type
         self._client_kwargs = _build_kafka_client_kwargs(
             bootstrap_servers,
-            security_protocol=security_protocol,
+            mode=mode,
             ssl_ca_file=ssl_ca_file,
-            sasl_mechanism=sasl_mechanism,
-            sasl_username=sasl_username,
-            sasl_password=sasl_password,
+            aws_region=aws_region,
+            aws_debug_creds=aws_debug_creds,
         )
         self._send_timeout_sec = send_timeout_sec
         self._linger_ms = linger_ms
