@@ -188,7 +188,7 @@ If code and documentation diverge, update the documentation first or explicitly 
 
 If the UI, tests, and implementation conflict with the API contract, the source of truth is [api-contract.md](api-contract.md).
 
-All other documents and mock tools must follow the contract and must not reinterpret contract semantics.
+All other documents and tests must follow the contract and must not reinterpret contract semantics.
 
 ---
 

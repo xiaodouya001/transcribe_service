@@ -31,7 +31,7 @@ def _get_version() -> str:
         from importlib.metadata import version
         return version(SERVICE_NAME)
     except Exception:
-        return "0.1.0"
+        return "1.0.0"
 
 
 def _add_service_context(

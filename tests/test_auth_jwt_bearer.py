@@ -14,8 +14,10 @@ SIGNING_MATERIAL = "signing-material-0123456789-material-012345"
 WRONG_SIGNING_MATERIAL = "wrong-material-0123456789-material-012345"
 
 
-def _token(signing_material: str, *, exp_delta_sec: int, sub: object = "fano-client") -> str:
-    claims = {"exp": datetime.now(timezone.utc) + timedelta(seconds=exp_delta_sec)}
+def _token(signing_material: str, *, exp_delta_sec: int, sub: str | None = "fano-client") -> str:
+    claims: dict[str, object] = {
+        "exp": datetime.now(timezone.utc) + timedelta(seconds=exp_delta_sec),
+    }
     if sub is not None:
         claims["sub"] = sub
     return jwt.encode(claims, signing_material, algorithm="HS256")

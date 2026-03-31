@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +13,11 @@ import realtime_transcribe_service.main as main_mod
 from realtime_transcribe_service.auth.jwt_bearer import JwtBearerAuthBackend
 from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
 from realtime_transcribe_service.config.settings import Settings
+
+
+def _settings(**kwargs: Any) -> Settings:
+    """Build ``Settings`` without loading repo ``.env`` (pydantic-settings internal kwargs)."""
+    return Settings(**kwargs)  # pyright: ignore[reportCallIssue]
 
 
 @pytest.mark.asyncio
@@ -83,7 +89,7 @@ async def test_check_kafka_other_error():
 @pytest.mark.asyncio
 async def test_run_invalid_settings_fail_before_startup_checks(monkeypatch):
     def invalid_settings():
-        return Settings(_env_file=None, app_env="deployed")
+        return _settings(_env_file=None, app_env="deployed")
 
     redis_check = AsyncMock()
     kafka_check = AsyncMock()
@@ -654,7 +660,7 @@ def test_main_catches_runtime_error_and_exits(monkeypatch):
 def test_main_catches_validation_error_and_exits(monkeypatch, capsys):
     def boom(coro):
         coro.close()
-        Settings(_env_file=None, app_env="deployed")
+        _settings(_env_file=None, app_env="deployed")
 
     monkeypatch.setattr(main_mod.asyncio, "run", boom)
     with pytest.raises(SystemExit) as ei:

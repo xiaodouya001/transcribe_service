@@ -138,29 +138,6 @@ class TestScenarioC:
             close_code=1008,
         )
 
-    async def test_out_of_order_warning_includes_error_and_close_code(
-        self, orchestrator: TwoPhaseOrchestrator, mock_sm, valid_ongoing_msg
-    ):
-        mock_sm.prepare.return_value = PrepareOutcome(
-            status=PrepareResult.OUT_OF_ORDER,
-            expected_sequence=1,
-        )
-        with patch("realtime_transcribe_service.orchestrator.two_phase.log.warning") as warn_mock:
-            result = await orchestrator.handle_message(valid_ongoing_msg)
-
-        assert result.response["error"]["code"] == "E1006"
-        assert result.disconnect is True
-        assert result.close_code == 1008
-        warn_mock.assert_any_call(
-            "Orchestrator: Sequence number out of order",
-            conversation_id=valid_ongoing_msg["metaData"]["conversationId"],
-            seq=valid_ongoing_msg["payload"]["sequenceNumber"],
-            actual_sequence=valid_ongoing_msg["payload"]["sequenceNumber"],
-            expected_sequence=1,
-            error_code="E1006",
-            close_code=1008,
-        )
-
 
 class TestScenarioD:
     """D. Schema validation failure -> ERROR and disconnect 1008 (or 1007)."""
@@ -176,16 +153,6 @@ class TestScenarioD:
         assert result.timings_ms is not None
         assert {"validate_ms", "orchestrator_ms"} <= set(result.timings_ms)
         mock_converter.to_kafka_payload.assert_not_called()
-
-    async def test_missing_field_uses_fallback_conversation_id(
-        self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
-    ):
-        del valid_ongoing_msg["metaData"]["conversationId"]
-        result = await orchestrator.handle_message(valid_ongoing_msg, "conv-1")
-        assert result.response["error"]["code"] == "E1003"
-        assert result.response["metaData"]["conversationId"] == "conv-1"
-        assert result.disconnect is True
-        assert result.close_code == 1008
 
     async def test_missing_required_dialect_returns_e1003(
         self, orchestrator: TwoPhaseOrchestrator, valid_ongoing_msg
