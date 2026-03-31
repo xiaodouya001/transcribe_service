@@ -196,8 +196,13 @@ def test_get_logger_none():
     assert lc.get_logger(None) is not None
 
 
-def test_aiokafka_logger_silenced_on_configure():
+def test_aiokafka_logger_follows_debug_on_configure():
     lc.configure_logging(format="json", level="DEBUG")
+    assert logging.getLogger("aiokafka").level == logging.DEBUG
+
+
+def test_aiokafka_logger_silenced_on_non_debug_configure():
+    lc.configure_logging(format="json", level="INFO")
     assert logging.getLogger("aiokafka").level == logging.CRITICAL
 
 

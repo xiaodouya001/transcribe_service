@@ -71,7 +71,8 @@ async def _ensure_topic(
                 num_partitions=num_partitions,
                 replication_factor=replication_factor,
                 exc_type=type(exc).__name__,
-                error=str(exc),
+                error=repr(exc),
+                exc_info=True,
             )
             raise
     finally:
@@ -186,11 +187,12 @@ class KafkaProducer:
             )
             raise
         except Exception as e:
-            log.error(
+            log.exception(
                 "Kafka: Send failed",
                 conversation_id=conversation_id,
                 topic=self._topic,
-                error=str(e),
+                error=repr(e),
+                exc_type=type(e).__name__,
             )
             raise
         log.debug(

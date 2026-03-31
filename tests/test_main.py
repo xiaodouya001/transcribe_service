@@ -82,8 +82,13 @@ async def test_check_kafka_timeout_close_raises_logged(monkeypatch):
 async def test_check_kafka_other_error():
     prod = MagicMock()
     prod.ensure_ready = AsyncMock(side_effect=RuntimeError("broker"))
-    with pytest.raises(RuntimeError, match="Kafka"):
+    with patch.object(main_mod.log, "exception") as exc_mock, pytest.raises(RuntimeError, match="Kafka"):
         await main_mod._check_kafka(prod, timeout=5.0)
+    exc_mock.assert_called_once_with(
+        "Startup failed: Kafka unavailable",
+        error="RuntimeError('broker')",
+        exc_type="RuntimeError",
+    )
 
 
 @pytest.mark.asyncio
