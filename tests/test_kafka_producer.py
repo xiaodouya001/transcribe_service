@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -34,6 +35,23 @@ async def test_ensure_topic_raises_on_unexpected_error(monkeypatch):
         with pytest.raises(RuntimeError, match="broker down"):
             await kp._ensure_topic("127.0.0.1:9092", "t", 3, 1)
     warn_mock.assert_called_once()
+
+
+def test_build_kafka_client_kwargs_for_sasl_ssl():
+    kwargs = kp._build_kafka_client_kwargs(
+        "broker-a:9094",
+        security_protocol="SASL_SSL",
+        sasl_mechanism="SCRAM-SHA-512",
+        sasl_username="alice",
+        sasl_password="secret",
+    )
+
+    assert kwargs["bootstrap_servers"] == "broker-a:9094"
+    assert kwargs["security_protocol"] == "SASL_SSL"
+    assert kwargs["sasl_mechanism"] == "SCRAM-SHA-512"
+    assert kwargs["sasl_plain_username"] == "alice"
+    assert kwargs["sasl_plain_password"] == "secret"
+    assert isinstance(kwargs["ssl_context"], ssl.SSLContext)
 
 
 @pytest.mark.asyncio
@@ -68,6 +86,71 @@ async def test_kafka_producer_none_compression():
         await p.close()
         prod_mock.flush.assert_awaited()
         prod_mock.stop.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_kafka_producer_admin_mode_passes_sasl_kwargs_to_admin_and_producer():
+    send_mock = AsyncMock()
+    prod_mock = MagicMock()
+    prod_mock.start = AsyncMock()
+    prod_mock.send_and_wait = send_mock
+    prod_mock.stop = AsyncMock()
+    prod_mock.flush = AsyncMock()
+
+    admin = AsyncMock()
+    admin.start = AsyncMock()
+    admin.create_topics = AsyncMock()
+    admin.close = AsyncMock()
+
+    with patch.object(kp, "AIOKafkaAdminClient", return_value=admin) as admin_ctor, patch.object(
+        kp, "AIOKafkaProducer", return_value=prod_mock
+    ) as producer_ctor:
+        p = kp.KafkaProducer(
+            bootstrap_servers="broker-a:9094",
+            mode="admin",
+            security_protocol="SASL_SSL",
+            sasl_mechanism="SCRAM-SHA-512",
+            sasl_username="alice",
+            sasl_password="secret",
+        )
+        await p.ensure_ready()
+
+    admin_kwargs = admin_ctor.call_args.kwargs
+    producer_kwargs = producer_ctor.call_args.kwargs
+    assert admin_kwargs["bootstrap_servers"] == "broker-a:9094"
+    assert admin_kwargs["security_protocol"] == "SASL_SSL"
+    assert admin_kwargs["sasl_mechanism"] == "SCRAM-SHA-512"
+    assert admin_kwargs["sasl_plain_username"] == "alice"
+    assert admin_kwargs["sasl_plain_password"] == "secret"
+    assert isinstance(admin_kwargs["ssl_context"], ssl.SSLContext)
+    assert producer_kwargs["bootstrap_servers"] == "broker-a:9094"
+    assert producer_kwargs["security_protocol"] == "SASL_SSL"
+    assert producer_kwargs["sasl_mechanism"] == "SCRAM-SHA-512"
+    assert producer_kwargs["sasl_plain_username"] == "alice"
+    assert producer_kwargs["sasl_plain_password"] == "secret"
+    assert isinstance(producer_kwargs["ssl_context"], ssl.SSLContext)
+
+
+@pytest.mark.asyncio
+async def test_kafka_producer_aws_msk_mode_skips_topic_creation():
+    prod_mock = MagicMock()
+    prod_mock.start = AsyncMock()
+    prod_mock.stop = AsyncMock()
+
+    with patch.object(kp, "_ensure_topic", new=AsyncMock()) as ensure_topic, patch.object(
+        kp, "AIOKafkaProducer", return_value=prod_mock
+    ):
+        p = kp.KafkaProducer(
+            bootstrap_servers="127.0.0.1:9092",
+            mode="aws_msk",
+            security_protocol="SASL_SSL",
+            sasl_mechanism="SCRAM-SHA-256",
+            sasl_username="alice",
+            sasl_password="secret",
+        )
+        await p.ensure_ready()
+
+    ensure_topic.assert_not_awaited()
 
 
 @pytest.mark.asyncio

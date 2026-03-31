@@ -30,6 +30,14 @@ Default tests do not require Redis or Kafka. If you introduce integration tests 
 - `REDIS_URL`
 - `KAFKA_BOOTSTRAP_SERVERS`
 
+For the opt-in real Kafka connectivity check in [tests/test_kafka_real_connectivity.py](../../tests/test_kafka_real_connectivity.py), set:
+
+- `RUN_REAL_KAFKA_TEST=true`
+- `REAL_KAFKA_BOOTSTRAP_SERVERS`
+- `REAL_KAFKA_MODE` (`admin` or `aws_msk`) when non-default behavior is required
+- `REAL_KAFKA_SECURITY_PROTOCOL` plus the matching `REAL_KAFKA_SASL_*` variables for SASL/SCRAM environments
+- `REAL_KAFKA_TOPIC` and `REAL_KAFKA_ASSERT_SEND=true` if you also want one real send to succeed
+
 ---
 
 ## 3. Build the Image

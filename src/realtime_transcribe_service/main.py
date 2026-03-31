@@ -111,7 +111,12 @@ async def run() -> None:
     producer = KafkaProducer(
         bootstrap_servers=settings.kafka_bootstrap_servers,
         topic=settings.kafka_topic,
+        mode=settings.kafka_mode,
         compression_type=settings.kafka_compression_type,
+        security_protocol=settings.kafka_security_protocol,
+        sasl_mechanism=settings.kafka_sasl_mechanism,
+        sasl_username=settings.kafka_sasl_username,
+        sasl_password=settings.kafka_sasl_password,
         send_timeout_sec=settings.kafka_send_timeout_sec,
         linger_ms=settings.kafka_linger_ms,
         batch_size=settings.kafka_batch_size,

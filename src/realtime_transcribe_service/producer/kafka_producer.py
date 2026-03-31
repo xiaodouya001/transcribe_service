@@ -3,14 +3,37 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
+from typing import Any
 
 import orjson
 import structlog
 from aiokafka import AIOKafkaProducer
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
-from typing import Any
 
 log = structlog.get_logger(__name__)
+
+
+def _build_kafka_client_kwargs(
+    bootstrap_servers: str,
+    *,
+    security_protocol: str = "PLAINTEXT",
+    sasl_mechanism: str | None = None,
+    sasl_username: str | None = None,
+    sasl_password: str | None = None,
+) -> dict[str, Any]:
+    """Build shared Kafka connection kwargs for admin and producer clients."""
+    kwargs: dict[str, Any] = {
+        "bootstrap_servers": bootstrap_servers,
+        "security_protocol": security_protocol,
+    }
+    if security_protocol in {"SSL", "SASL_SSL"}:
+        kwargs["ssl_context"] = ssl.create_default_context()
+    if security_protocol.startswith("SASL_"):
+        kwargs["sasl_mechanism"] = sasl_mechanism
+        kwargs["sasl_plain_username"] = sasl_username
+        kwargs["sasl_plain_password"] = sasl_password
+    return kwargs
 
 
 async def _ensure_topic(
@@ -18,9 +41,11 @@ async def _ensure_topic(
     topic: str,
     num_partitions: int,
     replication_factor: int = 1,
+    *,
+    client_kwargs: dict[str, Any] | None = None,
 ) -> None:
     """Create the topic idempotently and ignore the "already exists" case."""
-    admin = AIOKafkaAdminClient(bootstrap_servers=bootstrap_servers)
+    admin = AIOKafkaAdminClient(**(client_kwargs or {"bootstrap_servers": bootstrap_servers}))
     await admin.start()
     try:
         await admin.create_topics(
@@ -67,7 +92,12 @@ class KafkaProducer:
         bootstrap_servers: str,
         topic: str = "AI_STAGING_TRANSCRIPTION",
         *,
+        mode: str = "admin",
         compression_type: str = "zstd",
+        security_protocol: str = "PLAINTEXT",
+        sasl_mechanism: str | None = None,
+        sasl_username: str | None = None,
+        sasl_password: str | None = None,
         send_timeout_sec: float = 2.0,
         linger_ms: int = 1,
         batch_size: int = 32768,
@@ -76,7 +106,15 @@ class KafkaProducer:
     ) -> None:
         self._bootstrap = bootstrap_servers
         self._topic = topic
+        self._mode = mode
         self._compression_type = compression_type
+        self._client_kwargs = _build_kafka_client_kwargs(
+            bootstrap_servers,
+            security_protocol=security_protocol,
+            sasl_mechanism=sasl_mechanism,
+            sasl_username=sasl_username,
+            sasl_password=sasl_password,
+        )
         self._send_timeout_sec = send_timeout_sec
         self._linger_ms = linger_ms
         self._batch_size = batch_size
@@ -86,15 +124,24 @@ class KafkaProducer:
 
     async def _get_producer(self) -> AIOKafkaProducer:
         if self._producer is None:
-            await _ensure_topic(
-                self._bootstrap,
-                self._topic,
-                self._num_partitions,
-                self._replication_factor,
-            )
+            if self._mode == "admin":
+                await _ensure_topic(
+                    self._bootstrap,
+                    self._topic,
+                    self._num_partitions,
+                    self._replication_factor,
+                    client_kwargs=self._client_kwargs,
+                )
+            else:
+                log.info(
+                    "Kafka: Topic auto-creation disabled",
+                    bootstrap_servers=self._bootstrap,
+                    topic=self._topic,
+                    mode=self._mode,
+                )
             comp = None if self._compression_type == "none" else self._compression_type
             self._producer = AIOKafkaProducer(
-                bootstrap_servers=self._bootstrap,
+                **self._client_kwargs,
                 compression_type=comp,
                 enable_idempotence=True,
                 max_request_size=1048576,
