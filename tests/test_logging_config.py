@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 import structlog
 
 import realtime_transcribe_service.config.logging_config as lc
