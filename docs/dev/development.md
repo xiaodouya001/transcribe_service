@@ -77,16 +77,6 @@ AUTH_JWT_SIGNING_MATERIAL=replace-with-generated-signing-material
 AUTH_JWT_ALGORITHM=HS256
 ```
 
-The mock client now auto-generates a Bearer JWT when one of these is available:
-
-- `mock_client/.env`: `AUTH_ENABLED=true`
-- `mock_client/.env`: `MOCK_CLIENT_AUTH_SIGNING_MATERIAL=...`
-- explicit `MOCK_CLIENT_AUTH_TOKEN=...`
-
-The mock client is isolated from the main service config. It does **not** read the repository-root `.env`, so if you want automatic auth in the mock client, put the signing material in `mock_client/.env`.
-
-When `AUTH_ENABLED=false`, the mock client does not generate a token and does not send `Authorization`, even if a token or signing-material value is present in `mock_client/.env`.
-
 If you still want to generate one Bearer JWT manually with the same signing material:
 
 ```python
@@ -111,45 +101,6 @@ Use the token as:
 ```text
 Authorization: Bearer <token>
 ```
-
-If you want to override the mock client's automatic token generation, set:
-
-```env
-MOCK_CLIENT_AUTH_TOKEN=replace-with-generated-token
-```
-
-If you prefer a small helper tool instead of writing a Python snippet manually, run:
-
-```bash
-poetry run python -m mock_client.generate_jwt
-```
-
-This prints a raw JWT to stdout using the mock client's own settings from `mock_client/.env`:
-
-- `AUTH_ENABLED`
-- `MOCK_CLIENT_AUTH_SIGNING_MATERIAL`
-- `MOCK_CLIENT_AUTH_SUBJECT`
-- `MOCK_CLIENT_AUTH_TTL_DAYS`
-
-Examples:
-
-```bash
-poetry run python -m mock_client.generate_jwt --sub fano-backend --days 30
-```
-
-Use this when you want to override the default mock-client subject and token lifetime but still print only the raw JWT.
-
-```bash
-poetry run python -m mock_client.generate_jwt --json
-```
-
-Use this when you want the tool to print the token together with the generated claims and a ready-to-copy `Authorization` header.
-
-```bash
-poetry run python -m mock_client.generate_jwt --signing-material "replace-with-signing-material" --sub fano-backend
-```
-
-Use this when you want to sign a token with one-off signing material instead of whatever is stored in `mock_client/.env`.
 
 ### 3.3 Start dependencies
 
@@ -187,15 +138,7 @@ See [kafka-ui-usage.md](../ops/kafka-ui-usage.md) for Kafka UI details.
 poetry run pytest
 ```
 
-The repository-level run collects both `tests/` and `mock_client/tests/`.
-
-Run only the mock-client tests from their own directory:
-
-```bash
-cd mock_client
-pip install -r requirements-dev.txt
-pytest
-```
+The repository-level run collects the service tests from `tests/`.
 
 ### 4.2 Test strategy
 
@@ -204,7 +147,6 @@ Default tests do not require a live Kafka or Redis instance:
 | Component | Mock strategy |
 |------|-----------|
 | Main service unit tests (`tests/`) | Redis state machine via [fakeredis[lua]](https://github.com/cunla/fakeredis-py), Kafka via `unittest.mock.AsyncMock`, and ASGI flows via `starlette.testclient.TestClient` |
-| Mock-client tests (`mock_client/tests/`) | Local module tests plus scenario checks using an in-process Uvicorn server fixture |
 
 ### 4.3 Coverage
 

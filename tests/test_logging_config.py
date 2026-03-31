@@ -27,7 +27,7 @@ def test_get_version_success():
 def test_get_version_fallback():
     lc._get_version.cache_clear()
     with patch("importlib.metadata.version", side_effect=Exception("no pkg")):
-        assert lc._get_version() == "0.1.0"
+        assert lc._get_version() == "1.0.0"
 
 
 def test_get_version_is_cached():
@@ -48,14 +48,14 @@ def test_add_service_context():
 def test_group_identity():
     ed = {
         "service": "realtime-transcribe-service",
-        "version": "0.1.0",
+        "version": "1.0.0",
         "conversation_id": "conv-1",
         "event": "ready",
     }
     out = lc._group_identity(logging.getLogger("t"), "info", ed)
     assert out["identity"] == {
         "service": "realtime-transcribe-service",
-        "version": "0.1.0",
+        "version": "1.0.0",
         "conversation_id": "conv-1",
     }
     assert out["event"] == "ready"

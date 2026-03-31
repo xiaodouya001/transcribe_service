@@ -3,7 +3,7 @@
 
 [project]
 name = "realtime-transcribe-service"
-version = "0.1.0"
+version = "1.0.0"
 description = "Realtime Transcribe Service - realtime transcription WebSocket gateway"
 requires-python = ">=3.11"
 dependencies = [
@@ -29,7 +29,7 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests", "mock_client/tests"]
+testpaths = ["tests"]
 addopts = "--cov=src/realtime_transcribe_service --cov-report=term-missing --cov-fail-under=100"
 
 [tool.coverage.run]
@@ -44,6 +44,10 @@ exclude_lines = [
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["realtime_transcribe_service*"]
@@ -51,7 +55,7 @@ include = ["realtime_transcribe_service*"]
 # Optional Poetry workflow; use either Poetry or pip/venv
 [tool.poetry]
 name = "realtime-transcribe-service"
-version = "0.1.0"
+version = "1.0.0"
 description = "Realtime Transcribe Service - realtime transcription WebSocket gateway"
 packages = [
     {include = "realtime_transcribe_service", from = "src"}

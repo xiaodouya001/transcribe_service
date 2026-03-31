@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from collections.abc import Awaitable
 from datetime import datetime, timedelta, timezone
+from typing import TypeVar
 from unittest.mock import ANY, AsyncMock, MagicMock
 
 import fakeredis.aioredis
@@ -37,6 +39,17 @@ from realtime_transcribe_service.transport.websocket_handler import (
 
 AUTH_SIGNING_MATERIAL = "signing-material-0123456789-material-012345"
 WRONG_AUTH_SIGNING_MATERIAL = "wrong-material-0123456789-material-012345"
+
+_T = TypeVar("_T")
+
+
+def _await_in_runner(awaitable: Awaitable[_T]) -> _T:
+    """Run an awaitable under ``asyncio.run`` (wraps ``Awaitable`` so the runner sees a coroutine)."""
+
+    async def _go() -> _T:
+        return await awaitable
+
+    return asyncio.run(_go())
 
 
 class ScriptedOwnerBackend:
@@ -304,7 +317,7 @@ class TestWebSocket:
             ):
                 pass
 
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 401
+        assert getattr(ei.value, "status_code", None) == 401
         body = getattr(ei.value, "text", "")
         assert "E1010" in body
         assert "Authorization header with Bearer token is required" in body
@@ -329,7 +342,7 @@ class TestWebSocket:
             ):
                 pass
 
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 401
+        assert getattr(ei.value, "status_code", None) == 401
         body = getattr(ei.value, "text", "")
         assert "E1010" in body
         assert "Authorization header must use the Bearer scheme" in body
@@ -354,7 +367,7 @@ class TestWebSocket:
             ):
                 pass
 
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 401
+        assert getattr(ei.value, "status_code", None) == 401
         body = getattr(ei.value, "text", "")
         assert "E1010" in body
         assert "Bearer token is invalid" in body
@@ -379,7 +392,7 @@ class TestWebSocket:
             ):
                 pass
 
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 401
+        assert getattr(ei.value, "status_code", None) == 401
         body = getattr(ei.value, "text", "")
         assert "E1010" in body
         assert "Bearer token has expired" in body
@@ -426,7 +439,7 @@ class TestWebSocket:
             ):
                 pass
 
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 400
+        assert getattr(ei.value, "status_code", None) == 400
         body = getattr(ei.value, "text", "")
         assert "E1003" in body
         assert "conversationId" in body
@@ -493,9 +506,9 @@ class TestWebSocket:
                 assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
 
             key = "realtime-transcribe-service:expect-transcript-seq-num:conv-reconnect"
-            ttl = asyncio.run(fake_redis.ttl(key))
+            ttl = _await_in_runner(fake_redis.ttl(key))
             assert 5 < ttl <= 120
-            assert asyncio.run(fake_redis.get(key)) == "1"
+            assert _await_in_runner(fake_redis.get(key)) == "1"
 
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-reconnect"
@@ -510,7 +523,7 @@ class TestWebSocket:
                 assert next_resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
                 assert producer.send.await_count == 2
 
-            assert asyncio.run(fake_redis.get(key)) == "2"
+            assert _await_in_runner(fake_redis.get(key)) == "2"
         finally:
             asyncio.run(state_machine.close())
 
@@ -540,7 +553,7 @@ class TestWebSocket:
                         "/ws/v1/realtime-transcriptions?conversationId=conv-1"
                     ):
                         pass
-                assert hasattr(ei.value, "status_code") and ei.value.status_code == 403
+                assert getattr(ei.value, "status_code", None) == 403
                 body = getattr(ei.value, "text", "")
                 assert "E1009" in body
                 assert "Only one sender connection is allowed" in body
@@ -574,13 +587,19 @@ class TestWebSocket:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ):
-                assert asyncio.run(
-                    fake_redis.get("realtime-transcribe-service:conversation-owner:conv-1")
-                ) is not None
+                assert (
+                    _await_in_runner(
+                        fake_redis.get("realtime-transcribe-service:conversation-owner:conv-1")
+                    )
+                    is not None
+                )
 
-            assert asyncio.run(
-                fake_redis.get("realtime-transcribe-service:conversation-owner:conv-1")
-            ) is None
+            assert (
+                _await_in_runner(
+                    fake_redis.get("realtime-transcribe-service:conversation-owner:conv-1")
+                )
+                is None
+            )
 
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
@@ -608,7 +627,7 @@ class TestWebSocket:
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ):
                 pass
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 503
+        assert getattr(ei.value, "status_code", None) == 503
         body = getattr(ei.value, "text", "")
         assert "E1008" in body
         assert "Downstream unavailable" in body
@@ -960,11 +979,9 @@ class TestWebSocket:
     def test_ws_missing_conversation_id(self, app):
         client = TestClient(app)
         with pytest.raises(Exception) as ei:
-            with client.websocket_connect(
-                "/ws/v1/realtime-transcriptions"
-            ) as ws:
+            with client.websocket_connect("/ws/v1/realtime-transcriptions"):
                 pass
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 400
+        assert getattr(ei.value, "status_code", None) == 400
         body = getattr(ei.value, "text", "")
         assert "E1003" in body
         assert "Missing required field" in body
@@ -981,7 +998,7 @@ class TestWebSocket:
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ):
                 pass
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 503
+        assert getattr(ei.value, "status_code", None) == 503
         body = getattr(ei.value, "text", "")
         assert "E1008" in body
         assert "Service draining" in body
@@ -995,7 +1012,7 @@ class TestWebSocket:
                 "/ws/v1/realtime-transcriptions?conversationId=conv-2"
             ):
                 pass
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 429
+        assert getattr(ei.value, "status_code", None) == 429
         body = getattr(ei.value, "text", "")
         assert "E1008" in body
         assert "Too many connections" in body
@@ -1011,7 +1028,7 @@ class TestWebSocket:
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ):
                 pass
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 429
+        assert getattr(ei.value, "status_code", None) == 429
 
     def test_ws_non_target_path_not_intercepted(self, app):
         client = TestClient(app)

@@ -72,7 +72,7 @@ class TestTransportContractMatrix:
             with client.websocket_connect("/ws/v1/realtime-transcriptions"):
                 pass
 
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 400
+        assert getattr(ei.value, "status_code", None) == 400
         body = getattr(ei.value, "text", "")
         assert "E1003" in body
         assert "Query parameter 'conversationId' is required" in body
@@ -90,7 +90,7 @@ class TestTransportContractMatrix:
             with client.websocket_connect("/ws/v1/realtime-transcriptions?conversationId=conv-1"):
                 pass
 
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 503
+        assert getattr(ei.value, "status_code", None) == 503
         body = getattr(ei.value, "text", "")
         assert "E1008" in body
         assert "Service draining" in body
@@ -115,7 +115,7 @@ class TestTransportContractMatrix:
             with client.websocket_connect("/ws/v1/realtime-transcriptions?conversationId=conv-2"):
                 pass
 
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 429
+        assert getattr(ei.value, "status_code", None) == 429
         body = getattr(ei.value, "text", "")
         assert "E1008" in body
         assert "Too many connections" in body
@@ -141,7 +141,7 @@ class TestTransportContractMatrix:
             ):
                 pass
 
-        assert hasattr(ei.value, "status_code") and ei.value.status_code == 401
+        assert getattr(ei.value, "status_code", None) == 401
         body = getattr(ei.value, "text", "")
         assert "E1010" in body
         assert "Authentication failed" in body
@@ -249,7 +249,7 @@ class TestTransportContractMatrix:
                         "/ws/v1/realtime-transcriptions?conversationId=conv-1"
                     ):
                         pass
-                assert hasattr(ei.value, "status_code") and ei.value.status_code == 403
+                assert getattr(ei.value, "status_code", None) == 403
                 body = getattr(ei.value, "text", "")
                 assert "E1009" in body
                 assert "Only one sender connection is allowed" in body

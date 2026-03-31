@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -15,9 +16,14 @@ from realtime_transcribe_service.config.settings import (
 )
 
 
+def _settings(**kwargs: Any) -> Settings:
+    """Build ``Settings`` without loading repo ``.env`` (pydantic-settings internal kwargs)."""
+    return Settings(**kwargs)  # pyright: ignore[reportCallIssue]
+
+
 class TestSettings:
     def test_local_defaults_fill_broker_addresses(self):
-        s = Settings(_env_file=None, app_env="local")
+        s = _settings(_env_file=None, app_env="local")
         assert s.redis_url == LOCAL_REDIS_URL
         assert s.kafka_bootstrap_servers == LOCAL_KAFKA_BOOTSTRAP_SERVERS
         assert s.kafka_topic == "AI_STAGING_TRANSCRIPTION"
@@ -48,10 +54,10 @@ class TestSettings:
 
     def test_deployed_requires_explicit_dependency_addresses(self):
         with pytest.raises(ValidationError, match="APP_ENV=deployed"):
-            Settings(_env_file=None, app_env="deployed")
+            _settings(_env_file=None, app_env="deployed")
 
     def test_stop_timeout_accepts_float(self):
-        s = Settings(
+        s = _settings(
             _env_file=None,
             app_env="local",
             stop_timeout=12.5,
@@ -60,7 +66,7 @@ class TestSettings:
 
     def test_blank_redis_url_is_rejected(self):
         with pytest.raises(ValidationError, match="must not be empty"):
-            Settings(
+            _settings(
                 _env_file=None,
                 app_env="local",
                 redis_url="   ",
@@ -72,11 +78,11 @@ class TestSettings:
             env_file.write_text("APP_ENV=local\nEXTRA_FLAG=1\n", encoding="utf-8")
 
             with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-                Settings(_env_file=env_file)
+                _settings(_env_file=env_file)
 
     def test_final_ttl_must_not_exceed_active_ttl(self):
         with pytest.raises(ValidationError, match="REDIS_FINAL_TTL_SEC"):
-            Settings(
+            _settings(
                 _env_file=None,
                 app_env="local",
                 redis_active_ttl_sec=30,
@@ -88,7 +94,7 @@ class TestSettings:
             ValidationError,
             match="WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC must be < REDIS_OWNERSHIP_GUARD_TTL_SEC",
         ):
-            Settings(
+            _settings(
                 _env_file=None,
                 app_env="local",
                 redis_ownership_guard_ttl_sec=5,
@@ -97,7 +103,7 @@ class TestSettings:
 
     def test_invalid_log_level_is_rejected(self):
         with pytest.raises(ValidationError, match="log_level"):
-            Settings(
+            _settings(
                 _env_file=None,
                 app_env="local",
                 log_level="TRACE",
@@ -117,14 +123,14 @@ class TestSettings:
             ValidationError,
             match="AUTH_JWT_SIGNING_MATERIAL must be set",
         ):
-            Settings(
+            _settings(
                 _env_file=None,
                 app_env="local",
                 auth_enabled=True,
             )
 
     def test_auth_jwt_algorithm_is_normalized_to_uppercase(self):
-        s = Settings(
+        s = _settings(
             _env_file=None,
             app_env="local",
             auth_jwt_signing_material="signing-material",
@@ -133,7 +139,7 @@ class TestSettings:
         assert s.auth_jwt_algorithm == "HS256"
 
     def test_http_enable_docs_accepts_true(self):
-        s = Settings(
+        s = _settings(
             _env_file=None,
             app_env="local",
             http_enable_docs=True,
@@ -141,7 +147,7 @@ class TestSettings:
         assert s.http_enable_docs is True
 
     def test_http_enable_docs_accepts_false(self):
-        s = Settings(
+        s = _settings(
             _env_file=None,
             app_env="local",
             http_enable_docs=False,

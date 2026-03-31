@@ -38,18 +38,7 @@
 
 ---
 
-## 2. Suggested Mock Client Load-Test Parameters
-
-| Parameter | 300 concurrency | 400 concurrency | 500 concurrency |
-| ------------- | ----------- | ----------- | ----------- |
-| Concurrent connections | 300 | 400 | 500 |
-| Messages per connection (starting point) | 100 | 100 | 100 |
-| **Message interval (ms)** | 60-80 | 70-85 | 80-90 |
-| **Ramp-up window (ms)** | 20000-30000 | 25000-35000 | 30000-45000 |
-
----
-
-## 3. Autoscaling Thresholds per Instance
+## 2. Autoscaling Thresholds per Instance
 
 | Profile | Scale-out trigger (for 2 minutes) | Scale-in trigger (for 10 minutes) |
 | --- | -------------------------- | -------------------------- |
@@ -59,7 +48,7 @@
 
 ---
 
-## 4. Copy/Paste Snippets
+## 3. Copy/Paste Snippets
 
 ### 300 concurrency per instance
 

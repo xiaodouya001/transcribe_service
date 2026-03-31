@@ -20,7 +20,7 @@ Default tests rely on `fakeredis[lua]`, `unittest.mock`, and in-process fixtures
 
 The repository includes [.github/workflows/ci.yml](../../.github/workflows/ci.yml). It runs on pushes and pull requests targeting `main` or `master`.
 
-- **test** job: Python 3.12, `poetry install --with dev`, then `poetry run pytest -v` (collects `tests` and `mock_client/tests` from `pyproject.toml` `testpaths`)
+- **test** job: Python 3.12, `poetry install --with dev`, then `poetry run pytest -v` (collects the service test suite from `tests` via `pyproject.toml` `testpaths`)
 - **docker** job: builds `docker/Dockerfile` through `docker/build-push-action` without pushing to a registry
 
 ### 2.1 Environment variables
