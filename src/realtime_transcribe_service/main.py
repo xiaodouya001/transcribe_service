@@ -82,10 +82,19 @@ async def _check_kafka(producer: KafkaProducer, timeout: float) -> None:
         try:
             await producer.close()
         except Exception as close_exc:
-            log.warning("Kafka: Failed to close producer after timeout", error=str(close_exc))
+            log.warning(
+                "Kafka: Failed to close producer after timeout",
+                error=repr(close_exc),
+                exc_type=type(close_exc).__name__,
+                exc_info=True,
+            )
         raise RuntimeError(f"Kafka unavailable: connection timed out after {timeout}s") from None
     except Exception as e:
-        log.error("Startup failed: Kafka unavailable", error=str(e))
+        log.exception(
+            "Startup failed: Kafka unavailable",
+            error=repr(e),
+            exc_type=type(e).__name__,
+        )
         raise RuntimeError(f"Kafka unavailable: {e}") from e
 
 

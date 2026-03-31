@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import traceback
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -23,6 +24,14 @@ def _require_env(name: str) -> str:
     if value is None or not value.strip():
         pytest.fail(f"Environment variable {name} is required when RUN_REAL_KAFKA_TEST=true")
     return value.strip()
+
+
+def _redact_secret(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if len(value) <= 4:
+        return "*" * len(value)
+    return f"{value[:2]}***{value[-2:]}"
 
 
 @pytest.mark.asyncio
@@ -55,11 +64,22 @@ async def test_real_kafka_connectivity_from_env():
     sasl_username = os.getenv("REAL_KAFKA_SASL_USERNAME")
     sasl_password = os.getenv("REAL_KAFKA_SASL_PASSWORD")
     assert_send = _env_flag("REAL_KAFKA_ASSERT_SEND")
+    debug_summary = {
+        "bootstrap_servers": bootstrap_servers,
+        "mode": mode,
+        "topic": topic,
+        "security_protocol": security_protocol,
+        "sasl_mechanism": sasl_mechanism,
+        "sasl_username": _redact_secret(sasl_username),
+        "assert_send": assert_send,
+    }
 
     if security_protocol.startswith("SASL_"):
         sasl_mechanism = _require_env("REAL_KAFKA_SASL_MECHANISM")
         sasl_username = _require_env("REAL_KAFKA_SASL_USERNAME")
         sasl_password = _require_env("REAL_KAFKA_SASL_PASSWORD")
+        debug_summary["sasl_mechanism"] = sasl_mechanism
+        debug_summary["sasl_username"] = _redact_secret(sasl_username)
 
     producer = KafkaProducer(
         bootstrap_servers=bootstrap_servers,
@@ -76,16 +96,25 @@ async def test_real_kafka_connectivity_from_env():
     )
 
     try:
-        await producer.ensure_ready()
+        try:
+            await producer.ensure_ready()
 
-        if assert_send:
-            await producer.send(
-                conversation_id=f"rt-connectivity-{uuid4()}",
-                payload={
-                    "probe": "kafka-connectivity",
-                    "source": "pytest",
-                    "sentAt": datetime.now(timezone.utc).isoformat(),
-                },
+            if assert_send:
+                await producer.send(
+                    conversation_id=f"rt-connectivity-{uuid4()}",
+                    payload={
+                        "probe": "kafka-connectivity",
+                        "source": "pytest",
+                        "sentAt": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+        except Exception as exc:  # pragma: no cover - exercised only against real environments
+            tb = traceback.format_exc()
+            pytest.fail(
+                "Real Kafka connectivity check failed.\n"
+                f"Config: {debug_summary}\n"
+                f"Exception: {type(exc).__name__}: {exc}\n"
+                f"Traceback:\n{tb}"
             )
     finally:
         await producer.close()

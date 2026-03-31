@@ -198,8 +198,9 @@ def configure_logging(
     )
 
     # aiokafka can spam repeated connection failures ("Unable connect" / "Unable to update metadata").
-    # Suppress that noise at CRITICAL; clearer Kafka-unavailable logs are emitted elsewhere.
-    logging.getLogger("aiokafka").setLevel(logging.CRITICAL)
+    # Keep it quiet in normal runs, but honor DEBUG so real startup issues can expose broker-level root cause.
+    aiokafka_level = log_level if log_level <= logging.DEBUG else logging.CRITICAL
+    logging.getLogger("aiokafka").setLevel(aiokafka_level)
 
 
 def get_logger(name: str | None = None) -> structlog.BoundLogger:
