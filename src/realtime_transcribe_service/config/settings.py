@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     kafka_replication_factor: int = Field(default=1, gt=0)
     kafka_compression_type: COMPRESSION_TYPE = "zstd"
     kafka_security_protocol: KAFKA_SECURITY_PROTOCOL = "PLAINTEXT"
+    kafka_ssl_ca_file: str | None = None
     kafka_sasl_mechanism: KAFKA_SASL_MECHANISM | None = None
     kafka_sasl_username: str | None = None
     kafka_sasl_password: str | None = None
@@ -144,6 +145,7 @@ class Settings(BaseSettings):
         "redis_url",
         "kafka_bootstrap_servers",
         "kafka_topic",
+        "kafka_ssl_ca_file",
         "redis_sequence_state_key_prefix",
         "redis_ownership_guard_key_prefix",
         "http_host",

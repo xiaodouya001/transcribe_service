@@ -46,6 +46,7 @@ async def test_real_kafka_connectivity_from_env():
     - REAL_KAFKA_MODE=admin|aws_msk                (default: aws_msk)
     - REAL_KAFKA_TOPIC=<topic-name>               (default: RT_KAFKA_CONNECTIVITY_TEST)
     - REAL_KAFKA_SECURITY_PROTOCOL=...            (default: PLAINTEXT)
+    - REAL_KAFKA_SSL_CA_FILE=<path-to-ca-bundle>
     - REAL_KAFKA_SASL_MECHANISM=SCRAM-SHA-256|SCRAM-SHA-512
     - REAL_KAFKA_SASL_USERNAME=...
     - REAL_KAFKA_SASL_PASSWORD=...
@@ -60,6 +61,7 @@ async def test_real_kafka_connectivity_from_env():
     mode = os.getenv("REAL_KAFKA_MODE", "aws_msk").strip().lower()
     topic = os.getenv("REAL_KAFKA_TOPIC", "RT_KAFKA_CONNECTIVITY_TEST").strip()
     security_protocol = os.getenv("REAL_KAFKA_SECURITY_PROTOCOL", "PLAINTEXT").strip().upper()
+    ssl_ca_file = os.getenv("REAL_KAFKA_SSL_CA_FILE")
     sasl_mechanism = os.getenv("REAL_KAFKA_SASL_MECHANISM")
     sasl_username = os.getenv("REAL_KAFKA_SASL_USERNAME")
     sasl_password = os.getenv("REAL_KAFKA_SASL_PASSWORD")
@@ -69,6 +71,7 @@ async def test_real_kafka_connectivity_from_env():
         "mode": mode,
         "topic": topic,
         "security_protocol": security_protocol,
+        "ssl_ca_file": ssl_ca_file,
         "sasl_mechanism": sasl_mechanism,
         "sasl_username": _redact_secret(sasl_username),
         "assert_send": assert_send,
@@ -87,6 +90,7 @@ async def test_real_kafka_connectivity_from_env():
         mode=mode,
         compression_type="none",
         security_protocol=security_protocol,
+        ssl_ca_file=ssl_ca_file,
         sasl_mechanism=sasl_mechanism,
         sasl_username=sasl_username,
         sasl_password=sasl_password,

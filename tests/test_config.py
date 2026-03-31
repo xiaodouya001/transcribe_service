@@ -30,6 +30,7 @@ class TestSettings:
         assert s.kafka_topic == "AI_STAGING_TRANSCRIPTION"
         assert s.kafka_compression_type == "zstd"
         assert s.kafka_security_protocol == "PLAINTEXT"
+        assert s.kafka_ssl_ca_file is None
         assert s.kafka_sasl_mechanism is None
         assert s.kafka_sasl_username is None
         assert s.kafka_sasl_password is None
@@ -200,3 +201,11 @@ class TestSettings:
         )
         assert s.kafka_sasl_username is None
         assert s.kafka_sasl_password is None
+
+    def test_blank_kafka_ssl_ca_file_is_rejected(self):
+        with pytest.raises(ValidationError, match="must not be empty"):
+            _settings(
+                _env_file=None,
+                app_env="local",
+                kafka_ssl_ca_file="   ",
+            )

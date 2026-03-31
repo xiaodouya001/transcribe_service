@@ -123,6 +123,7 @@ async def run() -> None:
         mode=settings.kafka_mode,
         compression_type=settings.kafka_compression_type,
         security_protocol=settings.kafka_security_protocol,
+        ssl_ca_file=settings.kafka_ssl_ca_file,
         sasl_mechanism=settings.kafka_sasl_mechanism,
         sasl_username=settings.kafka_sasl_username,
         sasl_password=settings.kafka_sasl_password,

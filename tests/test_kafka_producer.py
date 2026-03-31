@@ -54,6 +54,22 @@ def test_build_kafka_client_kwargs_for_sasl_ssl():
     assert isinstance(kwargs["ssl_context"], ssl.SSLContext)
 
 
+def test_build_kafka_client_kwargs_uses_explicit_ca_file():
+    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    with patch.object(kp.ssl, "create_default_context", return_value=ssl_ctx) as create_ctx:
+        kwargs = kp._build_kafka_client_kwargs(
+            "broker-a:9094",
+            security_protocol="SASL_SSL",
+            ssl_ca_file="/tmp/msk-ca.pem",
+            sasl_mechanism="SCRAM-SHA-512",
+            sasl_username="alice",
+            sasl_password="secret",
+        )
+
+    create_ctx.assert_called_once_with(cafile="/tmp/msk-ca.pem")
+    assert kwargs["ssl_context"] is ssl_ctx
+
+
 @pytest.mark.asyncio
 async def test_kafka_producer_none_compression():
     send_mock = AsyncMock()
@@ -90,6 +106,7 @@ async def test_kafka_producer_none_compression():
 
 @pytest.mark.asyncio
 async def test_kafka_producer_admin_mode_passes_sasl_kwargs_to_admin_and_producer():
+    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     send_mock = AsyncMock()
     prod_mock = MagicMock()
     prod_mock.start = AsyncMock()
@@ -102,18 +119,21 @@ async def test_kafka_producer_admin_mode_passes_sasl_kwargs_to_admin_and_produce
     admin.create_topics = AsyncMock()
     admin.close = AsyncMock()
 
-    with patch.object(kp, "AIOKafkaAdminClient", return_value=admin) as admin_ctor, patch.object(
-        kp, "AIOKafkaProducer", return_value=prod_mock
-    ) as producer_ctor:
+    with patch.object(kp.ssl, "create_default_context", return_value=ssl_ctx) as create_ctx, patch.object(
+        kp, "AIOKafkaAdminClient", return_value=admin
+    ) as admin_ctor, patch.object(kp, "AIOKafkaProducer", return_value=prod_mock) as producer_ctor:
         p = kp.KafkaProducer(
             bootstrap_servers="broker-a:9094",
             mode="admin",
             security_protocol="SASL_SSL",
+            ssl_ca_file="/tmp/msk-ca.pem",
             sasl_mechanism="SCRAM-SHA-512",
             sasl_username="alice",
             sasl_password="secret",
         )
         await p.ensure_ready()
+
+    create_ctx.assert_called_once_with(cafile="/tmp/msk-ca.pem")
 
     admin_kwargs = admin_ctor.call_args.kwargs
     producer_kwargs = producer_ctor.call_args.kwargs
@@ -122,13 +142,13 @@ async def test_kafka_producer_admin_mode_passes_sasl_kwargs_to_admin_and_produce
     assert admin_kwargs["sasl_mechanism"] == "SCRAM-SHA-512"
     assert admin_kwargs["sasl_plain_username"] == "alice"
     assert admin_kwargs["sasl_plain_password"] == "secret"
-    assert isinstance(admin_kwargs["ssl_context"], ssl.SSLContext)
+    assert admin_kwargs["ssl_context"] is ssl_ctx
     assert producer_kwargs["bootstrap_servers"] == "broker-a:9094"
     assert producer_kwargs["security_protocol"] == "SASL_SSL"
     assert producer_kwargs["sasl_mechanism"] == "SCRAM-SHA-512"
     assert producer_kwargs["sasl_plain_username"] == "alice"
     assert producer_kwargs["sasl_plain_password"] == "secret"
-    assert isinstance(producer_kwargs["ssl_context"], ssl.SSLContext)
+    assert producer_kwargs["ssl_context"] is ssl_ctx
 
 
 @pytest.mark.asyncio

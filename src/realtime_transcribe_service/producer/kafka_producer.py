@@ -18,6 +18,7 @@ def _build_kafka_client_kwargs(
     bootstrap_servers: str,
     *,
     security_protocol: str = "PLAINTEXT",
+    ssl_ca_file: str | None = None,
     sasl_mechanism: str | None = None,
     sasl_username: str | None = None,
     sasl_password: str | None = None,
@@ -28,7 +29,7 @@ def _build_kafka_client_kwargs(
         "security_protocol": security_protocol,
     }
     if security_protocol in {"SSL", "SASL_SSL"}:
-        kwargs["ssl_context"] = ssl.create_default_context()
+        kwargs["ssl_context"] = ssl.create_default_context(cafile=ssl_ca_file)
     if security_protocol.startswith("SASL_"):
         kwargs["sasl_mechanism"] = sasl_mechanism
         kwargs["sasl_plain_username"] = sasl_username
@@ -96,6 +97,7 @@ class KafkaProducer:
         mode: str = "admin",
         compression_type: str = "zstd",
         security_protocol: str = "PLAINTEXT",
+        ssl_ca_file: str | None = None,
         sasl_mechanism: str | None = None,
         sasl_username: str | None = None,
         sasl_password: str | None = None,
@@ -112,6 +114,7 @@ class KafkaProducer:
         self._client_kwargs = _build_kafka_client_kwargs(
             bootstrap_servers,
             security_protocol=security_protocol,
+            ssl_ca_file=ssl_ca_file,
             sasl_mechanism=sasl_mechanism,
             sasl_username=sasl_username,
             sasl_password=sasl_password,
