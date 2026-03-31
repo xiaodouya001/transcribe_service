@@ -53,13 +53,21 @@ Do not rely on `.env`. Inject configuration as process environment variables and
 | Variable | Default | Description |
 |------|------|------|
 | `KAFKA_BOOTSTRAP_SERVERS` | local only: `127.0.0.1:9092` | Kafka bootstrap servers. Required when `APP_ENV=deployed` |
+| `KAFKA_MODE` | `admin` | Topic-management mode. `admin` auto-creates the topic during startup; `aws_msk` skips topic creation and expects the topic to already exist |
 | `KAFKA_TOPIC` | `AI_STAGING_TRANSCRIPTION` | Topic name. Must not be empty |
-| `KAFKA_TOPIC_NUM_PARTITIONS` | 50 | Partition count when the service creates a new topic. Must be `> 0` |
-| `KAFKA_REPLICATION_FACTOR` | 1 | Replication factor. Must be `> 0`. Use `>= 2` in production |
+| `KAFKA_TOPIC_NUM_PARTITIONS` | 50 | Partition count when the service creates a new topic in `KAFKA_MODE=admin`. Must be `> 0` |
+| `KAFKA_REPLICATION_FACTOR` | 1 | Replication factor when the service creates a new topic in `KAFKA_MODE=admin`. Must be `> 0`. Use `>= 2` in production |
 | `KAFKA_COMPRESSION_TYPE` | `zstd` | Compression codec: `none`, `gzip`, `snappy`, `lz4`, or `zstd` |
+| `KAFKA_SECURITY_PROTOCOL` | `PLAINTEXT` | Kafka security protocol: `PLAINTEXT`, `SSL`, `SASL_PLAINTEXT`, or `SASL_SSL` |
+| `KAFKA_SASL_MECHANISM` | None | Required when `KAFKA_SECURITY_PROTOCOL` is `SASL_PLAINTEXT` or `SASL_SSL`. Supported SCRAM values: `SCRAM-SHA-256`, `SCRAM-SHA-512` |
+| `KAFKA_SASL_USERNAME` | None | Required for SASL/SCRAM authentication |
+| `KAFKA_SASL_PASSWORD` | None | Required for SASL/SCRAM authentication |
 | `KAFKA_SEND_TIMEOUT_SEC` | 2.0 | Kafka send timeout in seconds. Must be `> 0` |
 | `KAFKA_LINGER_MS` | 1 | Producer linger in milliseconds. Must be `>= 0` |
 | `KAFKA_BATCH_SIZE` | 32768 | Producer batch size in bytes. Must be `> 0` |
+
+> `KAFKA_MODE=admin` is suitable for environments where the service is allowed to create topics through Kafka Admin APIs.
+> `KAFKA_MODE=aws_msk` is intended for AWS MSK style setups where topics are managed externally and auto-creation must stay disabled.
 
 ### WebSocket
 
@@ -119,20 +127,40 @@ Do not rely on `.env`. Inject configuration as process environment variables and
 APP_ENV=local
 REDIS_URL=redis://127.0.0.1:6379/0
 KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092
+KAFKA_MODE=admin
 KAFKA_COMPRESSION_TYPE=zstd
 LOG_FORMAT=console
 HTTP_ENABLE_DOCS=false
 ```
 
-**Production / deployed**
+**Deployed with Kafka Admin topic creation**
 
 ```env
 APP_ENV=deployed
 REDIS_URL=redis://your-elasticache:6379/0
-KAFKA_BOOTSTRAP_SERVERS=your-msk:9092
+KAFKA_BOOTSTRAP_SERVERS=your-kafka:9092
+KAFKA_MODE=admin
 KAFKA_TOPIC=AI_STAGING_TRANSCRIPTION
 KAFKA_TOPIC_NUM_PARTITIONS=100
 KAFKA_REPLICATION_FACTOR=3
+LOG_FORMAT=json
+AUTH_ENABLED=true
+AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material
+HTTP_ENABLE_DOCS=false
+```
+
+**Deployed on AWS MSK with SASL/SCRAM**
+
+```env
+APP_ENV=deployed
+REDIS_URL=redis://your-elasticache:6379/0
+KAFKA_BOOTSTRAP_SERVERS=b-1.example.msk.amazonaws.com:9096,b-2.example.msk.amazonaws.com:9096
+KAFKA_MODE=aws_msk
+KAFKA_TOPIC=AI_STAGING_TRANSCRIPTION
+KAFKA_SECURITY_PROTOCOL=SASL_SSL
+KAFKA_SASL_MECHANISM=SCRAM-SHA-512
+KAFKA_SASL_USERNAME=replace-with-username
+KAFKA_SASL_PASSWORD=replace-with-password
 LOG_FORMAT=json
 AUTH_ENABLED=true
 AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material

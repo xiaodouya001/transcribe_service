@@ -11,6 +11,9 @@ from realtime_transcribe_service.constants import (
     COMPRESSION_TYPE,
     LOG_LEVEL,
     LOG_FORMAT,
+    KAFKA_MODE,
+    KAFKA_SASL_MECHANISM,
+    KAFKA_SECURITY_PROTOCOL,
     APP_ENV_LOCAL,
     LOCAL_REDIS_URL,
     LOCAL_KAFKA_BOOTSTRAP_SERVERS,
@@ -46,10 +49,15 @@ class Settings(BaseSettings):
 
     # --- Kafka ---
     kafka_bootstrap_servers: str | None = None
+    kafka_mode: KAFKA_MODE = "admin"
     kafka_topic: str = Field(default="AI_STAGING_TRANSCRIPTION", min_length=1)
     kafka_topic_num_partitions: int = Field(default=50, gt=0)
     kafka_replication_factor: int = Field(default=1, gt=0)
     kafka_compression_type: COMPRESSION_TYPE = "zstd"
+    kafka_security_protocol: KAFKA_SECURITY_PROTOCOL = "PLAINTEXT"
+    kafka_sasl_mechanism: KAFKA_SASL_MECHANISM | None = None
+    kafka_sasl_username: str | None = None
+    kafka_sasl_password: str | None = None
     kafka_send_timeout_sec: float = Field(default=2.0, gt=0)
     kafka_linger_ms: int = Field(default=1, ge=0)
     kafka_batch_size: int = Field(default=32768, gt=0)
@@ -101,9 +109,9 @@ class Settings(BaseSettings):
             return value.strip().lower()
         return value
 
-    @field_validator("log_level", mode="before")
+    @field_validator("log_level", "kafka_security_protocol", "kafka_sasl_mechanism", mode="before")
     @classmethod
-    def _normalize_log_level(cls, value: object) -> object:
+    def _normalize_uppercase_enums(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip().upper()
         return value
@@ -115,11 +123,21 @@ class Settings(BaseSettings):
             return value.strip().upper()
         return value
 
-    @field_validator("log_format", "kafka_compression_type", mode="before")
+    @field_validator("log_format", "kafka_compression_type", "kafka_mode", mode="before")
     @classmethod
     def _normalize_lowercase_enums(cls, value: object) -> object:
         if isinstance(value, str):
             return value.strip().lower()
+        return value
+
+    @field_validator("kafka_sasl_username", "kafka_sasl_password", mode="before")
+    @classmethod
+    def _normalize_optional_secret_strings(cls, value: object) -> object:
+        if value is None:
+            return value
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
         return value
 
     @field_validator(
@@ -175,6 +193,21 @@ class Settings(BaseSettings):
             raise ValueError(
                 "AUTH_JWT_SIGNING_MATERIAL must be set when AUTH_ENABLED=true"
             )
+
+        if self.kafka_security_protocol.startswith("SASL_"):
+            missing: list[str] = []
+            if self.kafka_sasl_mechanism is None:
+                missing.append("KAFKA_SASL_MECHANISM")
+            if self.kafka_sasl_username is None:
+                missing.append("KAFKA_SASL_USERNAME")
+            if self.kafka_sasl_password is None:
+                missing.append("KAFKA_SASL_PASSWORD")
+            if missing:
+                raise ValueError(
+                    "Missing required SASL configuration for "
+                    f"KAFKA_SECURITY_PROTOCOL={self.kafka_security_protocol}: "
+                    + ", ".join(missing)
+                )
 
         return self
 

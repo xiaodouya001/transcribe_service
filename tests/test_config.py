@@ -26,8 +26,13 @@ class TestSettings:
         s = _settings(_env_file=None, app_env="local")
         assert s.redis_url == LOCAL_REDIS_URL
         assert s.kafka_bootstrap_servers == LOCAL_KAFKA_BOOTSTRAP_SERVERS
+        assert s.kafka_mode == "admin"
         assert s.kafka_topic == "AI_STAGING_TRANSCRIPTION"
         assert s.kafka_compression_type == "zstd"
+        assert s.kafka_security_protocol == "PLAINTEXT"
+        assert s.kafka_sasl_mechanism is None
+        assert s.kafka_sasl_username is None
+        assert s.kafka_sasl_password is None
         assert s.kafka_send_timeout_sec == 2.0
         assert s.ws_ping_interval == 20.0
         assert s.ws_ping_timeout == 10.0
@@ -113,9 +118,10 @@ class TestSettings:
         marker = object()
 
         assert Settings._normalize_app_env(marker) is marker
-        assert Settings._normalize_log_level(marker) is marker
+        assert Settings._normalize_uppercase_enums(marker) is marker
         assert Settings._normalize_auth_jwt_algorithm(marker) is marker
         assert Settings._normalize_lowercase_enums(marker) is marker
+        assert Settings._normalize_optional_secret_strings(marker) is marker
         assert Settings._reject_blank_strings(marker) is marker
 
     def test_auth_enabled_requires_jwt_signing_material(self):
@@ -153,3 +159,44 @@ class TestSettings:
             http_enable_docs=False,
         )
         assert s.http_enable_docs is False
+
+    def test_kafka_mode_is_normalized_to_lowercase(self):
+        s = _settings(
+            _env_file=None,
+            app_env="local",
+            kafka_mode="AWS_MSK",
+        )
+        assert s.kafka_mode == "aws_msk"
+
+    def test_kafka_security_protocol_and_mechanism_are_normalized_to_uppercase(self):
+        s = _settings(
+            _env_file=None,
+            app_env="local",
+            kafka_security_protocol="sasl_ssl",
+            kafka_sasl_mechanism="scram-sha-512",
+            kafka_sasl_username="alice",
+            kafka_sasl_password="secret",
+        )
+        assert s.kafka_security_protocol == "SASL_SSL"
+        assert s.kafka_sasl_mechanism == "SCRAM-SHA-512"
+
+    def test_sasl_protocol_requires_scram_credentials(self):
+        with pytest.raises(
+            ValidationError,
+            match="Missing required SASL configuration",
+        ):
+            _settings(
+                _env_file=None,
+                app_env="local",
+                kafka_security_protocol="SASL_SSL",
+            )
+
+    def test_blank_sasl_values_are_normalized_to_none(self):
+        s = _settings(
+            _env_file=None,
+            app_env="local",
+            kafka_sasl_username="   ",
+            kafka_sasl_password="   ",
+        )
+        assert s.kafka_sasl_username is None
+        assert s.kafka_sasl_password is None

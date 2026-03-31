@@ -21,6 +21,9 @@ LOCAL_REDIS_URL = "redis://127.0.0.1:6379/0"
 LOCAL_KAFKA_BOOTSTRAP_SERVERS = "127.0.0.1:9092"
 
 APP_ENV = Literal[APP_ENV_LOCAL, APP_ENV_DEPLOYED]
+KAFKA_MODE = Literal["admin", "aws_msk"]
 COMPRESSION_TYPE = Literal["none", "gzip", "snappy", "lz4", "zstd"]
+KAFKA_SECURITY_PROTOCOL = Literal["PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL"]
+KAFKA_SASL_MECHANISM = Literal["SCRAM-SHA-256", "SCRAM-SHA-512"]
 LOG_LEVEL = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
 LOG_FORMAT = Literal["json", "console", "auto"]
