@@ -1,138 +1,28 @@
 """Kafka producer — conversationId routing, acks=all, zstd compression, and fast failure.
 
-- **Local docker-compose** (`KAFKA_MODE=admin`): ``PLAINTEXT`` only; the service may auto-create
-  the topic via the Kafka Admin API. Not used when ``APP_ENV=deployed``.
-- **AWS MSK with IAM** (`KAFKA_MODE=aws_msk`): MSK IAM via ``SASL_SSL`` + ``OAUTHBEARER`` and
-  `aws-msk-iam-sasl-signer-python` (not SCRAM / SASL PLAIN). Required for deployed / remote Kafka.
+Broker security is selected via :data:`~realtime_transcribe_service.producer.kafka_connection.KafkaBrokerConnection`
+(:class:`~realtime_transcribe_service.producer.kafka_connection.LocalPlaintextKafkaConnection` or
+:class:`~realtime_transcribe_service.producer.kafka_connection.AwsMskIamKafkaConnection`).
 """
 
 from __future__ import annotations
 
 import asyncio
-import ssl
-import threading
-import time
 from typing import Any
 
 import orjson
 import structlog
 from aiokafka import AIOKafkaProducer
-from aiokafka.abc import AbstractTokenProvider
-from aiokafka.admin import AIOKafkaAdminClient, NewTopic
+
+from realtime_transcribe_service.constants import DEFAULT_KAFKA_TOPIC
+from realtime_transcribe_service.producer.kafka_connection import (
+    KafkaBrokerConnection,
+    LocalPlaintextKafkaConnection,
+)
 
 log = structlog.get_logger(__name__)
 
-
-def _generate_msk_auth_token(region: str, *, aws_debug_creds: bool = False) -> tuple[str, int]:
-    """Generate an MSK IAM auth token using the default AWS credential chain."""
-    try:
-        from aws_msk_iam_sasl_signer import MSKAuthTokenProvider  # pyright: ignore[reportMissingImports]
-    except ImportError as exc:  # pragma: no cover - exercised when dependency is missing
-        raise RuntimeError(
-            "aws-msk-iam-sasl-signer-python is required when KAFKA_MODE=aws_msk"
-        ) from exc
-    return MSKAuthTokenProvider.generate_auth_token(
-        region,
-        aws_debug_creds=aws_debug_creds,
-    )
-
-
-class MSKTokenProvider(AbstractTokenProvider):
-    """Async aiokafka token provider backed by the AWS MSK IAM signer."""
-
-    def __init__(self, region: str, *, aws_debug_creds: bool = False) -> None:
-        self._region = region
-        self._aws_debug_creds = aws_debug_creds
-        self._token: str | None = None
-        self._expiry_ms = 0
-        self._lock = threading.Lock()
-
-    def _refresh_token(self) -> str:
-        now_ms = int(time.time() * 1000)
-        with self._lock:
-            if self._token is not None and now_ms < self._expiry_ms - 60_000:
-                return self._token
-
-            token, expiry_ms = _generate_msk_auth_token(
-                self._region,
-                aws_debug_creds=self._aws_debug_creds,
-            )
-            self._token = token
-            self._expiry_ms = expiry_ms
-            return token
-
-    async def token(self) -> str:  # pyright: ignore[reportIncompatibleMethodOverride]  # upstream ABC omits return type
-        return await asyncio.get_running_loop().run_in_executor(None, self._refresh_token)
-
-
-def _build_kafka_client_kwargs(
-    bootstrap_servers: str,
-    *,
-    mode: str = "admin",
-    ssl_ca_file: str | None = None,
-    aws_region: str | None = None,
-    aws_debug_creds: bool = False,
-) -> dict[str, Any]:
-    """Build shared Kafka connection kwargs for admin and producer clients."""
-    kwargs: dict[str, Any] = {"bootstrap_servers": bootstrap_servers}
-
-    if mode == "aws_msk":
-        if aws_region is None:
-            raise ValueError("aws_region is required when mode=aws_msk")
-        kwargs["security_protocol"] = "SASL_SSL"
-        kwargs["ssl_context"] = ssl.create_default_context(cafile=ssl_ca_file)
-        kwargs["sasl_mechanism"] = "OAUTHBEARER"
-        kwargs["sasl_oauth_token_provider"] = MSKTokenProvider(
-            aws_region,
-            aws_debug_creds=aws_debug_creds,
-        )
-        return kwargs
-
-    kwargs["security_protocol"] = "PLAINTEXT"
-    return kwargs
-
-
-async def _ensure_topic(
-    bootstrap_servers: str,
-    topic: str,
-    num_partitions: int,
-    replication_factor: int = 1,
-    *,
-    client_kwargs: dict[str, Any] | None = None,
-) -> None:
-    """Create the topic idempotently and ignore the "already exists" case."""
-    admin = AIOKafkaAdminClient(**(client_kwargs or {"bootstrap_servers": bootstrap_servers}))
-    await admin.start()
-    try:
-        await admin.create_topics(
-            [NewTopic(name=topic, num_partitions=num_partitions, replication_factor=replication_factor)]
-        )
-    except Exception as exc:
-        err_text = str(exc).lower()
-        if any(token in err_text for token in ("exist", "already exists", "topic already")):
-            log.debug(
-                "Kafka: Topic already exists, continuing startup",
-                bootstrap_servers=bootstrap_servers,
-                topic=topic,
-                num_partitions=num_partitions,
-                replication_factor=replication_factor,
-                exc_type=type(exc).__name__,
-                error=str(exc),
-            )
-        else:
-            log.warning(
-                "Kafka: Topic creation failed during startup",
-                bootstrap_servers=bootstrap_servers,
-                topic=topic,
-                num_partitions=num_partitions,
-                replication_factor=replication_factor,
-                exc_type=type(exc).__name__,
-                error=repr(exc),
-                exc_info=True,
-            )
-            raise
-    finally:
-        await admin.close()
+_DEFAULT_LOCAL = LocalPlaintextKafkaConnection()
 
 
 class KafkaProducer:
@@ -147,54 +37,34 @@ class KafkaProducer:
     def __init__(
         self,
         bootstrap_servers: str,
-        topic: str = "AI_STAGING_TRANSCRIPTION",
+        topic: str = DEFAULT_KAFKA_TOPIC,
         *,
-        mode: str = "admin",
+        connection: KafkaBrokerConnection | None = None,
         compression_type: str = "zstd",
-        ssl_ca_file: str | None = None,
-        aws_region: str | None = None,
-        aws_debug_creds: bool = False,
         send_timeout_sec: float = 2.0,
         linger_ms: int = 1,
         batch_size: int = 32768,
-        num_partitions: int = 50,
-        replication_factor: int = 1,
     ) -> None:
         self._bootstrap = bootstrap_servers
         self._topic = topic
-        self._mode = mode
+        self._connection = connection if connection is not None else _DEFAULT_LOCAL
         self._compression_type = compression_type
-        self._client_kwargs = _build_kafka_client_kwargs(
-            bootstrap_servers,
-            mode=mode,
-            ssl_ca_file=ssl_ca_file,
-            aws_region=aws_region,
-            aws_debug_creds=aws_debug_creds,
+        self._client_kwargs = self._connection.build_client_kwargs(
+            bootstrap_servers=bootstrap_servers
         )
         self._send_timeout_sec = send_timeout_sec
         self._linger_ms = linger_ms
         self._batch_size = batch_size
-        self._num_partitions = num_partitions
-        self._replication_factor = replication_factor
         self._producer: AIOKafkaProducer | None = None
 
     async def _get_producer(self) -> AIOKafkaProducer:
         if self._producer is None:
-            if self._mode == "admin":
-                await _ensure_topic(
-                    self._bootstrap,
-                    self._topic,
-                    self._num_partitions,
-                    self._replication_factor,
-                    client_kwargs=self._client_kwargs,
-                )
-            else:
-                log.info(
-                    "Kafka: Topic auto-creation disabled",
-                    bootstrap_servers=self._bootstrap,
-                    topic=self._topic,
-                    mode=self._mode,
-                )
+            log.info(
+                "Kafka: Topic must exist; auto-creation is disabled",
+                bootstrap_servers=self._bootstrap,
+                topic=self._topic,
+                connection_profile=self._connection.profile_label,
+            )
             comp = None if self._compression_type == "none" else self._compression_type
             self._producer = AIOKafkaProducer(
                 **self._client_kwargs,

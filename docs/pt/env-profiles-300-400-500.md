@@ -4,8 +4,7 @@
 
 - These profiles target **one service instance** (one pod or one ECS task)
 - They are tuned for low-latency real-time traffic, prioritizing `P95` and stability over raw peak throughput
-- `KAFKA_TOPIC_NUM_PARTITIONS` only applies when creating a new topic; existing topics must be repartitioned separately
-- Profile snippets use `KAFKA_TOPIC_NUM_PARTITIONS=100` to **override** the code default of **50** ([`Settings.kafka_topic_num_partitions`](../../src/realtime_transcribe_service/config/settings.py)); omit the variable if the default is acceptable
+- The service **does not** auto-create Kafka topics. Provision `KAFKA_TOPIC` (name and partition count) yourself before running the service; changing partition count later requires repartitioning or a new topic
 - `WS_PING_INTERVAL` and `WS_PING_TIMEOUT` are passed from `main.py` into Uvicorn with `ws="websockets"` and control RFC WebSocket Ping/Pong keepalive, not business JSON behavior
 - If handshake JWT authentication is enabled, `AUTH_ENABLED`, `AUTH_JWT_SIGNING_MATERIAL`, and `AUTH_JWT_ALGORITHM` must also be set. The concurrency profile does not change those values; they are shared across all three profiles.
 - `HTTP_ENABLE_DOCS` only controls `/docs`, `/redoc`, and `/openapi.json`. It does not protect `/health`, `/ready`, or `/metrics`; those HTTP routes should be limited at the edge or on the internal network.
@@ -27,7 +26,6 @@
 | `KAFKA_LINGER_MS`            | 1              | 1             | 1              |
 | `KAFKA_BATCH_SIZE`           | 32768          | 32768         | 32768          |
 | `KAFKA_SEND_TIMEOUT_SEC`     | 5              | 5             | 5              |
-| `KAFKA_TOPIC_NUM_PARTITIONS` | 100            | 100           | 100            |
 | `LOG_LEVEL`                  | WARNING        | WARNING       | WARNING        |
 | `WS_PING_INTERVAL`           | 20.0           | 20.0          | 20.0           |
 | `WS_PING_TIMEOUT`            | 10.0           | 10.0          | 10.0           |
@@ -65,8 +63,6 @@ KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
-# Overrides code default 50 (see Settings.kafka_topic_num_partitions)
-KAFKA_TOPIC_NUM_PARTITIONS=100
 LOG_LEVEL=WARNING
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 AUTH_ENABLED=true
@@ -88,8 +84,6 @@ KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
-# Overrides code default 50 (see Settings.kafka_topic_num_partitions)
-KAFKA_TOPIC_NUM_PARTITIONS=100
 LOG_LEVEL=WARNING
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 AUTH_ENABLED=true
@@ -111,8 +105,6 @@ KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
-# Overrides code default 50 (see Settings.kafka_topic_num_partitions)
-KAFKA_TOPIC_NUM_PARTITIONS=100
 LOG_LEVEL=WARNING
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
 AUTH_ENABLED=true

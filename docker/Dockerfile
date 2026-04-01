@@ -17,8 +17,8 @@ COPY src/ ./src/
 ENV PATH=/home/appuser/.local/bin:$PATH
 ENV PYTHONPATH=/app:/app/src
 ENV PYTHONUNBUFFERED=1
-# APP_ENV/REDIS_URL/KAFKA_BOOTSTRAP_SERVERS are intentionally not defaulted here.
-# Deployed runtimes must inject them explicitly to keep fail-fast startup semantics.
+# No app secrets in the image. For APP_ENV=deployed, inject bootstrap env (APP_ENV,
+# AWS_SECRETS_MANAGER_SECRET_ID, optional AWS_REGION); JSON config is loaded from Secrets Manager at startup.
 
 USER appuser
 

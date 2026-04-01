@@ -1,7 +1,7 @@
 """Shared test fixtures."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +9,18 @@ import pytest
 _SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Avoid host ``.env`` / shell leaking ``AUTH_*`` (and similar) into ``Settings`` tests."""
+    for key in (
+        "AUTH_ENABLED",
+        "AUTH_JWT_SIGNING_MATERIAL",
+        "AWS_SECRETS_MANAGER_SECRET_ID",
+        "APP_ENV",
+    ):
+        monkeypatch.delenv(key, raising=False)
 
 
 @pytest.fixture

@@ -3,7 +3,7 @@
 - JSON format for production (ELK, Loki, Datadog compatible)
 - Console format for local dev (TTY)
 - ISO 8601 timestamps (UTC)
-- Configurable via LOG_LEVEL, LOG_FORMAT
+- Configurable via ``LOG_LEVEL`` and ``LOG_FORMAT`` (keys in ``constants`` as ``LOG_LEVEL_ENV`` / ``LOG_FORMAT_ENV``)
 """
 import json
 import logging
@@ -14,6 +14,8 @@ from typing import Any, Literal
 from urllib.parse import urlparse, urlunparse
 
 import structlog
+
+from realtime_transcribe_service.constants import LOG_FORMAT_ENV, LOG_LEVEL_ENV
 
 
 def _json_serializer(obj: Any, **kwargs: Any) -> str:
@@ -160,8 +162,8 @@ def configure_logging(
     format: Literal["json", "console", "auto"] | None = None,
 ) -> None:
     """Configure structlog. LOG_LEVEL and LOG_FORMAT override env."""
-    level = level or os.environ.get("LOG_LEVEL", "INFO").upper()
-    fmt = format or os.environ.get("LOG_FORMAT", "auto").lower()
+    level = level or os.environ.get(LOG_LEVEL_ENV, "INFO").upper()
+    fmt = format or os.environ.get(LOG_FORMAT_ENV, "auto").lower()
 
     log_level = getattr(logging, level, logging.INFO)
     if fmt == "auto":

@@ -14,6 +14,7 @@ from realtime_transcribe_service.converter.kafka_message_converter import KafkaM
 from realtime_transcribe_service.config.logging_config import configure_logging, get_logger
 from realtime_transcribe_service.config.settings import get_settings
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
+from realtime_transcribe_service.producer.kafka_connection import kafka_connection_for_mode
 from realtime_transcribe_service.producer.kafka_producer import KafkaProducer
 from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
 from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
@@ -125,16 +126,16 @@ async def run() -> None:
     producer = KafkaProducer(
         bootstrap_servers=kafka_bootstrap_servers,
         topic=settings.kafka_topic,
-        mode=settings.kafka_mode,
+        connection=kafka_connection_for_mode(
+            settings.kafka_mode,
+            aws_region=settings.kafka_aws_region,
+            ssl_ca_file=settings.kafka_ssl_ca_file,
+            aws_debug_creds=settings.kafka_aws_debug_creds,
+        ),
         compression_type=settings.kafka_compression_type,
-        ssl_ca_file=settings.kafka_ssl_ca_file,
-        aws_region=settings.kafka_aws_region,
-        aws_debug_creds=settings.kafka_aws_debug_creds,
         send_timeout_sec=settings.kafka_send_timeout_sec,
         linger_ms=settings.kafka_linger_ms,
         batch_size=settings.kafka_batch_size,
-        num_partitions=settings.kafka_topic_num_partitions,
-        replication_factor=settings.kafka_replication_factor,
     )
     orchestrator = TwoPhaseOrchestrator(
         state_machine=sequence_state_machine,

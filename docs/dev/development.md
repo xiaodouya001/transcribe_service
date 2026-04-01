@@ -132,7 +132,7 @@ See [kafka-ui-usage.md](../ops/kafka-ui-usage.md) for Kafka UI details.
 
 ### 3.6 Kafka: local broker vs AWS MSK
 
-- **Local (`docker compose`)** — keep defaults: `APP_ENV=local`, `KAFKA_MODE=admin`, `KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092`. Admin uses **PLAINTEXT fixed in code** and may auto-create the topic via the Kafka admin client.
+- **Local (`docker compose`)** — keep defaults: `APP_ENV=local`, `KAFKA_MODE=local`, `KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092`. **PLAINTEXT fixed in code**; create `KAFKA_TOPIC` first (Kafka UI in compose, or CLI). The service does **not** auto-create topics.
 - **Deployed / remote Kafka** — use `APP_ENV=deployed` with **`KAFKA_MODE=aws_msk`** (MSK IAM only in this project). Set `KAFKA_AWS_REGION` and bootstrap servers for the **IAM** port (often `:9098`). Not SCRAM. See [configuration.md](../config/configuration.md#kafka-authentication).
 
 ---

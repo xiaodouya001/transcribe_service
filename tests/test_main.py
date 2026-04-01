@@ -20,6 +20,16 @@ def _settings(**kwargs: Any) -> Settings:
     return Settings(**kwargs)  # pyright: ignore[reportCallIssue]
 
 
+def _mock_settings_kafka_local(settings: MagicMock) -> None:
+    """``main.run()`` calls ``kafka_connection_for_mode``; MagicMock.kafka_mode must be concrete."""
+    settings.kafka_mode = "local"
+    settings.kafka_aws_region = None
+    settings.kafka_ssl_ca_file = None
+    settings.kafka_aws_debug_creds = False
+    settings.kafka_linger_ms = 1
+    settings.kafka_batch_size = 32768
+
+
 @pytest.mark.asyncio
 async def test_check_redis_success():
     fake = MagicMock()
@@ -120,8 +130,6 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     settings.kafka_topic = "t"
     settings.kafka_compression_type = "none"
     settings.kafka_send_timeout_sec = 2.0
-    settings.kafka_topic_num_partitions = 1
-    settings.kafka_replication_factor = 1
     settings.redis_max_connections = 10
     settings.redis_active_ttl_sec = 3600
     settings.redis_final_ttl_sec = 60
@@ -142,6 +150,7 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     settings.auth_enabled = True
     settings.auth_jwt_signing_material = "signing-material"
     settings.auth_jwt_algorithm = "HS256"
+    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
@@ -256,8 +265,6 @@ async def test_run_graceful_shutdown_order(monkeypatch):
     settings.kafka_topic = "t"
     settings.kafka_compression_type = "none"
     settings.kafka_send_timeout_sec = 2.0
-    settings.kafka_topic_num_partitions = 1
-    settings.kafka_replication_factor = 1
     settings.redis_max_connections = 10
     settings.redis_active_ttl_sec = 3600
     settings.redis_final_ttl_sec = 60
@@ -274,6 +281,7 @@ async def test_run_graceful_shutdown_order(monkeypatch):
     settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
     settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
+    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
@@ -367,8 +375,6 @@ async def test_run_startup_checks_are_parallel(monkeypatch):
     settings.kafka_topic = "t"
     settings.kafka_compression_type = "none"
     settings.kafka_send_timeout_sec = 2.0
-    settings.kafka_topic_num_partitions = 1
-    settings.kafka_replication_factor = 1
     settings.redis_max_connections = 10
     settings.redis_active_ttl_sec = 3600
     settings.redis_final_ttl_sec = 60
@@ -385,6 +391,7 @@ async def test_run_startup_checks_are_parallel(monkeypatch):
     settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
     settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
+    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
@@ -471,8 +478,6 @@ async def test_run_stop_timeout_forces_cleanup(monkeypatch):
     settings.kafka_topic = "t"
     settings.kafka_compression_type = "none"
     settings.kafka_send_timeout_sec = 2.0
-    settings.kafka_topic_num_partitions = 1
-    settings.kafka_replication_factor = 1
     settings.redis_max_connections = 10
     settings.redis_active_ttl_sec = 3600
     settings.redis_final_ttl_sec = 60
@@ -489,6 +494,7 @@ async def test_run_stop_timeout_forces_cleanup(monkeypatch):
     settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
     settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
+    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
@@ -558,8 +564,6 @@ async def test_run_stop_timeout_cancels_server_task_when_graceful_stop_stalls(mo
     settings.kafka_topic = "t"
     settings.kafka_compression_type = "none"
     settings.kafka_send_timeout_sec = 2.0
-    settings.kafka_topic_num_partitions = 1
-    settings.kafka_replication_factor = 1
     settings.redis_max_connections = 10
     settings.redis_active_ttl_sec = 3600
     settings.redis_final_ttl_sec = 60
@@ -576,6 +580,7 @@ async def test_run_stop_timeout_cancels_server_task_when_graceful_stop_stalls(mo
     settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
     settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
+    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
@@ -692,8 +697,6 @@ async def test_run_propagates_exception(monkeypatch):
     settings.kafka_topic = "t"
     settings.kafka_compression_type = "none"
     settings.kafka_send_timeout_sec = 2.0
-    settings.kafka_topic_num_partitions = 1
-    settings.kafka_replication_factor = 1
     settings.redis_max_connections = 10
     settings.redis_active_ttl_sec = 3600
     settings.redis_final_ttl_sec = 60
@@ -705,6 +708,7 @@ async def test_run_propagates_exception(monkeypatch):
     settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
     settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
+    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
@@ -755,8 +759,6 @@ async def test_run_port_conflict_system_exit(monkeypatch):
     settings.kafka_topic = "t"
     settings.kafka_compression_type = "none"
     settings.kafka_send_timeout_sec = 2.0
-    settings.kafka_topic_num_partitions = 1
-    settings.kafka_replication_factor = 1
     settings.redis_max_connections = 10
     settings.redis_active_ttl_sec = 3600
     settings.redis_final_ttl_sec = 60
@@ -768,6 +770,7 @@ async def test_run_port_conflict_system_exit(monkeypatch):
     settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
     settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
+    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())

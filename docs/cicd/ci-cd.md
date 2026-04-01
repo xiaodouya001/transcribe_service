@@ -34,7 +34,7 @@ For the opt-in real Kafka connectivity check in [tests/test_kafka_real_connectiv
 
 - `RUN_REAL_KAFKA_TEST=true`
 - `REAL_KAFKA_BOOTSTRAP_SERVERS`
-- `REAL_KAFKA_MODE` — defaults to **`admin`** (PLAINTEXT, local/docker Kafka only); set **`aws_msk`** for MSK IAM (requires `REAL_KAFKA_AWS_REGION`)
+- `REAL_KAFKA_MODE` — defaults to **`local`** (PLAINTEXT, local/docker Kafka only); set **`aws_msk`** for MSK IAM (requires `REAL_KAFKA_AWS_REGION`)
 - optional `REAL_KAFKA_SSL_CA_FILE` for **`aws_msk`** when the broker TLS chain is non-public
 - `REAL_KAFKA_AWS_REGION` when `REAL_KAFKA_MODE=aws_msk`
 - optional `REAL_KAFKA_AWS_DEBUG_CREDS=true` if you need the MSK IAM signer to log which AWS identity was used
@@ -85,43 +85,27 @@ See the full protocol definition in [design/api-contract.md](../design/api-contr
 
 ## 6. Runtime Configuration in Deployment
 
-The minimum production configuration is:
+**Recommended (this service):** store **all** application settings as one JSON object in **AWS Secrets Manager** and load it automatically when `APP_ENV=deployed`. See [configuration.md §1 Environment Setup](../config/configuration.md#1-environment-setup).
+
+**ECS task definition (bootstrap only):**
 
 | Variable | Description |
 |------|------|
-| `APP_ENV` | Must be `deployed` in non-local environments |
-| `REDIS_URL` | ElastiCache Redis connection string |
-| `KAFKA_BOOTSTRAP_SERVERS` | MSK broker endpoints |
-| `KAFKA_TOPIC` | Usually `AI_STAGING_TRANSCRIPTION`; must match the actual topic name |
-| `KAFKA_TOPIC_NUM_PARTITIONS` | Only relevant when the service is allowed to create the topic |
-| `KAFKA_REPLICATION_FACTOR` | Typically `>= 2` in production |
-| `KAFKA_COMPRESSION_TYPE` | Defaults to `zstd`, but other supported codecs can be used |
-| `KAFKA_AWS_REGION` | Required when `KAFKA_MODE=aws_msk`; used for MSK IAM token generation |
-| `HTTP_HOST` / `HTTP_PORT` | Bind address and port, typically `0.0.0.0:8080` inside the container |
-| `KAFKA_STARTUP_TIMEOUT_SEC` | Kafka startup connectivity timeout |
-| `LOG_FORMAT` | Usually `json` in production |
-| `LOG_LEVEL` | Typical values include `INFO` or `WARNING` |
+| `APP_ENV` | Must be `deployed` |
+| `AWS_SECRETS_MANAGER_SECRET_ID` | Secret name or ARN whose `SecretString` is the JSON config |
+| `AWS_REGION` / `AWS_DEFAULT_REGION` | Optional; recommended for the Secrets Manager client |
 
-If handshake authentication is enabled for the deployment, also inject:
+The task role must allow `secretsmanager:GetSecretValue` on that secret. After load, the same keys apply as in [configuration.md](../config/configuration.md) (e.g. `REDIS_URL`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_MODE=aws_msk`, `KAFKA_AWS_REGION`, optional `AUTH_*`). The container does **not** read `.env`.
 
-| Variable | Description |
-|------|------|
-| `AUTH_ENABLED` | Set to `true` to enforce handshake-time `Authorization: Bearer <JWT>` validation |
-| `AUTH_JWT_SIGNING_MATERIAL` | HS256 signing material shared with trusted clients |
-| `AUTH_JWT_ALGORITHM` | Defaults to `HS256`; V1 currently supports only `HS256` |
+With `APP_ENV=deployed`, **`AWS_SECRETS_MANAGER_SECRET_ID` is required**; there is no per-variable-only mode in this build.
 
-Deployed environments should inject these values as real process environment variables. Do not rely on `.env` files in ECS or other deployed runtimes.
-
-For AWS ECS, use:
-
-- task definition `environment` for non-sensitive values such as `APP_ENV`, `KAFKA_TOPIC`, `HTTP_HOST`, and `HTTP_PORT`
-- task definition `secrets` or AWS Secrets Manager / SSM for sensitive values such as `REDIS_URL` and `AUTH_JWT_SIGNING_MATERIAL`
-- ECS task role or another AWS default credential-chain source for `KAFKA_MODE=aws_msk` so the service can mint IAM auth tokens for MSK
+For MSK IAM, the task role (or instance profile) must still provide AWS credentials for token signing in addition to Secrets Manager read access.
 
 Startup is fail-fast:
 
 - `APP_ENV` is required and must be `deployed` outside local development
 - `REDIS_URL` and `KAFKA_BOOTSTRAP_SERVERS` are required when `APP_ENV=deployed`
+- `KAFKA_TOPIC` must already exist on the cluster (the service does not create it)
 - missing or blank required values cause configuration validation to fail before Redis or Kafka startup checks run
 
 For local development only, `.env` remains supported and should set `APP_ENV=local`.

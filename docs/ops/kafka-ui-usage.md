@@ -31,6 +31,8 @@ Do not bind Kafka UI to host port `8080`, or it will collide with the service’
 
 ## 2. View Messages
 
+The transcribe service does **not** auto-create topics. If `KAFKA_TOPIC` (default **`AI_STAGING_TRANSCRIPTION`**) is missing, create it in Kafka UI (**Topics → Add a topic**) or via CLI before starting the service.
+
 1. Open **http://127.0.0.1:8090**
 2. Select **Topics** in the left navigation
 3. Choose the topic configured by `KAFKA_TOPIC`, which defaults to **`AI_STAGING_TRANSCRIPTION`**

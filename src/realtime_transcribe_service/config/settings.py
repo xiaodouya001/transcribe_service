@@ -1,15 +1,19 @@
 """Configuration loaded from environment variables."""
 
+import os
 from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from realtime_transcribe_service.config.secrets_loader import merge_deployed_secrets_into_environ
 from realtime_transcribe_service.constants import (
     APP_ENV,
     APP_ENV_DEPLOYED,
+    APP_ENV_VAR,
     COMPRESSION_TYPE,
+    DEFAULT_KAFKA_TOPIC,
     LOG_LEVEL,
     LOG_FORMAT,
     KAFKA_MODE,
@@ -20,7 +24,11 @@ from realtime_transcribe_service.constants import (
 
 
 class Settings(BaseSettings):
-    """Application settings from environment."""
+    """Application settings from environment.
+
+    **Local** (``APP_ENV=local``): pydantic-settings default precedence — **process environment
+    overrides ``.env``** for the same variable name.
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -48,10 +56,8 @@ class Settings(BaseSettings):
 
     # --- Kafka ---
     kafka_bootstrap_servers: str | None = None
-    kafka_mode: KAFKA_MODE = "admin"
-    kafka_topic: str = Field(default="AI_STAGING_TRANSCRIPTION", min_length=1)
-    kafka_topic_num_partitions: int = Field(default=50, gt=0)
-    kafka_replication_factor: int = Field(default=1, gt=0)
+    kafka_mode: KAFKA_MODE = "local"
+    kafka_topic: str = Field(default=DEFAULT_KAFKA_TOPIC, min_length=1)
     kafka_compression_type: COMPRESSION_TYPE = "zstd"
     kafka_ssl_ca_file: str | None = None
     kafka_aws_region: str | None = None
@@ -187,13 +193,13 @@ class Settings(BaseSettings):
         if self.app_env == APP_ENV_DEPLOYED and self.kafka_mode != "aws_msk":
             raise ValueError(
                 "APP_ENV=deployed requires KAFKA_MODE=aws_msk "
-                "(KAFKA_MODE=admin is for local docker-compose only)"
+                "(KAFKA_MODE=local is for local docker-compose only)"
             )
 
-        if self.kafka_mode == "admin" and self.kafka_ssl_ca_file is not None:
+        if self.kafka_mode == "local" and self.kafka_ssl_ca_file is not None:
             raise ValueError(
                 "KAFKA_SSL_CA_FILE is only used when KAFKA_MODE=aws_msk; "
-                "admin mode is PLAINTEXT local docker-compose only"
+                "local mode is PLAINTEXT docker-compose only"
             )
 
         if self.kafka_mode == "aws_msk":
@@ -207,5 +213,14 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Cached settings instance."""
+    """Cached settings instance.
+
+    When ``APP_ENV=deployed``, :func:`~realtime_transcribe_service.config.secrets_loader.merge_deployed_secrets_into_environ`
+    merges ``.env`` (cwd), process environment, and Secrets Manager JSON into :data:`os.environ`
+    (see that module for precedence), then builds ``Settings`` with ``_env_file=None`` so ``.env``
+    is not read twice.
+    """
+    merge_deployed_secrets_into_environ()
+    if os.environ.get(APP_ENV_VAR, "").strip().lower() == APP_ENV_DEPLOYED:
+        return Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     return Settings()  # pyright: ignore[reportCallIssue]

@@ -26,7 +26,7 @@ class TestSettings:
         s = _settings(_env_file=None, app_env="local")
         assert s.redis_url == LOCAL_REDIS_URL
         assert s.kafka_bootstrap_servers == LOCAL_KAFKA_BOOTSTRAP_SERVERS
-        assert s.kafka_mode == "admin"
+        assert s.kafka_mode == "local"
         assert s.kafka_topic == "AI_STAGING_TRANSCRIPTION"
         assert s.kafka_compression_type == "zstd"
         assert s.kafka_ssl_ca_file is None
@@ -167,6 +167,10 @@ class TestSettings:
         )
         assert s.kafka_mode == "aws_msk"
 
+    def test_kafka_mode_rejects_legacy_admin_value(self):
+        with pytest.raises(ValidationError, match="kafka_mode"):
+            _settings(_env_file=None, app_env="local", kafka_mode="admin")
+
     def test_deployed_requires_aws_msk_for_kafka(self):
         with pytest.raises(ValidationError, match="APP_ENV=deployed requires KAFKA_MODE=aws_msk"):
             _settings(
@@ -174,10 +178,10 @@ class TestSettings:
                 app_env="deployed",
                 redis_url="redis://127.0.0.1:6379/0",
                 kafka_bootstrap_servers="127.0.0.1:9092",
-                kafka_mode="admin",
+                kafka_mode="local",
             )
 
-    def test_admin_mode_rejects_ssl_ca_file(self):
+    def test_local_mode_rejects_ssl_ca_file(self):
         with pytest.raises(ValidationError, match="KAFKA_SSL_CA_FILE is only used when KAFKA_MODE=aws_msk"):
             _settings(
                 _env_file=None,

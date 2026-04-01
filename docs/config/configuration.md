@@ -14,17 +14,42 @@ Copy `.env.example` to `.env`, keep `APP_ENV=local`, and edit values as needed.
 cp .env.example .env
 ```
 
-**Deployed environments**
+**Deployed environments (`APP_ENV=deployed`)**
 
-Do not rely on `.env`. Inject configuration as process environment variables and set `APP_ENV=deployed`.
+1. **Bootstrap (plain task / container environment)** — must be set outside the secret so the process knows how to load the rest:
+   - `APP_ENV=deployed`
+   - `AWS_SECRETS_MANAGER_SECRET_ID` — name or ARN of the secret whose **SecretString** is JSON (see below)
+   - `AWS_REGION` or `AWS_DEFAULT_REGION` — optional but recommended for the Secrets Manager client
+
+2. **Application configuration** — loaded once at startup when `get_settings()` runs. Merge order (**later overrides earlier**):
+
+   1. **`.env`** in the process **current working directory** (optional; keys normalized to uppercase like the secret)
+   2. **Process environment** as it existed before the merge (e.g. ECS task definition)
+   3. **Secrets Manager** JSON (highest precedence for application keys)
+
+   Bootstrap variables (`APP_ENV`, `AWS_SECRETS_MANAGER_SECRET_ID`, `AWS_REGION`, `AWS_DEFAULT_REGION`) always keep their **original** process values so the secret body cannot replace them.
+
+   After the merge, `Settings` is built with `_env_file=None` so pydantic does **not** read `.env` a second time.
+
+Secret JSON rules:
+
+- Root must be a **JSON object** (not an array).
+- Keys should match the usual environment variable names (e.g. `REDIS_URL`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_MODE`, `KAFKA_AWS_REGION`). See [§2 Configuration Reference](#2-configuration-reference) and `.env.example` for the full set.
+- Values must be JSON **string**, **number**, **boolean**, or **null** (`null` becomes an empty string in the environment). Nested objects are not supported.
+
+IAM: the task role (or other AWS credential chain) must allow `secretsmanager:GetSecretValue` on the configured secret.
+
+**Local development (`APP_ENV=local`)**
+
+Uses pydantic-settings as today: **process environment overrides `.env`** for the same variable. Secrets Manager is **not** used.
 
 **Validation behavior**
 
 - `APP_ENV` is required in every environment
 - Blank string values fail startup
-- Unknown keys in `.env` fail startup
+- Unknown keys in `.env` fail startup (local only; deployed merges `.env` once into `os.environ` before `Settings`, then `Settings` does not re-read the file)
 - `REDIS_URL` and `KAFKA_BOOTSTRAP_SERVERS` are required when `APP_ENV=deployed`
-- `APP_ENV=deployed` requires `KAFKA_MODE=aws_msk` (MSK IAM). `KAFKA_MODE=admin` is for local docker-compose only
+- `APP_ENV=deployed` requires `KAFKA_MODE=aws_msk` (MSK IAM). `KAFKA_MODE=local` is for local docker-compose only
 - `AUTH_JWT_SIGNING_MATERIAL` is required when `AUTH_ENABLED=true`
 
 ---
@@ -54,13 +79,11 @@ Do not rely on `.env`. Inject configuration as process environment variables and
 | Variable | Default | Description |
 |------|------|------|
 | `KAFKA_BOOTSTRAP_SERVERS` | local only: `127.0.0.1:9092` | Kafka bootstrap servers. Required when `APP_ENV=deployed` |
-| `KAFKA_MODE` | `admin` | `admin` = local docker-compose only: **wire protocol is fixed PLAINTEXT in code** (no env knob), auto-creates the topic at startup. `aws_msk` = deployed / remote MSK: **wire protocol is fixed SASL_SSL + OAUTHBEARER (MSK IAM) in code**, no topic creation (topic must exist) |
+| `KAFKA_MODE` | `local` | `local` = local docker-compose only: **PLAINTEXT fixed in code**; **does not** create topics (create `KAFKA_TOPIC` yourself, e.g. via Kafka UI / CLI). `aws_msk` = deployed / remote MSK: **SASL_SSL + OAUTHBEARER (MSK IAM) fixed in code**; topic must exist |
 | `KAFKA_TOPIC` | `AI_STAGING_TRANSCRIPTION` | Topic name. Must not be empty |
-| `KAFKA_TOPIC_NUM_PARTITIONS` | 50 | Partition count when the service creates a new topic in `KAFKA_MODE=admin`. Must be `> 0`. Example files may set `100` to **override** this default for higher throughput; omit the variable to use **50**. |
-| `KAFKA_REPLICATION_FACTOR` | 1 | Replication factor when the service creates a new topic in `KAFKA_MODE=admin` only. Must be `> 0`. For MSK, set replication when you create the topic out of band |
 | `KAFKA_COMPRESSION_TYPE` | `zstd` | Compression codec: `none`, `gzip`, `snappy`, `lz4`, or `zstd` |
-| `KAFKA_SSL_CA_FILE` | None | Optional CA bundle path for `KAFKA_MODE=aws_msk` when the broker or NLB certificate chain is not trusted by the system default trust store. **Not allowed** when `KAFKA_MODE=admin` |
-| `KAFKA_AWS_REGION` | None | Required when `KAFKA_MODE=aws_msk`. Unused when `KAFKA_MODE=admin` |
+| `KAFKA_SSL_CA_FILE` | None | Optional CA bundle path for `KAFKA_MODE=aws_msk` when the broker or NLB certificate chain is not trusted by the system default trust store. **Not allowed** when `KAFKA_MODE=local` |
+| `KAFKA_AWS_REGION` | None | Required when `KAFKA_MODE=aws_msk`. Unused when `KAFKA_MODE=local` |
 | `KAFKA_AWS_DEBUG_CREDS` | false | Only effective when `KAFKA_MODE=aws_msk`. When `true`, the IAM signer logs which AWS identity was used (troubleshooting only; keep `false` in production) |
 | `KAFKA_SEND_TIMEOUT_SEC` | 2.0 | Kafka send timeout in seconds. Must be `> 0` |
 | `KAFKA_LINGER_MS` | 1 | Producer linger in milliseconds. Must be `>= 0` |
@@ -68,24 +91,24 @@ Do not rely on `.env`. Inject configuration as process environment variables and
 
 #### Kafka: which settings go together
 
-Pick **one** row and treat it as a bundle. Do not rely on “leftover” variables from another bundle (for example `KAFKA_AWS_REGION` does nothing when `KAFKA_MODE=admin`).
+Pick **one** row and treat it as a bundle. Do not rely on “leftover” variables from another bundle (for example `KAFKA_AWS_REGION` does nothing when `KAFKA_MODE=local`).
 
 | Scenario | `KAFKA_MODE` | Turn **on** / set | Turn **off** / omit / ignore |
 | -------- | ------------ | ------------------- | ---------------------------- |
-| **Local docker-compose** (this repo) | `admin` | `APP_ENV=local`, `KAFKA_BOOTSTRAP_SERVERS` (e.g. `127.0.0.1:9092`), topic + partition/replication if you rely on auto-create; **PLAINTEXT is fixed in code** | Omit `KAFKA_AWS_REGION`, `KAFKA_SSL_CA_FILE`. Keep `KAFKA_AWS_DEBUG_CREDS=false` (or omit) |
-| **Deployed / remote Kafka (ECS, etc.)** | `aws_msk` | `APP_ENV=deployed`, `KAFKA_AWS_REGION`, `KAFKA_BOOTSTRAP_SERVERS` on **MSK IAM** endpoints (commonly `:9098`), AWS credentials via the [default credential chain](https://docs.aws.amazon.com/sdkref/latest/guide/overview.html); optional `KAFKA_SSL_CA_FILE` if TLS chain is non-public; **SASL_SSL + OAUTHBEARER is fixed in code** | Create `KAFKA_TOPIC` **before** deploy; partition/replication env vars are **not** used to auto-create the topic in this mode |
+| **Local docker-compose** (this repo) | `local` | `APP_ENV=local`, `KAFKA_BOOTSTRAP_SERVERS` (e.g. `127.0.0.1:9092`); **create `KAFKA_TOPIC` before starting the service**; **PLAINTEXT is fixed in code** | Omit `KAFKA_AWS_REGION`, `KAFKA_SSL_CA_FILE`. Keep `KAFKA_AWS_DEBUG_CREDS=false` (or omit) |
+| **Deployed / remote Kafka (ECS, etc.)** | `aws_msk` | `APP_ENV=deployed`, `KAFKA_AWS_REGION`, `KAFKA_BOOTSTRAP_SERVERS` on **MSK IAM** endpoints (commonly `:9098`), AWS credentials via the [default credential chain](https://docs.aws.amazon.com/sdkref/latest/guide/overview.html); optional `KAFKA_SSL_CA_FILE` if TLS chain is non-public; **SASL_SSL + OAUTHBEARER is fixed in code** | Create `KAFKA_TOPIC` **before** deploy |
 | **Debug “which AWS identity signs the token?”** | `aws_msk` only | Temporarily set `KAFKA_AWS_DEBUG_CREDS=true`, reproduce once, read logs | Set back to **`false`** after troubleshooting (avoid in steady-state production) |
 
-**Do not mix:** `APP_ENV=deployed` **must** use `KAFKA_MODE=aws_msk`. There is **no** `KAFKA_SECURITY_PROTOCOL` (or similar) environment variable; wire security follows `KAFKA_MODE` only. **`KAFKA_MODE=admin` never uses MSK IAM** and must not set `KAFKA_SSL_CA_FILE`; `KAFKA_AWS_REGION` / `KAFKA_AWS_DEBUG_CREDS` have **no effect** on the Kafka client in admin mode.
+**Do not mix:** `APP_ENV=deployed` **must** use `KAFKA_MODE=aws_msk`. There is **no** `KAFKA_SECURITY_PROTOCOL` (or similar) environment variable; wire security follows `KAFKA_MODE` only. **`KAFKA_MODE=local` never uses MSK IAM** and must not set `KAFKA_SSL_CA_FILE`; `KAFKA_AWS_REGION` / `KAFKA_AWS_DEBUG_CREDS` have **no effect** on the Kafka client in local mode.
 
 #### Kafka authentication
 
 - **Not supported:** SASL **SCRAM** or SASL **PLAIN** (username / password) to Kafka. There are no `KAFKA_SASL_*` settings.
-- **`KAFKA_MODE=admin`:** **Local docker-compose only**. The client always uses **PLAINTEXT** (not configurable). The service uses the Kafka Admin API to create the topic when allowed. Do not use for `APP_ENV=deployed`.
+- **`KAFKA_MODE=local`:** **Local docker-compose only**. **PLAINTEXT** only (not configurable). **No Kafka Admin topic creation** — create `KAFKA_TOPIC` out of band. Do not use for `APP_ENV=deployed`.
 - **`KAFKA_MODE=aws_msk`:** **AWS MSK IAM** for all deployed / remote Kafka. The client always uses **`SASL_SSL`** + **`OAUTHBEARER`** (not configurable). Tokens from **`aws-msk-iam-sasl-signer-python`**. Set **`KAFKA_AWS_REGION`** and AWS credentials (e.g. ECS task role). Optional **`KAFKA_SSL_CA_FILE`** if the broker chain is not in the default trust store.
 
-> `KAFKA_MODE=admin` is only for local debugging with this repo’s docker-compose broker.
-> `KAFKA_MODE=aws_msk` never attempts topic creation; create the topic out of band.
+> `KAFKA_MODE=local` is only for local debugging with this repo’s docker-compose broker.
+> Both modes expect the topic to exist before the service starts; the service does not auto-create it.
 > In `KAFKA_MODE=aws_msk`, AWS credentials come from the standard AWS default credential chain, for example ECS task role, exported STS credentials, or `AWS_PROFILE`.
 
 ### WebSocket
@@ -146,7 +169,7 @@ Pick **one** row and treat it as a bundle. Do not rely on “leftover” variabl
 APP_ENV=local
 REDIS_URL=redis://127.0.0.1:6379/0
 KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092
-KAFKA_MODE=admin
+KAFKA_MODE=local
 KAFKA_COMPRESSION_TYPE=zstd
 LOG_FORMAT=console
 HTTP_ENABLE_DOCS=false

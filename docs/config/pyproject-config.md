@@ -16,7 +16,7 @@ This is the PEP 621 metadata block consumed by tooling such as pip and Poetry.
 | `version` | Package version |
 | `description` | Project description |
 | `requires-python` | Supported Python version, currently `>=3.11` |
-| `dependencies` | Runtime dependencies required in production (includes `aws-msk-iam-sasl-signer-python` for `KAFKA_MODE=aws_msk`; unused imports are avoided until MSK IAM is used) |
+| `dependencies` | Runtime dependencies required in production (`boto3` for `APP_ENV=deployed` Secrets Manager bootstrap; `aws-msk-iam-sasl-signer-python` for `KAFKA_MODE=aws_msk`) |
 
 ### 1.2 `[project.optional-dependencies]`
 

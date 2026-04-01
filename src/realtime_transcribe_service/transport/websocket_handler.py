@@ -807,7 +807,8 @@ async def _message_loop(
             if (
                 log_ws_error_frames
                 and isinstance(resp, dict)
-                and (resp.get("metaData") or {}).get("eventType") == "ERROR"
+                and (resp.get("metaData") or {}).get("eventType")
+                == ResponseEventType.ERROR.value
             ):
                 log.info(
                     "Transport: Sent ERROR response frame",

@@ -5,10 +5,13 @@ from __future__ import annotations
 import os
 import traceback
 from datetime import datetime, timezone
+from typing import cast
 from uuid import uuid4
 
 import pytest
 
+from realtime_transcribe_service.constants import KAFKA_MODE
+from realtime_transcribe_service.producer.kafka_connection import kafka_connection_for_mode
 from realtime_transcribe_service.producer.kafka_producer import KafkaProducer
 
 
@@ -35,7 +38,7 @@ async def test_real_kafka_connectivity_from_env():
     - REAL_KAFKA_BOOTSTRAP_SERVERS=<host:port[,host:port...]>
 
     Optional environment variables:
-    - REAL_KAFKA_MODE=admin|aws_msk                (default: admin, for local docker-compose PLAINTEXT)
+    - REAL_KAFKA_MODE=local|aws_msk               (default: local, for local docker-compose PLAINTEXT)
     - REAL_KAFKA_TOPIC=<topic-name>               (default: RT_KAFKA_CONNECTIVITY_TEST)
     - REAL_KAFKA_SSL_CA_FILE=<path-to-ca-bundle>  (aws_msk only, when broker chain is non-public)
     - REAL_KAFKA_AWS_REGION=<aws-region>          (required when mode=aws_msk)
@@ -48,7 +51,10 @@ async def test_real_kafka_connectivity_from_env():
         pytest.skip("Set RUN_REAL_KAFKA_TEST=true to validate connectivity against a real Kafka cluster.")
 
     bootstrap_servers = _require_env("REAL_KAFKA_BOOTSTRAP_SERVERS")
-    mode = os.getenv("REAL_KAFKA_MODE", "admin").strip().lower()
+    mode_raw = os.getenv("REAL_KAFKA_MODE", "local").strip().lower()
+    if mode_raw not in ("local", "aws_msk"):
+        pytest.fail(f"REAL_KAFKA_MODE must be local or aws_msk, got {mode_raw!r}")
+    mode = cast(KAFKA_MODE, mode_raw)
     topic = os.getenv("REAL_KAFKA_TOPIC", "RT_KAFKA_CONNECTIVITY_TEST").strip()
     ssl_ca_file = os.getenv("REAL_KAFKA_SSL_CA_FILE")
     aws_region = os.getenv("REAL_KAFKA_AWS_REGION")
@@ -71,11 +77,13 @@ async def test_real_kafka_connectivity_from_env():
     producer = KafkaProducer(
         bootstrap_servers=bootstrap_servers,
         topic=topic,
-        mode=mode,
+        connection=kafka_connection_for_mode(
+            mode,
+            aws_region=aws_region,
+            ssl_ca_file=ssl_ca_file,
+            aws_debug_creds=aws_debug_creds,
+        ),
         compression_type="none",
-        ssl_ca_file=ssl_ca_file,
-        aws_region=aws_region,
-        aws_debug_creds=aws_debug_creds,
         send_timeout_sec=10.0,
         linger_ms=0,
         batch_size=16384,
