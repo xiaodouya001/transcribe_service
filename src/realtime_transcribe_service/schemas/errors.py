@@ -26,7 +26,7 @@ class WsCloseCode(int, Enum):
 
     NORMAL = 1000
     GOING_AWAY = 1001
-    INVALID_PAYLOAD = 1007  # JSON parse/type/format error
+    INVALID_PAYLOAD = 1007  # JSON parse or decode error
     POLICY_VIOLATION = 1008  # Business-rule, authentication, or policy violation
     INTERNAL_ERROR = 1011  # Internal server exception
     TRY_AGAIN_LATER = 1013  # Temporary overload or downstream issue

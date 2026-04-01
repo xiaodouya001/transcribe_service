@@ -303,7 +303,7 @@ class TestScenarioE:
             client=client,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
         )
         producer = AsyncMock()
         producer.send = AsyncMock(side_effect=[RuntimeError("broker down"), None])
@@ -326,7 +326,7 @@ class TestScenarioE:
                 assert first.close_code == 1013
 
                 cid = valid_ongoing_msg["metaData"]["conversationId"]
-                key = f"realtime-transcribe-service:expect-transcript-seq-num:{cid}"
+                key = f"ods-dev:realtime-transcribe-service:expect-transcript-seq-num:{cid}"
                 assert await client.get(key) == "0"
 
                 second = await orchestrator.handle_message(valid_ongoing_msg)

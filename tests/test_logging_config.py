@@ -70,6 +70,14 @@ def test_group_identity_without_fixed_fields_returns_original():
     assert out == ed
 
 
+def test_redact_text_for_logs_masks_embedded_url_and_secret():
+    t = lc.redact_text_for_logs(
+        "boom redis://u:XYZSECRET123@host:6379/0 tail XYZSECRET123",
+        extra_secret="XYZSECRET123",
+    )
+    assert "XYZSECRET123" not in t
+
+
 def test_mask_redis_url_empty():
     assert lc._mask_redis_url("") == ""
 
@@ -107,9 +115,11 @@ def test_mask_sensitive_processor():
         "redis_url": "redis://u:p@h:6379/0",
         "password_field": "x",
         "some_redis_url": "redis://h:6379",
+        "error": "fail redis://u:secret@h:6379/0",
     }
     out = lc._mask_sensitive_processor(logging.getLogger("t"), "info", dict(ed))
     assert "p@" not in str(out["redis_url"])
+    assert "secret" not in str(out["error"])
     assert out["password_field"] == "***"
 
 

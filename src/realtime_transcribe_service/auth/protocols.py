@@ -27,3 +27,4 @@ class HandshakeAuthBackend(Protocol):
 
     def authenticate(self, authorization_header: str | None) -> AuthPrincipal:
         """Validate the caller's Authorization header or raise AuthenticationError."""
+        ...  # pragma: no cover

@@ -28,6 +28,9 @@ def _mock_settings_kafka_local(settings: MagicMock) -> None:
     settings.kafka_aws_debug_creds = False
     settings.kafka_linger_ms = 1
     settings.kafka_batch_size = 32768
+    settings.redis_username = None
+    settings.redis_password = None
+    settings.redis_ssl_check_hostname = False
 
 
 @pytest.mark.asyncio
@@ -35,8 +38,12 @@ async def test_check_redis_success():
     fake = MagicMock()
     fake.ping = AsyncMock()
     fake.aclose = AsyncMock()
-    with patch("redis.asyncio.Redis.from_url", return_value=fake):
-        await main_mod._check_redis("redis://127.0.0.1:6379/0")
+    s = _settings(_env_file=None, app_env="local")
+    with patch(
+        "realtime_transcribe_service.redis.async_client.create_async_redis_client",
+        return_value=fake,
+    ):
+        await main_mod._check_redis(s)
     fake.ping.assert_awaited_once()
     fake.aclose.assert_awaited_once()
 
@@ -46,9 +53,35 @@ async def test_check_redis_failure():
     fake = MagicMock()
     fake.ping = AsyncMock(side_effect=RuntimeError("down"))
     fake.aclose = AsyncMock()
-    with patch("redis.asyncio.Redis.from_url", return_value=fake):
+    s = _settings(_env_file=None, app_env="local", redis_url="redis://x")
+    with patch(
+        "realtime_transcribe_service.redis.async_client.create_async_redis_client",
+        return_value=fake,
+    ):
         with pytest.raises(RuntimeError, match="Redis"):
-            await main_mod._check_redis("redis://x")
+            await main_mod._check_redis(s)
+    fake.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_check_redis_failure_does_not_leak_password():
+    fake = MagicMock()
+    fake.ping = AsyncMock(side_effect=RuntimeError("auth failed"))
+    fake.aclose = AsyncMock()
+    s = _settings(
+        _env_file=None,
+        app_env="local",
+        redis_url="redis://127.0.0.1:6379/0",
+        redis_password="topsecret",
+    )
+    with patch(
+        "realtime_transcribe_service.redis.async_client.create_async_redis_client",
+        return_value=fake,
+    ):
+        with pytest.raises(RuntimeError) as ei:
+            await main_mod._check_redis(s)
+    msg = str(ei.value)
+    assert "topsecret" not in msg
     fake.aclose.assert_awaited_once()
 
 
@@ -144,8 +177,8 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
     settings.auth_enabled = True
     settings.auth_jwt_signing_material = "signing-material"
@@ -247,6 +280,9 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     assert create_app_kwargs["http_enable_docs"] is True
     assert isinstance(orchestrator_kwargs["message_converter"], KafkaMessageConverter)
     assert isinstance(create_app_kwargs["auth_backend"], JwtBearerAuthBackend)
+    assert create_app_kwargs["redis_username"] is None
+    assert create_app_kwargs["redis_password"] is None
+    assert create_app_kwargs["redis_ssl_check_hostname"] is False
 
     reg.close_all.assert_awaited()
     prod.flush.assert_awaited()
@@ -278,8 +314,8 @@ async def test_run_graceful_shutdown_order(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
     _mock_settings_kafka_local(settings)
 
@@ -388,8 +424,8 @@ async def test_run_startup_checks_are_parallel(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
     _mock_settings_kafka_local(settings)
 
@@ -422,7 +458,7 @@ async def test_run_startup_checks_are_parallel(monkeypatch):
     kafka_started = asyncio.Event()
     release_checks = asyncio.Event()
 
-    async def fake_check_redis(_url: str) -> None:
+    async def fake_check_redis(_settings: object) -> None:
         order.append("redis-start")
         redis_started.set()
         await kafka_started.wait()
@@ -491,8 +527,8 @@ async def test_run_stop_timeout_forces_cleanup(monkeypatch):
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
     _mock_settings_kafka_local(settings)
 
@@ -577,8 +613,8 @@ async def test_run_stop_timeout_cancels_server_task_when_graceful_stop_stalls(mo
     settings.ws_max_connections = 0
     settings.log_ws_error_frames = False
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
     _mock_settings_kafka_local(settings)
 
@@ -705,8 +741,8 @@ async def test_run_propagates_exception(monkeypatch):
     settings.http_port = 18081
     settings.kafka_startup_timeout_sec = 5.0
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
     _mock_settings_kafka_local(settings)
 
@@ -767,8 +803,8 @@ async def test_run_port_conflict_system_exit(monkeypatch):
     settings.http_port = 18082
     settings.kafka_startup_timeout_sec = 5.0
     settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "realtime-transcribe-service:conversation-owner"
+    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
+    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
     settings.ws_ownership_guard_refresh_interval_sec = 5.0
     _mock_settings_kafka_local(settings)
 

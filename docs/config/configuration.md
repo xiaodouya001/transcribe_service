@@ -66,13 +66,16 @@ Uses pydantic-settings as today: **process environment overrides `.env`** for th
 
 | Variable | Default | Description |
 |------|------|------|
-| `REDIS_URL` | local only: `redis://127.0.0.1:6379/0` | Redis connection string. Required when `APP_ENV=deployed` |
+| `REDIS_URL` | local only: `redis://127.0.0.1:6379/0` | Redis connection URL (**scheme, host, port, db path**). Prefer **no** `user:password@` in the URL; use `REDIS_USERNAME` / `REDIS_PASSWORD` instead. Required when `APP_ENV=deployed` |
+| `REDIS_USERNAME` | None | Optional ACL username (ElastiCache). Empty / whitespace → treated as unset |
+| `REDIS_PASSWORD` | None | Optional password. Prefer ECS **Secrets** → env; do not embed in `REDIS_URL` |
+| `REDIS_SSL_CHECK_HOSTNAME` | `false` | Passed to redis-py as `ssl_check_hostname` for `rediss://`. Use `false` when connecting via an alias (e.g. NLB) whose hostname does not match the TLS certificate SAN; use `true` when connecting to an endpoint whose certificate matches the hostname |
 | `REDIS_MAX_CONNECTIONS` | 100 | Connection-pool size. Must be `> 0` |
 | `REDIS_ACTIVE_TTL_SEC` | 3600 | TTL for active conversations in seconds. Must be `> 0` |
 | `REDIS_FINAL_TTL_SEC` | 60 | Residual TTL after `SESSION_COMPLETE`. Must be `> 0` and `<= REDIS_ACTIVE_TTL_SEC` |
 | `REDIS_OWNERSHIP_GUARD_TTL_SEC` | 30 | TTL for the per-`conversationId` ownership key. Must be `> 0` |
-| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | `realtime-transcribe-service:expect-transcript-seq-num` | Key prefix for the Redis sequence state machine. Must not be empty |
-| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | `realtime-transcribe-service:conversation-owner` | Key prefix for the Redis ownership guard. Must not be empty |
+| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | `ods-dev:realtime-transcribe-service:expect-transcript-seq-num` | Key prefix for the Redis sequence state machine. Must align with cluster ACL key patterns (e.g. `~ods-dev:*`). Must not be empty |
+| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | `ods-dev:realtime-transcribe-service:conversation-owner` | Key prefix for the Redis ownership guard. Must not be empty |
 
 ### Kafka
 

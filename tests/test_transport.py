@@ -228,7 +228,7 @@ class TestHealthEndpoints:
         prod = MagicMock()
         prod.ensure_ready = AsyncMock()
         with patch(
-            "redis.asyncio.Redis.from_url",
+            "realtime_transcribe_service.redis.async_client.create_async_redis_client",
             return_value=fake_r,
         ):
             app = create_app(
@@ -243,6 +243,7 @@ class TestHealthEndpoints:
             ) as client:
                 resp = await client.get("/ready")
             assert resp.status_code == 200
+            fake_r.aclose.assert_awaited_once()
 
     async def test_ready_503_when_redis_fails(self, mock_orchestrator, shutdown, registry):
         from unittest.mock import patch
@@ -251,7 +252,7 @@ class TestHealthEndpoints:
         fake_r.ping = AsyncMock(side_effect=RuntimeError("no redis"))
         fake_r.aclose = AsyncMock()
         with patch(
-            "redis.asyncio.Redis.from_url",
+            "realtime_transcribe_service.redis.async_client.create_async_redis_client",
             return_value=fake_r,
         ):
             app = create_app(
@@ -267,6 +268,34 @@ class TestHealthEndpoints:
                 resp = await client.get("/ready")
             assert resp.status_code == 503
             assert "not_ready" in resp.json().get("status", "")
+            fake_r.aclose.assert_awaited_once()
+
+    async def test_ready_logs_warning_when_redis_close_fails(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        from unittest.mock import patch
+
+        fake_r = MagicMock()
+        fake_r.ping = AsyncMock(side_effect=RuntimeError("no redis"))
+        fake_r.aclose = AsyncMock(side_effect=RuntimeError("close boom"))
+        with patch(
+            "realtime_transcribe_service.redis.async_client.create_async_redis_client",
+            return_value=fake_r,
+        ):
+            app = create_app(
+                mock_orchestrator,
+                shutdown,
+                registry,
+                redis_url="redis://127.0.0.1:6379/0",
+                producer=None,
+            )
+            with patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as client:
+                    resp = await client.get("/ready")
+            assert resp.status_code == 503
+            warn_mock.assert_any_call("Ready: Redis client close failed", error=ANY)
 
     async def test_ready_503_when_kafka_fails(self, mock_orchestrator, shutdown, registry):
         prod = MagicMock()
@@ -476,7 +505,7 @@ class TestWebSocket:
             client=fake_redis,
             active_ttl_sec=120,
             final_ttl_sec=5,
-            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
         )
         producer = AsyncMock()
         producer.send = AsyncMock()
@@ -505,7 +534,7 @@ class TestWebSocket:
                 resp = orjson.loads(ws.receive_text())
                 assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
 
-            key = "realtime-transcribe-service:expect-transcript-seq-num:conv-reconnect"
+            key = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num:conv-reconnect"
             ttl = _await_in_runner(fake_redis.ttl(key))
             assert 5 < ttl <= 120
             assert _await_in_runner(fake_redis.get(key)) == "1"
@@ -534,7 +563,7 @@ class TestWebSocket:
         owner = RedisConversationOwnershipGuard(
             client=fake_redis,
             guard_ttl_sec=30,
-            key_prefix="realtime-transcribe-service:conversation-owner",
+            key_prefix="ods-dev:realtime-transcribe-service:conversation-owner",
         )
         app = create_app(
             mock_orchestrator,
@@ -573,7 +602,7 @@ class TestWebSocket:
         owner = RedisConversationOwnershipGuard(
             client=fake_redis,
             guard_ttl_sec=30,
-            key_prefix="realtime-transcribe-service:conversation-owner",
+            key_prefix="ods-dev:realtime-transcribe-service:conversation-owner",
         )
         app = create_app(
             mock_orchestrator,
@@ -589,14 +618,14 @@ class TestWebSocket:
             ):
                 assert (
                     _await_in_runner(
-                        fake_redis.get("realtime-transcribe-service:conversation-owner:conv-1")
+                        fake_redis.get("ods-dev:realtime-transcribe-service:conversation-owner:conv-1")
                     )
                     is not None
                 )
 
             assert (
                 _await_in_runner(
-                    fake_redis.get("realtime-transcribe-service:conversation-owner:conv-1")
+                    fake_redis.get("ods-dev:realtime-transcribe-service:conversation-owner:conv-1")
                 )
                 is None
             )

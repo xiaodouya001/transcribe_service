@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
+from typing import cast
+
 import structlog
 from redis.asyncio import Redis
 from redis.exceptions import NoScriptError
 
+from realtime_transcribe_service.redis.async_client import create_async_redis_client
 from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
 
 log = structlog.get_logger(__name__)
+RedisEvalArg = str | int | float | bytes | bytearray | memoryview[int]
 
 LUA_PREPARE = """
 local key = KEYS[1]
@@ -63,6 +68,9 @@ class RedisSequenceStateMachine:
         redis_url: str | None = None,
         *,
         max_connections: int = 100,
+        redis_username: str | None = None,
+        redis_password: str | None = None,
+        ssl_check_hostname: bool = False,
         active_ttl_sec: int,
         final_ttl_sec: int,
         key_prefix: str,
@@ -71,6 +79,9 @@ class RedisSequenceStateMachine:
         if client is None and redis_url is None:
             raise ValueError("redis_url is required when client is not provided")
         self._redis_url = redis_url
+        self._redis_username = redis_username
+        self._redis_password = redis_password
+        self._ssl_check_hostname = ssl_check_hostname
         self._max_connections = max_connections
         self._active_ttl = active_ttl_sec
         self._final_ttl = final_ttl_sec
@@ -83,21 +94,35 @@ class RedisSequenceStateMachine:
 
     async def _get_client(self) -> Redis:
         if self._client is None:
-            self._client = Redis.from_url(
+            assert self._redis_url is not None
+            self._client = create_async_redis_client(
                 self._redis_url,
+                username=self._redis_username,
+                password=self._redis_password,
+                ssl_check_hostname=self._ssl_check_hostname,
                 decode_responses=True,
                 max_connections=self._max_connections,
             )
         return self._client
 
+    @staticmethod
+    async def _script_load(client: Redis, script: str) -> str:
+        return await cast(Awaitable[str], client.script_load(script))
+
+    @staticmethod
+    async def _evalsha(
+        client: Redis, sha: str, numkeys: int, *keys_and_args: RedisEvalArg
+    ) -> object:
+        return await cast(Awaitable[object], client.evalsha(sha, numkeys, *keys_and_args))
+
     async def _ensure_scripts_loaded(self) -> None:
         client = await self._get_client()
         if self._sha_prepare is None:
-            self._sha_prepare = await client.script_load(LUA_PREPARE)
+            self._sha_prepare = await self._script_load(client, LUA_PREPARE)
         if self._sha_commit is None:
-            self._sha_commit = await client.script_load(LUA_COMMIT)
+            self._sha_commit = await self._script_load(client, LUA_COMMIT)
         if self._sha_cleanup is None:
-            self._sha_cleanup = await client.script_load(LUA_CLEANUP)
+            self._sha_cleanup = await self._script_load(client, LUA_CLEANUP)
 
     def _key(self, conversation_id: str) -> str:
         return f"{self._key_prefix}:{conversation_id}"
@@ -108,24 +133,39 @@ class RedisSequenceStateMachine:
             raise ValueError(f"Unexpected prepare result shape: {result!r}")
 
         status_raw, expected_raw = result
-        expected_sequence = None if expected_raw is None else int(expected_raw)
+        if expected_raw is None:
+            expected_sequence = None
+        elif isinstance(expected_raw, int):
+            expected_sequence = expected_raw
+        elif isinstance(expected_raw, str):
+            expected_sequence = int(expected_raw)
+        else:
+            raise ValueError(f"Unexpected expected_sequence type: {type(expected_raw).__name__}")
+
+        if isinstance(status_raw, bytes):
+            status_value = status_raw.decode("utf-8")
+        else:
+            status_value = str(status_raw)
         return PrepareOutcome(
-            status=PrepareResult(str(status_raw)),
+            status=PrepareResult(status_value),
             expected_sequence=expected_sequence,
         )
 
     async def prepare(self, conversation_id: str, seq: int) -> PrepareOutcome:
         client = await self._get_client()
         await self._ensure_scripts_loaded()
+        assert self._sha_prepare is not None
         try:
-            raw_result: list[object] | tuple[object, ...] = await client.evalsha(
-                self._sha_prepare, 1, self._key(conversation_id), seq, self._active_ttl
+            raw_result = await self._evalsha(
+                client, self._sha_prepare, 1, self._key(conversation_id), seq, self._active_ttl
             )
         except NoScriptError:
-            self._sha_prepare = await client.script_load(LUA_PREPARE)
-            raw_result = await client.evalsha(
-                self._sha_prepare, 1, self._key(conversation_id), seq, self._active_ttl
+            self._sha_prepare = await self._script_load(client, LUA_PREPARE)
+            raw_result = await self._evalsha(
+                client, self._sha_prepare, 1, self._key(conversation_id), seq, self._active_ttl
             )
+        if not isinstance(raw_result, (list, tuple)):
+            raise ValueError(f"Unexpected prepare result type: {type(raw_result).__name__}")
         outcome = self._parse_prepare_result(raw_result)
         log.debug(
             "StateMachine.prepare",
@@ -139,14 +179,15 @@ class RedisSequenceStateMachine:
     async def commit(self, conversation_id: str, seq: int) -> None:
         client = await self._get_client()
         await self._ensure_scripts_loaded()
+        assert self._sha_commit is not None
         try:
-            await client.evalsha(
-                self._sha_commit, 1, self._key(conversation_id), seq, self._active_ttl
+            await self._evalsha(
+                client, self._sha_commit, 1, self._key(conversation_id), seq, self._active_ttl
             )
         except NoScriptError:
-            self._sha_commit = await client.script_load(LUA_COMMIT)
-            await client.evalsha(
-                self._sha_commit, 1, self._key(conversation_id), seq, self._active_ttl
+            self._sha_commit = await self._script_load(client, LUA_COMMIT)
+            await self._evalsha(
+                client, self._sha_commit, 1, self._key(conversation_id), seq, self._active_ttl
             )
         log.debug(
             "StateMachine.commit",
@@ -158,14 +199,15 @@ class RedisSequenceStateMachine:
     async def cleanup(self, conversation_id: str) -> None:
         client = await self._get_client()
         await self._ensure_scripts_loaded()
+        assert self._sha_cleanup is not None
         try:
-            await client.evalsha(
-                self._sha_cleanup, 1, self._key(conversation_id), self._final_ttl
+            await self._evalsha(
+                client, self._sha_cleanup, 1, self._key(conversation_id), self._final_ttl
             )
         except NoScriptError:
-            self._sha_cleanup = await client.script_load(LUA_CLEANUP)
-            await client.evalsha(
-                self._sha_cleanup, 1, self._key(conversation_id), self._final_ttl
+            self._sha_cleanup = await self._script_load(client, LUA_CLEANUP)
+            await self._evalsha(
+                client, self._sha_cleanup, 1, self._key(conversation_id), self._final_ttl
             )
         log.info(
             "StateMachine.cleanup",

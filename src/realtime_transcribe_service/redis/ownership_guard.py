@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
+from typing import cast
+
 import structlog
 from redis.asyncio import Redis
 from redis.exceptions import NoScriptError
 
+from realtime_transcribe_service.redis.async_client import create_async_redis_client
+
 log = structlog.get_logger(__name__)
+RedisEvalArg = str | int | float | bytes | bytearray | memoryview[int]
 
 LUA_CLAIM_OR_REFRESH = """
 local key = KEYS[1]
@@ -44,6 +50,9 @@ class RedisConversationOwnershipGuard:
         redis_url: str | None = None,
         *,
         max_connections: int = 100,
+        redis_username: str | None = None,
+        redis_password: str | None = None,
+        ssl_check_hostname: bool = False,
         guard_ttl_sec: int,
         key_prefix: str,
         client: Redis | None = None,
@@ -51,6 +60,9 @@ class RedisConversationOwnershipGuard:
         if client is None and redis_url is None:
             raise ValueError("redis_url is required when client is not provided")
         self._redis_url = redis_url
+        self._redis_username = redis_username
+        self._redis_password = redis_password
+        self._ssl_check_hostname = ssl_check_hostname
         self._max_connections = max_connections
         self._guard_ttl_sec = guard_ttl_sec
         self._key_prefix = key_prefix
@@ -61,19 +73,33 @@ class RedisConversationOwnershipGuard:
 
     async def _get_client(self) -> Redis:
         if self._client is None:
-            self._client = Redis.from_url(
+            assert self._redis_url is not None
+            self._client = create_async_redis_client(
                 self._redis_url,
+                username=self._redis_username,
+                password=self._redis_password,
+                ssl_check_hostname=self._ssl_check_hostname,
                 decode_responses=True,
                 max_connections=self._max_connections,
             )
         return self._client
 
+    @staticmethod
+    async def _script_load(client: Redis, script: str) -> str:
+        return await cast(Awaitable[str], client.script_load(script))
+
+    @staticmethod
+    async def _evalsha(
+        client: Redis, sha: str, numkeys: int, *keys_and_args: RedisEvalArg
+    ) -> object:
+        return await cast(Awaitable[object], client.evalsha(sha, numkeys, *keys_and_args))
+
     async def _ensure_scripts_loaded(self) -> None:
         client = await self._get_client()
         if self._sha_claim is None:
-            self._sha_claim = await client.script_load(LUA_CLAIM_OR_REFRESH)
+            self._sha_claim = await self._script_load(client, LUA_CLAIM_OR_REFRESH)
         if self._sha_release is None:
-            self._sha_release = await client.script_load(LUA_RELEASE_IF_OWNER)
+            self._sha_release = await self._script_load(client, LUA_RELEASE_IF_OWNER)
 
     def _key(self, conversation_id: str) -> str:
         return f"{self._key_prefix}:{conversation_id}"
@@ -81,14 +107,29 @@ class RedisConversationOwnershipGuard:
     async def claim_or_refresh(self, conversation_id: str, ownership_token: str) -> bool:
         client = await self._get_client()
         await self._ensure_scripts_loaded()
+        assert self._sha_claim is not None
         try:
-            result: str = await client.evalsha(
-                self._sha_claim, 1, self._key(conversation_id), ownership_token, self._guard_ttl_sec
+            result = str(
+                await self._evalsha(
+                    client,
+                    self._sha_claim,
+                    1,
+                    self._key(conversation_id),
+                    ownership_token,
+                    self._guard_ttl_sec,
+                )
             )
         except NoScriptError:
-            self._sha_claim = await client.script_load(LUA_CLAIM_OR_REFRESH)
-            result = await client.evalsha(
-                self._sha_claim, 1, self._key(conversation_id), ownership_token, self._guard_ttl_sec
+            self._sha_claim = await self._script_load(client, LUA_CLAIM_OR_REFRESH)
+            result = str(
+                await self._evalsha(
+                    client,
+                    self._sha_claim,
+                    1,
+                    self._key(conversation_id),
+                    ownership_token,
+                    self._guard_ttl_sec,
+                )
             )
         owned = result == "OWNED"
         log.debug(
@@ -102,14 +143,15 @@ class RedisConversationOwnershipGuard:
     async def release(self, conversation_id: str, ownership_token: str) -> None:
         client = await self._get_client()
         await self._ensure_scripts_loaded()
+        assert self._sha_release is not None
         try:
-            released = await client.evalsha(
-                self._sha_release, 1, self._key(conversation_id), ownership_token
+            released = await self._evalsha(
+                client, self._sha_release, 1, self._key(conversation_id), ownership_token
             )
         except NoScriptError:
-            self._sha_release = await client.script_load(LUA_RELEASE_IF_OWNER)
-            released = await client.evalsha(
-                self._sha_release, 1, self._key(conversation_id), ownership_token
+            self._sha_release = await self._script_load(client, LUA_RELEASE_IF_OWNER)
+            released = await self._evalsha(
+                client, self._sha_release, 1, self._key(conversation_id), ownership_token
             )
         log.debug(
             "ConversationOwnershipGuard.release",

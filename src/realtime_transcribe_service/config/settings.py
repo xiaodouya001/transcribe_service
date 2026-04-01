@@ -13,7 +13,26 @@ from realtime_transcribe_service.constants import (
     APP_ENV_DEPLOYED,
     APP_ENV_VAR,
     COMPRESSION_TYPE,
+    DEFAULT_HTTP_BACKLOG,
+    DEFAULT_HTTP_HOST,
+    DEFAULT_HTTP_PORT,
+    DEFAULT_KAFKA_BATCH_SIZE,
+    DEFAULT_KAFKA_LINGER_MS,
+    DEFAULT_KAFKA_SEND_TIMEOUT_SEC,
+    DEFAULT_KAFKA_STARTUP_TIMEOUT_SEC,
     DEFAULT_KAFKA_TOPIC,
+    DEFAULT_LOG_SLOW_MESSAGE_THRESHOLD_MS,
+    DEFAULT_REDIS_ACTIVE_TTL_SEC,
+    DEFAULT_REDIS_FINAL_TTL_SEC,
+    DEFAULT_REDIS_MAX_CONNECTIONS,
+    DEFAULT_REDIS_OWNERSHIP_GUARD_KEY_PREFIX,
+    DEFAULT_REDIS_OWNERSHIP_GUARD_TTL_SEC,
+    DEFAULT_REDIS_SEQUENCE_STATE_KEY_PREFIX,
+    DEFAULT_REDIS_SSL_CHECK_HOSTNAME,
+    DEFAULT_STOP_TIMEOUT,
+    DEFAULT_WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
+    DEFAULT_WS_PING_INTERVAL,
+    DEFAULT_WS_PING_TIMEOUT,
     LOG_LEVEL,
     LOG_FORMAT,
     KAFKA_MODE,
@@ -41,16 +60,21 @@ class Settings(BaseSettings):
 
     # --- Redis ---
     redis_url: str | None = None
-    redis_max_connections: int = Field(default=100, gt=0)
-    redis_active_ttl_sec: int = Field(default=3600, gt=0)
-    redis_final_ttl_sec: int = Field(default=60, gt=0)
-    redis_ownership_guard_ttl_sec: int = Field(default=30, gt=0)
+    redis_username: str | None = None
+    redis_password: str | None = None
+    redis_ssl_check_hostname: bool = DEFAULT_REDIS_SSL_CHECK_HOSTNAME
+    redis_max_connections: int = Field(default=DEFAULT_REDIS_MAX_CONNECTIONS, gt=0)
+    redis_active_ttl_sec: int = Field(default=DEFAULT_REDIS_ACTIVE_TTL_SEC, gt=0)
+    redis_final_ttl_sec: int = Field(default=DEFAULT_REDIS_FINAL_TTL_SEC, gt=0)
+    redis_ownership_guard_ttl_sec: int = Field(
+        default=DEFAULT_REDIS_OWNERSHIP_GUARD_TTL_SEC, gt=0
+    )
     redis_sequence_state_key_prefix: str = Field(
-        default="realtime-transcribe-service:expect-transcript-seq-num",
+        default=DEFAULT_REDIS_SEQUENCE_STATE_KEY_PREFIX,
         min_length=1,
     )
     redis_ownership_guard_key_prefix: str = Field(
-        default="realtime-transcribe-service:conversation-owner",
+        default=DEFAULT_REDIS_OWNERSHIP_GUARD_KEY_PREFIX,
         min_length=1,
     )
 
@@ -62,17 +86,19 @@ class Settings(BaseSettings):
     kafka_ssl_ca_file: str | None = None
     kafka_aws_region: str | None = None
     kafka_aws_debug_creds: bool = False
-    kafka_send_timeout_sec: float = Field(default=2.0, gt=0)
-    kafka_linger_ms: int = Field(default=1, ge=0)
-    kafka_batch_size: int = Field(default=32768, gt=0)
+    kafka_send_timeout_sec: float = Field(default=DEFAULT_KAFKA_SEND_TIMEOUT_SEC, gt=0)
+    kafka_linger_ms: int = Field(default=DEFAULT_KAFKA_LINGER_MS, ge=0)
+    kafka_batch_size: int = Field(default=DEFAULT_KAFKA_BATCH_SIZE, gt=0)
 
     # --- WebSocket ---
     # Passed to Uvicorn `ws="websockets"`: the server sends RFC Ping frames on an interval
     # and relies on peer Pong frames in response (see main.py).
-    ws_ping_interval: float = Field(default=20.0, gt=0)
-    ws_ping_timeout: float = Field(default=10.0, gt=0)
+    ws_ping_interval: float = Field(default=DEFAULT_WS_PING_INTERVAL, gt=0)
+    ws_ping_timeout: float = Field(default=DEFAULT_WS_PING_TIMEOUT, gt=0)
     # Background ownership-guard refresh interval in seconds, used only while the connection is alive.
-    ws_ownership_guard_refresh_interval_sec: float = Field(default=5.0, gt=0)
+    ws_ownership_guard_refresh_interval_sec: float = Field(
+        default=DEFAULT_WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC, gt=0
+    )
 
     # --- Handshake authentication ---
     auth_enabled: bool = False
@@ -80,11 +106,11 @@ class Settings(BaseSettings):
     auth_jwt_algorithm: Literal["HS256"] = "HS256"
 
     # --- HTTP / Uvicorn ---
-    http_host: str = Field(default="0.0.0.0", min_length=1)
-    http_port: int = Field(default=8080, ge=1, le=65535)
+    http_host: str = Field(default=DEFAULT_HTTP_HOST, min_length=1)
+    http_port: int = Field(default=DEFAULT_HTTP_PORT, ge=1, le=65535)
     # listen() backlog. If set too low, bursty connection spikes can cause peers to get reset
     # before they read the 101 Switching Protocols response.
-    http_backlog: int = Field(default=4096, gt=0)
+    http_backlog: int = Field(default=DEFAULT_HTTP_BACKLOG, gt=0)
     # Only an explicit true exposes /docs, /redoc, and /openapi.json.
     http_enable_docs: bool = False
     # Maximum concurrent WebSocket connections. New handshakes beyond the limit are rejected.
@@ -92,10 +118,10 @@ class Settings(BaseSettings):
     ws_max_connections: int = Field(default=0, ge=0)
 
     # --- Startup ---
-    kafka_startup_timeout_sec: float = Field(default=30.0, gt=0)
+    kafka_startup_timeout_sec: float = Field(default=DEFAULT_KAFKA_STARTUP_TIMEOUT_SEC, gt=0)
 
     # --- Graceful shutdown ---
-    stop_timeout: float = Field(default=120.0, gt=0)
+    stop_timeout: float = Field(default=DEFAULT_STOP_TIMEOUT, gt=0)
 
     # --- Logging ---
     log_level: LOG_LEVEL = "INFO"
@@ -104,7 +130,28 @@ class Settings(BaseSettings):
     # avoid oversized load-test logs.
     log_ws_error_frames: bool = False
     # Threshold in milliseconds for slow-message stage timing warnings. 0 disables it.
-    log_slow_message_threshold_ms: float = Field(default=0.0, ge=0)
+    log_slow_message_threshold_ms: float = Field(
+        default=DEFAULT_LOG_SLOW_MESSAGE_THRESHOLD_MS, ge=0
+    )
+
+    @field_validator("redis_username", mode="before")
+    @classmethod
+    def _optional_redis_username(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped if stripped else None
+        return value
+
+    @field_validator("redis_password", mode="before")
+    @classmethod
+    def _optional_redis_password(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator("app_env", mode="before")
     @classmethod

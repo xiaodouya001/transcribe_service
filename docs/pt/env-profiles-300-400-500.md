@@ -18,15 +18,15 @@
 | `WS_MAX_CONNECTIONS`         | 360            | 480           | 600            |
 | `REDIS_MAX_CONNECTIONS`      | 900            | 1200          | 1600           |
 | `REDIS_OWNERSHIP_GUARD_TTL_SEC` | 30       | 30            | 30             |
-| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | realtime-transcribe-service:expect-transcript-seq-num | realtime-transcribe-service:expect-transcript-seq-num | realtime-transcribe-service:expect-transcript-seq-num |
-| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | realtime-transcribe-service:conversation-owner | realtime-transcribe-service:conversation-owner | realtime-transcribe-service:conversation-owner |
+| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | ods-dev:realtime-transcribe-service:expect-transcript-seq-num | ods-dev:realtime-transcribe-service:expect-transcript-seq-num | ods-dev:realtime-transcribe-service:expect-transcript-seq-num |
+| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | ods-dev:realtime-transcribe-service:conversation-owner | ods-dev:realtime-transcribe-service:conversation-owner | ods-dev:realtime-transcribe-service:conversation-owner |
 | `HTTP_BACKLOG`               | 4096           | 4096          | 4096           |
 | `HTTP_ENABLE_DOCS`           | false          | false         | false          |
 | `KAFKA_COMPRESSION_TYPE`     | lz4            | lz4           | lz4            |
 | `KAFKA_LINGER_MS`            | 1              | 1             | 1              |
 | `KAFKA_BATCH_SIZE`           | 32768          | 32768         | 32768          |
 | `KAFKA_SEND_TIMEOUT_SEC`     | 5              | 5             | 5              |
-| `LOG_LEVEL`                  | WARNING        | WARNING       | WARNING        |
+| `LOG_LEVEL`                  | INFO           | INFO          | INFO           |
 | `WS_PING_INTERVAL`           | 20.0           | 20.0          | 20.0           |
 | `WS_PING_TIMEOUT`            | 10.0           | 10.0          | 10.0           |
 | `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 5.0 | 5.0 | 5.0 |
@@ -55,18 +55,18 @@
 WS_MAX_CONNECTIONS=360
 REDIS_MAX_CONNECTIONS=900
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:expect-transcript-seq-num
-REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
+REDIS_SEQUENCE_STATE_KEY_PREFIX=ods-dev:realtime-transcribe-service:expect-transcript-seq-num
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=ods-dev:realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
 HTTP_ENABLE_DOCS=false
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
-LOG_LEVEL=WARNING
+LOG_LEVEL=INFO
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
-AUTH_ENABLED=true
-AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material-from-secure-config
+AUTH_ENABLED=false
+AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material
 AUTH_JWT_ALGORITHM=HS256
 ```
 
@@ -76,18 +76,18 @@ AUTH_JWT_ALGORITHM=HS256
 WS_MAX_CONNECTIONS=480
 REDIS_MAX_CONNECTIONS=1200
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:expect-transcript-seq-num
-REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
+REDIS_SEQUENCE_STATE_KEY_PREFIX=ods-dev:realtime-transcribe-service:expect-transcript-seq-num
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=ods-dev:realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
 HTTP_ENABLE_DOCS=false
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
-LOG_LEVEL=WARNING
+LOG_LEVEL=INFO
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
-AUTH_ENABLED=true
-AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material-from-secure-config
+AUTH_ENABLED=false
+AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material
 AUTH_JWT_ALGORITHM=HS256
 ```
 
@@ -97,17 +97,17 @@ AUTH_JWT_ALGORITHM=HS256
 WS_MAX_CONNECTIONS=600
 REDIS_MAX_CONNECTIONS=1600
 REDIS_OWNERSHIP_GUARD_TTL_SEC=30
-REDIS_SEQUENCE_STATE_KEY_PREFIX=realtime-transcribe-service:expect-transcript-seq-num
-REDIS_OWNERSHIP_GUARD_KEY_PREFIX=realtime-transcribe-service:conversation-owner
+REDIS_SEQUENCE_STATE_KEY_PREFIX=ods-dev:realtime-transcribe-service:expect-transcript-seq-num
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=ods-dev:realtime-transcribe-service:conversation-owner
 HTTP_BACKLOG=4096
 HTTP_ENABLE_DOCS=false
 KAFKA_COMPRESSION_TYPE=lz4
 KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
-LOG_LEVEL=WARNING
+LOG_LEVEL=INFO
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=5.0
-AUTH_ENABLED=true
-AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material-from-secure-config
+AUTH_ENABLED=false
+AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material
 AUTH_JWT_ALGORITHM=HS256
 ```

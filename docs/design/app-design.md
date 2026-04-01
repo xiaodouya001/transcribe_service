@@ -345,7 +345,7 @@ The handshake query parameter `conversationId` is the connection-level session i
 | **Liveness during the session** | After the connection is established, a background task keeps refreshing the ownership TTL. If refresh detects a conflict or the backing store becomes unavailable, the service sends `ERROR` and closes the connection |
 | **Release timing** | Ownership is released on successful `SESSION_COMPLETE`, client disconnect, or server-side teardown after an abnormal end |
 | **Business events** | `SESSION_ONGOING` and `SESSION_COMPLETE` (the final EOL control event) |
-| **Protocol keepalive** | Server sends WebSocket Ping every `ping_interval` (default 20s; first Ping after connection uptime reaches that interval); client must Pong within `ping_timeout` (default 20s) per Ping—see API Contract §1.4. Keeps traffic below typical ALB 60-second idle timeout |
+| **Protocol keepalive** | Server sends WebSocket Ping every `ping_interval` (default 20s; first Ping after connection uptime reaches that interval); client must Pong within `ping_timeout` (default 10s) per Ping—see API Contract §1.4. Keeps traffic below typical ALB 60-second idle timeout |
 
 ### 3.4 Redis as the Session Control Plane
 
@@ -411,9 +411,9 @@ The system does not rely on a distributed transaction manager. Instead, it achie
 
 | Phase | Operation |
 | --- | --- |
-| **Prepare** | Lua pre-check verifies that `payload.sequenceNumber` matches `realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` without incrementing it |
+| **Prepare** | Lua pre-check verifies that `payload.sequenceNumber` matches `ods-dev:realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` without incrementing it |
 | **Persistence** | Converter-assembled Kafka value, then Kafka write keyed by `conversationId`, with `acks=all` |
-| **Commit** | After Kafka ACK, increment `realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` |
+| **Commit** | After Kafka ACK, increment `ods-dev:realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` |
 | **ACK** | Return `TRANSCRIPT_ACK` or `EOL_ACK` based on the processed event |
 
 ### 3.6 Container Replacement and Graceful Shutdown
@@ -453,8 +453,8 @@ The full Kafka write contract is documented in [api-contract.md](api-contract.md
 
 | Item | Configuration | Description |
 | --- | --- | --- |
-| Sequence state key | `realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` | Stores the next expected `sequenceNumber` |
-| Ownership guard key | `realtime-transcribe-service:conversation-owner:{conversationId}` | Enforces the single-sender rule |
+| Sequence state key | `ods-dev:realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` | Stores the next expected `sequenceNumber` |
+| Ownership guard key | `ods-dev:realtime-transcribe-service:conversation-owner:{conversationId}` | Enforces the single-sender rule |
 | Value | Sequence state: integer string; ownership guard: ownership token | Used for sequence advancement and sender ownership respectively |
 | Update strategy | Lua pre-check plus commit, and `SET NX`-based lease renewal | Keeps sequence control and single-sender enforcement atomic enough for the use case |
 | TTL | Ownership guard TTL defaults to 30 seconds; active TTL defaults to 3600 seconds; final TTL defaults to 60 seconds | All values are environment-configurable |

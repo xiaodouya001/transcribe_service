@@ -11,8 +11,13 @@ from pydantic import ValidationError
 
 from realtime_transcribe_service.auth.jwt_bearer import JwtBearerAuthBackend
 from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
-from realtime_transcribe_service.config.logging_config import configure_logging, get_logger
-from realtime_transcribe_service.config.settings import get_settings
+from realtime_transcribe_service.config.logging_config import (
+    configure_logging,
+    get_logger,
+    redact_redis_url_for_logs,
+    redact_text_for_logs,
+)
+from realtime_transcribe_service.config.settings import Settings, get_settings
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from realtime_transcribe_service.producer.kafka_connection import kafka_connection_for_mode
 from realtime_transcribe_service.producer.kafka_producer import KafkaProducer
@@ -29,16 +34,35 @@ from realtime_transcribe_service.transport.websocket_handler import (
 log = get_logger(__name__)
 
 
-async def _check_redis(redis_url: str) -> None:
+async def _check_redis(settings: Settings) -> None:
     """Verify Redis connectivity."""
-    from redis.asyncio import Redis
+    from realtime_transcribe_service.redis.async_client import create_async_redis_client
 
-    client = Redis.from_url(redis_url, decode_responses=True)
+    redis_url = settings.redis_url
+    assert redis_url is not None
+    client = create_async_redis_client(
+        redis_url,
+        username=settings.redis_username,
+        password=settings.redis_password,
+        ssl_check_hostname=settings.redis_ssl_check_hostname,
+        decode_responses=True,
+        max_connections=settings.redis_max_connections,
+    )
+    redacted_url = redact_redis_url_for_logs(redis_url)
     try:
         await cast(Awaitable[Any], client.ping())
     except Exception as e:
-        log.error("Startup failed: Redis unavailable", redis_url=redis_url, error=str(e))
-        raise RuntimeError(f"Redis unavailable: {redis_url} - {e}") from e
+        err_safe = redact_text_for_logs(
+            str(e), extra_secret=settings.redis_password
+        )
+        log.error(
+            "Startup failed: Redis unavailable",
+            redis_url=redacted_url,
+            error=err_safe,
+        )
+        raise RuntimeError(
+            f"Redis unavailable: {redacted_url} - {err_safe}"
+        ) from e
     finally:
         await client.aclose()
 
@@ -113,6 +137,9 @@ async def run() -> None:
     sequence_state_machine = RedisSequenceStateMachine(
         redis_url=redis_url,
         max_connections=settings.redis_max_connections,
+        redis_username=settings.redis_username,
+        redis_password=settings.redis_password,
+        ssl_check_hostname=settings.redis_ssl_check_hostname,
         active_ttl_sec=settings.redis_active_ttl_sec,
         final_ttl_sec=settings.redis_final_ttl_sec,
         key_prefix=settings.redis_sequence_state_key_prefix,
@@ -120,6 +147,9 @@ async def run() -> None:
     ownership_guard = RedisConversationOwnershipGuard(
         redis_url=redis_url,
         max_connections=settings.redis_max_connections,
+        redis_username=settings.redis_username,
+        redis_password=settings.redis_password,
+        ssl_check_hostname=settings.redis_ssl_check_hostname,
         guard_ttl_sec=settings.redis_ownership_guard_ttl_sec,
         key_prefix=settings.redis_ownership_guard_key_prefix,
     )
@@ -149,7 +179,7 @@ async def run() -> None:
     # --- Pre-start checks (Redis and Kafka run in parallel to reduce cold-start latency) ---
     t_checks = time.perf_counter()
     await asyncio.gather(
-        _startup_phase_timed("redis", _check_redis(redis_url)),
+        _startup_phase_timed("redis", _check_redis(settings)),
         _startup_phase_timed(
             "kafka",
             _check_kafka(producer, settings.kafka_startup_timeout_sec),
@@ -175,6 +205,10 @@ async def run() -> None:
         auth_backend=auth_backend,
         ownership_guard=ownership_guard,
         redis_url=redis_url,
+        redis_username=settings.redis_username,
+        redis_password=settings.redis_password,
+        redis_ssl_check_hostname=settings.redis_ssl_check_hostname,
+        redis_max_connections=settings.redis_max_connections,
         producer=producer,
         max_connections=settings.ws_max_connections,
         ownership_guard_refresh_interval_sec=settings.ws_ownership_guard_refresh_interval_sec,

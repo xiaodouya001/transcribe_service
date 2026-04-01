@@ -17,10 +17,11 @@ import jwt
 import orjson
 import pytest
 from starlette.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocketDisconnect, WebSocketState
 
 from realtime_transcribe_service.auth.jwt_bearer import JwtBearerAuthBackend
 from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
+from realtime_transcribe_service.orchestrator.protocols import OrchestratorResult
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
 from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
@@ -62,6 +63,44 @@ def _bearer_headers(signing_material: str, *, exp_delta_sec: int = 3600) -> dict
 
 
 class TestTransportContractMatrix:
+    def test_successful_ongoing_returns_transcript_ack_and_keeps_connection_open(
+        self, valid_ongoing_msg
+    ):
+        """N-01: a successful SESSION_ONGOING returns TRANSCRIPT_ACK and keeps the socket usable."""
+        conversation_id = valid_ongoing_msg["metaData"]["conversationId"]
+        first_seq = valid_ongoing_msg["payload"]["sequenceNumber"]
+        next_msg = copy.deepcopy(valid_ongoing_msg)
+        next_msg["payload"]["sequenceNumber"] = first_seq + 1
+        orchestrator = AsyncMock()
+        orchestrator.handle_message = AsyncMock(
+            side_effect=[
+                OrchestratorResult(
+                    response=build_transcript_ack(conversation_id, first_seq),
+                    disconnect=False,
+                ),
+                OrchestratorResult(
+                    response=build_transcript_ack(conversation_id, first_seq + 1),
+                    disconnect=False,
+                ),
+            ]
+        )
+        client = TestClient(_build_app(orchestrator))
+
+        with client.websocket_connect(
+            f"/ws/v1/realtime-transcriptions?conversationId={conversation_id}"
+        ) as ws:
+            ws.send_text(orjson.dumps(valid_ongoing_msg).decode())
+            first_resp = orjson.loads(ws.receive_text())
+            assert first_resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+            assert first_resp["payload"]["sequenceNumber"] == first_seq
+
+            ws.send_text(orjson.dumps(next_msg).decode())
+            second_resp = orjson.loads(ws.receive_text())
+            assert second_resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+            assert second_resp["payload"]["sequenceNumber"] == first_seq + 1
+
+        assert orchestrator.handle_message.await_count == 2
+
     def test_missing_query_conversation_id_returns_e1003_and_http_400(self):
         """E-01: missing query ``conversationId`` before the handshake returns HTTP 400 / E1003."""
         orchestrator = AsyncMock()
@@ -231,7 +270,7 @@ class TestTransportContractMatrix:
         owner = RedisConversationOwnershipGuard(
             client=fakeredis.aioredis.FakeRedis(decode_responses=True),
             guard_ttl_sec=30,
-            key_prefix="realtime-transcribe-service:conversation-owner",
+            key_prefix="ods-dev:realtime-transcribe-service:conversation-owner",
         )
         client = TestClient(
             create_app(
@@ -259,6 +298,21 @@ class TestTransportContractMatrix:
             asyncio.run(owner.close())
 
         orchestrator.handle_message.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_graceful_shutdown_closes_existing_connections_with_1001(self):
+        """N-04: graceful shutdown closes active sockets with WebSocket close code 1001."""
+        registry = ConnectionRegistry()
+        ws = MagicMock()
+        ws.client_state = WebSocketState.CONNECTED
+        ws.close = AsyncMock()
+        registry.add("conv-1", ws)
+
+        await registry.close_all()
+
+        ws.close.assert_awaited_once()
+        assert ws.close.await_args.kwargs["code"] == 1001
+        assert registry.active_count == 0
 
 
 class TestOrchestratorContractMatrix:

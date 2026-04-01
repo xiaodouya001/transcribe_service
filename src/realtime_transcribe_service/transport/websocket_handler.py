@@ -10,7 +10,8 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from typing import TYPE_CHECKING
+from collections.abc import Awaitable
+from typing import TYPE_CHECKING, Any, cast
 
 import orjson
 import structlog
@@ -22,6 +23,7 @@ from starlette.websockets import WebSocketState
 from realtime_transcribe_service.auth.protocols import AuthenticationError
 from realtime_transcribe_service.constants import (
     APP_TITLE,
+    DEFAULT_WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
     MAX_ERROR_DETAILS_LEN,
     WS_CLOSE_REASON_GOING_AWAY,
     WS_PATH,
@@ -33,11 +35,12 @@ from realtime_transcribe_service.schemas.response import build_error
 if TYPE_CHECKING:  # pragma: no cover
     from realtime_transcribe_service.auth.protocols import HandshakeAuthBackend
     from realtime_transcribe_service.orchestrator.protocols import OrchestratorBackend
+    from realtime_transcribe_service.producer.protocols import ProducerBackend
     from realtime_transcribe_service.redis.protocols import ConversationOwnershipGuardBackend
     from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
 
 log = structlog.get_logger(__name__)
-OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC = 5.0
+OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC = DEFAULT_WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC
 SCOPE_OWNERSHIP_TOKEN = "realtime_transcribe_service.ownership_token"
 SCOPE_OWNERSHIP_ACQUIRED = "realtime_transcribe_service.ownership_acquired"
 SCOPE_AUTH_SUBJECT = "realtime_transcribe_service.auth_subject"
@@ -483,7 +486,11 @@ def create_app(
     auth_backend: HandshakeAuthBackend | None = None,
     ownership_guard: ConversationOwnershipGuardBackend | None = None,
     redis_url: str = "",
-    producer: object | None = None,
+    redis_username: str | None = None,
+    redis_password: str | None = None,
+    redis_ssl_check_hostname: bool = False,
+    redis_max_connections: int = 100,
+    producer: ProducerBackend | None = None,
     max_connections: int = 0,
     ownership_guard_refresh_interval_sec: float = OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
     log_ws_error_frames: bool = False,
@@ -525,15 +532,41 @@ def create_app(
     async def ready():
         errors: list[str] = []
         if redis_url:
-            try:
-                from redis.asyncio import Redis
+            from realtime_transcribe_service.config.logging_config import redact_text_for_logs
 
-                client = Redis.from_url(redis_url, decode_responses=True)
-                await client.ping()
-                await client.aclose()
+            client = None
+            try:
+                from realtime_transcribe_service.redis.async_client import (
+                    create_async_redis_client,
+                )
+
+                client = create_async_redis_client(
+                    redis_url,
+                    username=redis_username,
+                    password=redis_password,
+                    ssl_check_hostname=redis_ssl_check_hostname,
+                    decode_responses=True,
+                    max_connections=redis_max_connections,
+                )
+                await cast(Awaitable[Any], client.ping())
             except Exception as e:
-                errors.append(f"redis:{e}")
-        if producer and hasattr(producer, "ensure_ready"):
+                log.warning(
+                    "Ready: Redis check failed",
+                    error=redact_text_for_logs(str(e), extra_secret=redis_password),
+                )
+                errors.append("redis:connection_failed")
+            finally:
+                if client is not None:
+                    try:
+                        await client.aclose()
+                    except Exception as close_exc:
+                        log.warning(
+                            "Ready: Redis client close failed",
+                            error=redact_text_for_logs(
+                                str(close_exc), extra_secret=redis_password
+                            ),
+                        )
+        if producer is not None:
             try:
                 await producer.ensure_ready()
             except Exception as e:

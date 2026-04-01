@@ -14,7 +14,7 @@ def test_constructor_requires_redis_url_when_client_not_provided():
         RedisSequenceStateMachine(
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
         )
 
 
@@ -26,7 +26,7 @@ async def sm():
         client=client,
         active_ttl_sec=3600,
         final_ttl_sec=60,
-        key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
+        key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
     )
     yield machine
     await machine.close()
@@ -99,7 +99,7 @@ class TestCommit:
             client=client,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
         )
         sm._sha_commit = "sha-commit-old"
         sm._ensure_scripts_loaded = AsyncMock()
@@ -118,7 +118,7 @@ class TestCleanup:
         await sm.cleanup("conv-1")
 
         client = await sm._get_client()
-        ttl = await client.ttl("realtime-transcribe-service:expect-transcript-seq-num:conv-1")
+        ttl = await client.ttl("ods-dev:realtime-transcribe-service:expect-transcript-seq-num:conv-1")
         assert 0 < ttl <= 60
 
     async def test_cleanup_reload_script_after_noscript(self):
@@ -130,7 +130,7 @@ class TestCleanup:
             client=client,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
         )
         sm._sha_cleanup = "sha-cleanup-old"
         sm._ensure_scripts_loaded = AsyncMock()

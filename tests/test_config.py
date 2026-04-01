@@ -14,6 +14,10 @@ from realtime_transcribe_service.config.settings import (
     LOCAL_REDIS_URL,
     Settings,
 )
+from realtime_transcribe_service.constants import (
+    DEFAULT_REDIS_OWNERSHIP_GUARD_KEY_PREFIX,
+    DEFAULT_REDIS_SEQUENCE_STATE_KEY_PREFIX,
+)
 
 
 def _settings(**kwargs: Any) -> Settings:
@@ -42,19 +46,34 @@ class TestSettings:
         assert s.http_enable_docs is False
         assert s.kafka_startup_timeout_sec == 30.0
         assert s.redis_ownership_guard_ttl_sec == 30
-        assert (
-            s.redis_sequence_state_key_prefix
-            == "realtime-transcribe-service:expect-transcript-seq-num"
-        )
-        assert (
-            s.redis_ownership_guard_key_prefix
-            == "realtime-transcribe-service:conversation-owner"
-        )
+        assert s.redis_sequence_state_key_prefix == DEFAULT_REDIS_SEQUENCE_STATE_KEY_PREFIX
+        assert s.redis_ownership_guard_key_prefix == DEFAULT_REDIS_OWNERSHIP_GUARD_KEY_PREFIX
         assert s.ws_ownership_guard_refresh_interval_sec == 5.0
         assert s.log_slow_message_threshold_ms == 0.0
         assert s.auth_enabled is False
         assert s.auth_jwt_signing_material is None
         assert s.auth_jwt_algorithm == "HS256"
+        assert s.redis_username is None
+        assert s.redis_password is None
+        assert s.redis_ssl_check_hostname is False
+
+    def test_redis_credentials_optional(self):
+        s = _settings(
+            _env_file=None,
+            app_env="local",
+            redis_username="acl-user",
+            redis_password="secret",
+        )
+        assert s.redis_username == "acl-user"
+        assert s.redis_password == "secret"
+
+    def test_blank_redis_username_normalized_to_none(self):
+        s = _settings(_env_file=None, app_env="local", redis_username="   ")
+        assert s.redis_username is None
+
+    def test_whitespace_only_redis_password_normalized_to_none(self):
+        s = _settings(_env_file=None, app_env="local", redis_password="   ")
+        assert s.redis_password is None
 
     def test_deployed_requires_explicit_dependency_addresses(self):
         with pytest.raises(ValidationError, match="APP_ENV=deployed"):
@@ -121,6 +140,8 @@ class TestSettings:
         assert Settings._normalize_auth_jwt_algorithm(marker) is marker
         assert Settings._normalize_lowercase_enums(marker) is marker
         assert Settings._reject_blank_strings(marker) is marker
+        assert Settings._optional_redis_username(marker) is marker
+        assert Settings._optional_redis_password(marker) is marker
 
     def test_auth_enabled_requires_jwt_signing_material(self):
         with pytest.raises(

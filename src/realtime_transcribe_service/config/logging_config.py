@@ -8,12 +8,14 @@
 import json
 import logging
 import os
+import re
 import sys
 from functools import lru_cache
 from typing import Any, Literal
 from urllib.parse import urlparse, urlunparse
 
 import structlog
+from structlog.typing import EventDict, Processor, WrappedLogger
 
 from realtime_transcribe_service.constants import LOG_FORMAT_ENV, LOG_LEVEL_ENV
 
@@ -37,8 +39,8 @@ def _get_version() -> str:
 
 
 def _add_service_context(
-    logger: logging.Logger, method_name: str, event_dict: dict[str, Any]
-) -> dict[str, Any]:
+    logger: WrappedLogger, method_name: str, event_dict: EventDict
+) -> EventDict:
     """Inject service and version into every log event."""
     event_dict["service"] = SERVICE_NAME
     event_dict["version"] = _get_version()
@@ -46,16 +48,16 @@ def _add_service_context(
 
 
 def _ensure_conversation_id(
-    logger: logging.Logger, method_name: str, event_dict: dict[str, Any]
-) -> dict[str, Any]:
+    logger: WrappedLogger, method_name: str, event_dict: EventDict
+) -> EventDict:
     """Ensure every log event carries a conversation_id for global search."""
     event_dict.setdefault("conversation_id", "-")
     return event_dict
 
 
 def _group_identity(
-    logger: logging.Logger, method_name: str, event_dict: dict[str, Any]
-) -> dict[str, Any]:
+    logger: WrappedLogger, method_name: str, event_dict: EventDict
+) -> EventDict:
     """Group fixed identity fields for cleaner console/JSON logs."""
     service = event_dict.pop("service", None)
     version = event_dict.pop("version", None)
@@ -89,9 +91,29 @@ def _mask_redis_url(url: str) -> str:
         return "redis://***"
 
 
+def redact_redis_url_for_logs(url: str) -> str:
+    """Public alias for masking redis/rediss URLs before logging or exceptions."""
+    return _mask_redis_url(url)
+
+
+_REDIS_URL_IN_TEXT = re.compile(r"rediss?://[^\s\]]+", re.IGNORECASE)
+
+
+def redact_text_for_logs(text: str, *, extra_secret: str | None = None) -> str:
+    """Mask embedded redis URLs and an optional literal secret substring."""
+
+    def _repl(match: re.Match[str]) -> str:
+        return _mask_redis_url(match.group(0))
+
+    out = _REDIS_URL_IN_TEXT.sub(_repl, text)
+    if extra_secret and extra_secret in out:
+        out = out.replace(extra_secret, "***")
+    return out
+
+
 def _mask_sensitive_processor(
-    logger: logging.Logger, method_name: str, event_dict: dict[str, Any]
-) -> dict[str, Any]:
+    logger: WrappedLogger, method_name: str, event_dict: EventDict
+) -> EventDict:
     """Mask sensitive fields in log event dict."""
     for key in list(event_dict.keys()):
         key_lower = key.lower()
@@ -101,10 +123,12 @@ def _mask_sensitive_processor(
             event_dict[key] = "***"
         elif key_lower.endswith("_url") and "redis" in str(event_dict.get(key, "")).lower():
             event_dict[key] = _mask_redis_url(str(event_dict[key]))
+        elif key_lower == "error" and isinstance(event_dict[key], str):
+            event_dict[key] = redact_text_for_logs(event_dict[key])
     return event_dict
 
 
-_SHARED_PROCESSORS: list[structlog.typing.Processor] = [
+_SHARED_PROCESSORS: list[Processor] = [
     _add_service_context,
     _mask_sensitive_processor,
     structlog.contextvars.merge_contextvars,
@@ -118,12 +142,12 @@ _SHARED_PROCESSORS: list[structlog.typing.Processor] = [
     _group_identity,
 ]
 
-_STRUCTLOG_PRE_PROCESSORS: list[structlog.typing.Processor] = [
+_STRUCTLOG_PRE_PROCESSORS: list[Processor] = [
     structlog.stdlib.filter_by_level,
     *_SHARED_PROCESSORS,
 ]
 
-_CONSOLE_PRE_PROCESSORS: list[structlog.typing.Processor] = [
+_CONSOLE_PRE_PROCESSORS: list[Processor] = [
     structlog.stdlib.filter_by_level,
     *_SHARED_PROCESSORS,
 ]
@@ -132,7 +156,7 @@ _CONSOLE_PRE_PROCESSORS: list[structlog.typing.Processor] = [
 def _configure_stdlib_logging(
     log_level: int,
     renderer: structlog.processors.JSONRenderer | structlog.dev.ConsoleRenderer,
-    foreign_pre_chain: list[structlog.typing.Processor],
+    foreign_pre_chain: list[Processor],
 ) -> None:
     """Route stdlib logging (including uvicorn) through the same renderer as structlog."""
     processor_formatter = structlog.stdlib.ProcessorFormatter(

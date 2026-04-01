@@ -6,7 +6,7 @@
 | Attribute             | Value                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------- |
 | **API major version** | **V1** (aligned with the WebSocket path prefix `/ws/v1/`)                           |
-| **Document version**  | **1.3.1** (semantic version of *this* contract document; independent patch counter) |
+| **Document version**  | **1.3.2** (semantic version of *this* contract document; independent patch counter) |
 
 
 ### Revision policy (normative)
@@ -367,7 +367,7 @@ Keepalive uses **RFC 6455** WebSocket **Ping** and **Pong** control frames. They
 | Normal closure                         | 1000       | Normal closure                                     |
 | Server going away                      | 1001       | Going away                                         |
 | Unsupported data type                  | 1003       | Reserved and not used by this service              |
-| Invalid payload format                 | 1007       | JSON parsing, type, or format error                |
+| Invalid payload format                 | 1007       | JSON parsing or decode error                       |
 | Policy violation                       | 1008       | Business rule, authentication, or policy violation |
 | Internal server error                  | 1011       | Server-side processing exception                   |
 | Temporary overload or dependency issue | 1013       | Try again later                                    |
@@ -616,6 +616,7 @@ The **Doc ver.** column states the **Document version** at each revision. The **
 
 | Doc ver. | Date (UTC) | Summary                                                                                                                                                                                                                            |
 | -------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.3.2    | 2026-04-02 | **§4.2** Clarify that WebSocket close code `1007` is used for JSON parsing / decode failures only, aligning the close-code summary with the detailed error mapping and implementation behavior.                                 |
 | 1.3.1    | 2026-03-31 | **§4.3** Clarify that the HTTP Handshake column applies only to pre-upgrade failures; post-handshake errors use WS `ERROR` + close codes without a further HTTP status.                                                           |
 | 1.3.0    | 2026-03-30 | Enable optional handshake authentication for V1 deployments using `Authorization: Bearer <JWT>` with `E1010` for missing, malformed, invalid, or expired credentials, and implement the minimum HS256-based validation flow. |
 | 1.2.1    | 2026-03-30 | Tighten the request payload contract so `payload.dialect` is a required field for both `SESSION_ONGOING` and `SESSION_COMPLETE`. |
