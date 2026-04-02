@@ -201,6 +201,27 @@ class TestHttpUrlPrefixMount:
             assert openapi.status_code == 200
             assert "/health" in openapi.json()["paths"]
 
+    async def test_missing_query_conversation_id_under_prefix_is_rejected(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        app = create_app(
+            mock_orchestrator,
+            shutdown,
+            registry,
+            url_path_prefix="/transcribe-svc",
+        )
+        client_sync = TestClient(app)
+
+        with pytest.raises(Exception) as ei:
+            with client_sync.websocket_connect("/transcribe-svc/ws/v1/realtime-transcriptions"):
+                pass
+
+        assert getattr(ei.value, "status_code", None) == 400
+        body = getattr(ei.value, "text", "")
+        assert "E1003" in body
+        assert "Query parameter 'conversationId' is required" in body
+        mock_orchestrator.handle_message.assert_not_awaited()
+
 
 class TestHealthEndpoints:
     """HTTP health-check endpoint."""

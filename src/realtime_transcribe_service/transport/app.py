@@ -129,6 +129,21 @@ class _WsGuardMiddleware:
         self._ownership_guard = ownership_guard
 
     @staticmethod
+    def _normalize_ws_path(scope: Scope) -> str:
+        """Return the inner-app websocket path, stripping any mount root prefix."""
+        path = scope.get("path", "")
+        root_path = scope.get("root_path", "")
+        if (
+            isinstance(path, str)
+            and isinstance(root_path, str)
+            and root_path
+            and path.startswith(root_path)
+        ):
+            trimmed = path[len(root_path) :]
+            return trimmed or "/"
+        return path
+
+    @staticmethod
     def _extract_conversation_id(scope: Scope) -> str:
         """Extract ``conversationId`` from the query string, or return an empty string."""
         from urllib.parse import parse_qs
@@ -181,7 +196,7 @@ class _WsGuardMiddleware:
             await self._app(scope, receive, send)
             return
 
-        path = scope.get("path", "")
+        path = self._normalize_ws_path(scope)
         if path != WS_PATH:
             await self._app(scope, receive, send)
             return
