@@ -1,8 +1,12 @@
-"""coverage: schemas.errors close_code_for_error branches"""
+"""coverage: schemas.error_codes close_code_for_error branches"""
 
 import pytest
 
-from realtime_transcribe_service.schemas.errors import ErrorCode, WsCloseCode, close_code_for_error
+from realtime_transcribe_service.schemas.error_codes import (
+    ErrorCode,
+    WsCloseCode,
+    close_code_for_error,
+)
 
 
 @pytest.mark.parametrize(

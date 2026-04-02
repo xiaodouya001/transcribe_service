@@ -6,7 +6,7 @@
 | Attribute             | Value                                                                               |
 | --------------------- | ----------------------------------------------------------------------------------- |
 | **API major version** | **V1** (aligned with the WebSocket path prefix `/ws/v1/`)                           |
-| **Document version**  | **1.3.2** (semantic version of *this* contract document; independent patch counter) |
+| **Document version**  | **1.4.1** (semantic version of *this* contract document; independent patch counter) |
 
 
 ### Revision policy (normative)
@@ -375,25 +375,63 @@ Keepalive uses **RFC 6455** WebSocket **Ping** and **Pong** control frames. They
 
 > For `1000` and `1001`, the service may close the connection without sending an `ERROR` frame.
 
-### 4.3 Application Error Mapping
+### 4.3 Application error mapping
 
+The tables below are aligned with the scenario matrix in [protocol-scenario-matrix.md](protocol-scenario-matrix.md) (**E-01** … **E-17**). That document adds worked JSON examples and test references. If anything conflicts, **this section is normative**.
 
-| Error Code | `eventType` | HTTP Handshake                                                                        | WS Close                                  | Disconnect | Client Should Retry / Reconnect | Typical Scenario                                                                                                                            |
-| ---------- | ----------- | ------------------------------------------------------------------------------------- | ----------------------------------------- | ---------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| E1001      | ERROR       | 400                                                                                   | 1007                                      | Yes        | Yes                             | JSON parsing fails or the client sends a payload that cannot be decoded                                                                     |
-| E1002      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | Enum value is outside the allowed set, such as an invalid `eventType`                                                                       |
-| E1003      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | A required contract field is missing, such as `conversationId` or `speakTimeStamp`                                                           |
-| E1004      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | A field type or shape does not match the contract, for example a string where an integer is required or an unexpected extra field is sent |
-| E1005      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | A timestamp is missing UTC format or is not valid ISO-8601 UTC                                                                              |
-| E1006      | ERROR       | 400                                                                                   | 1008                                      | Yes        | Yes                             | The sequence is not the expected next value; duplicate messages are handled idempotently and return ACK instead                             |
-| E1007      | ERROR       | 500                                                                                   | 1011                                      | Yes        | Yes                             | Unexpected server-side exception that is not caused by client input                                                                         |
-| E1008      | ERROR       | 503 / 429                                                                             | 1013                                      | Yes        | Yes                             | A downstream dependency such as Kafka or Redis is unavailable, or the service is throttling requests                                        |
-| E1009      | ERROR       | 403 for initial concurrent sender conflict, otherwise not applicable during handshake | 1008 for post-handshake policy violations | Yes        | Yes                             | Disallowed business action or policy conflict, such as a concurrent sender at handshake time or a `conversationId` mismatch after handshake |
-| E1010      | ERROR       | 401                                                                                   | 1008                                      | Yes        | Yes                             | Handshake authentication failed because the Bearer credentials were missing, malformed, invalid, or expired                                  |
-| E1011      | ERROR       | 504                                                                                   | 1013                                      | Yes        | Yes                             | Timeout when waiting for an upstream or downstream dependency such as Kafka                                                                 |
+#### 4.3.1 Delivery channels (normative)
 
+| Channel | When it applies | What the client receives |
+| ------- | ---------------- | ------------------------- |
+| **Pre-handshake HTTP + JSON** | The WebSocket upgrade has **not** completed | An HTTP status (for example **400**, **401**, **403**, **429**, **503**) and a JSON body using the same `metaData` + `error` shape as §3. **No** WebSocket text frame and **no** WebSocket close code apply to that failed upgrade. |
+| **Post-handshake WebSocket `ERROR` + close** | The upgrade has **already** succeeded | A WebSocket text frame with `metaData.eventType=ERROR`, then a WebSocket **close** with the mapped code. **No** new HTTP status is produced for that failure. |
 
-> **Normative clarification (§4.3).** The **HTTP Handshake** column applies **only** when the failure is reported **before** the WebSocket upgrade completes (the HTTP response that rejects the handshake). After the upgrade succeeds, the same application error codes are reported as WebSocket `ERROR` text frames followed by closure using the **WS Close** code in this table; the client does **not** receive a new HTTP status for those post-handshake failures. Values such as **400**, **500**, or **504** in the HTTP column describe the **handshake-time** analogue where applicable (for example missing query parameters or auth at upgrade time), not an HTTP response after messages are already flowing.
+For each row in **§4.3.2**, a cell shows **—** when the channel does not apply (for example **HTTP status —** after handshake, or **WS close —** on handshake rejection).
+
+#### 4.3.2 Scenario matrix (normative)
+
+All rows use `eventType=ERROR` in the JSON error payload. **Retry** means the client may reconnect if needed and resend the same `sequenceNumber` where §2.3 applies, or retry the handshake for pre-handshake failures.
+
+| Scenario ID | Scenario (summary) | Handshake stage | Application error code | HTTP status | WS close | Disconnect | Retry |
+| ----------- | ------------------- | --------------- | ---------------------- | ----------- | -------- | ---------- | ----- |
+| E-01 | Missing query `conversationId` | Pre | E1003 | 400 | — | Yes | Yes |
+| E-02 | Service draining | Pre | E1008 | 503 | — | Yes | Yes |
+| E-03 | Connection limit exceeded | Pre | E1008 | 429 | — | Yes | Yes |
+| E-04 | JSON decode failed | Post | E1001 | — | 1007 | Yes | Yes |
+| E-05 | Invalid enum (for example `eventType`) | Post | E1002 | — | 1008 | Yes | Yes |
+| E-06 | Missing required field (for example `payload.dialect`) | Post | E1003 | — | 1008 | Yes | Yes |
+| E-07 | Field type mismatch or disallowed extra field | Post | E1004 | — | 1008 | Yes | Yes |
+| E-08 | Timestamp not valid ISO-8601 UTC | Post | E1005 | — | 1008 | Yes | Yes |
+| E-09 | Sequence number out of order (not idempotent duplicate) | Post | E1006 | — | 1008 | Yes | Yes |
+| E-10 | Downstream timeout (for example Kafka send timeout) | Post | E1011 | — | 1013 | Yes | Yes |
+| E-11 | Downstream send failure or dependency outage **after** handshake (for example Kafka) | Post | E1008 | — | 1013 | Yes | Yes |
+| E-11 | Conversation ownership store error **during** handshake (for example Redis error on claim) | Pre | E1008 | 503 | — | Yes | Yes |
+| E-12 | Unhandled exception in orchestration / commit path | Post | E1007 | — | 1011 | Yes | Yes |
+| E-13 | Unhandled exception in transport / framing path | Post | E1007 | — | 1011 | Yes | Yes |
+| E-14 | Query `conversationId` ≠ body `metaData.conversationId` | Post | E1009 | — | 1008 | Yes | Yes |
+| E-15 | Business-rule violation after schema passes (for example invalid field combination) | Post | E1009 | — | 1008 | Yes | Yes |
+| E-16 | Second concurrent sender for the same `conversationId` | Pre | E1009 | 403 | — | Yes | Yes |
+| E-17 | Missing or invalid Bearer JWT when auth is enabled | Pre | E1010 | 401 | — | Yes | Yes |
+
+**Idempotent duplicate** (same `conversationId` and `sequenceNumber` as already accepted) returns the matching success ACK and does **not** use an error code; it is **N-02** in the protocol matrix, not **E-09**.
+
+#### 4.3.3 Application codes — semantics and reuse (normative)
+
+| Application error code | Meaning | Scenario ID (§4.3.2) |
+| ---------------------- | ------- | -------------------- |
+| E1001 | Invalid JSON payload (decode / parse) | E-04 only (post-handshake **1007**) |
+| E1002 | Invalid enum value | E-05 |
+| E1003 | Missing required input | E-01 (pre **400**); E-06 (post **1008**) |
+| E1004 | Wrong type or disallowed extra field | E-07 |
+| E1005 | Invalid UTC timestamp format | E-08 |
+| E1006 | Sequence not the next expected value | E-09 (duplicates use idempotent ACK, not E1006) |
+| E1007 | Unexpected internal failure | E-12, E-13 (post **1011**) |
+| E1008 | Downstream / capacity / guard-store failure | E-02 **503**, E-03 **429**, E-11 post **1013** or pre **503** (ownership store); distinguish by `message` / `details` and stage |
+| E1009 | Policy conflict | E-14, E-15 (post **1008**); E-16 (pre **403**) |
+| E1010 | Handshake authentication failed | E-17 (pre **401** only in V1) |
+| E1011 | Downstream **timeout** waiting on dependency | E-10 (post **1013**); not used for handshake rejection in V1 |
+
+> **Service draining (E-02)** and **ownership store unavailable at handshake (E-11 pre-handshake)** both use **E1008** with HTTP **503**. Clients must use **`message` / `details`** (and operational context) to tell them apart.
 
 Before closing the connection for a post-handshake error, the service sends an `ERROR` frame such as:
 
@@ -616,6 +654,8 @@ The **Doc ver.** column states the **Document version** at each revision. The **
 
 | Doc ver. | Date (UTC) | Summary                                                                                                                                                                                                                            |
 | -------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.4.1    | 2026-04-03 | **§4.3.2** / **§4.3.3** Rename table columns **Scenario ID** and **Application error code** (replacing generic **ID** / **Code**). |
+| 1.4.0    | 2026-04-03 | **§4.3** Replace the single code-centric table with **§4.3.1** delivery channels, **§4.3.2** scenario matrix (**E-01**–**E-17**, aligned with [protocol-scenario-matrix.md](protocol-scenario-matrix.md)), and **§4.3.3** code semantics; clarify pre-handshake **—** vs post-handshake **—** for HTTP/WS close; correct **E1010** / **E1011** rows for V1 (handshake-only auth; no HTTP **504** row for **E1011**). |
 | 1.3.2    | 2026-04-02 | **§4.2** Clarify that WebSocket close code `1007` is used for JSON parsing / decode failures only, aligning the close-code summary with the detailed error mapping and implementation behavior.                                 |
 | 1.3.1    | 2026-03-31 | **§4.3** Clarify that the HTTP Handshake column applies only to pre-upgrade failures; post-handshake errors use WS `ERROR` + close codes without a further HTTP status.                                                           |
 | 1.3.0    | 2026-03-30 | Enable optional handshake authentication for V1 deployments using `Authorization: Bearer <JWT>` with `E1010` for missing, malformed, invalid, or expired credentials, and implement the minimum HS256-based validation flow. |

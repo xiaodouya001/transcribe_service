@@ -8,6 +8,8 @@ This document consolidates the key WebSocket protocol scenarios across normal fl
 
 If this matrix conflicts with the [API contract](api-contract.md), the API contract wins.
 
+Scenario identifiers **E-01** … **E-17** match the normative matrix in the API contract **§4.3.2**; worked JSON in this file is illustrative.
+
 Business constraints such as handshake/body `conversationId` matching, continuous sequence numbers starting at `0`, single-sender semantics, and retrying the same failed sequence number are defined by **section 2.3 Business Rules** in the API contract. This matrix focuses on mapping **scenario -> error code / close code**.
 
 ---
@@ -26,7 +28,8 @@ Business constraints such as handshake/body `conversationId` matching, continuou
 | E-08   | Invalid timestamp format | Post-handshake | **E1005** | - | **1008** (`Policy Violation`) | Yes | See E-08 below |
 | E-09   | Sequence number out of order | Post-handshake | **E1006** | - | **1008** (`Policy Violation`) | Yes | See E-09 below |
 | E-10   | Kafka timeout | Post-handshake | **E1011** | - | **1013** (`Try Again Later`) | Yes | See E-10 below |
-| E-11   | Kafka failure or downstream unavailability such as Redis | Post-handshake | **E1008** | - | **1013** (`Try Again Later`) | Yes | See E-11 below |
+| E-11   | Kafka send failure or other downstream outage after the WebSocket session is up | Post-handshake | **E1008** | - | **1013** (`Try Again Later`) | Yes | See E-11 below |
+| E-11   | Conversation ownership guard store error during handshake (for example Redis unavailable on `claim_or_refresh`) | Pre-handshake | **E1008** | **503** | - | Yes, handshake rejected | See E-11 (pre-handshake) below |
 | E-12   | Unhandled exception in the orchestrator layer | Post-handshake | **E1007** | - | **1011** (`Internal Error`) | Yes | See E-12 below |
 | E-13   | Unhandled exception in the transport layer | Post-handshake | **E1007** | - | **1011** (`Internal Error`) | Yes | See E-13 below |
 | E-14   | Query `conversationId` does not match `metaData.conversationId` in the body | Post-handshake | **E1009** | - | **1008** (`Policy Violation`) | Yes | See E-14 below |
@@ -35,6 +38,8 @@ Business constraints such as handshake/body `conversationId` matching, continuou
 | E-17   | Missing or invalid Bearer JWT during the handshake | Pre-handshake | **E1010** | **401** | - | Yes, handshake rejected | See E-17 below |
 
 > During pre-handshake rejection, the WebSocket connection has not been established yet, so the service cannot send a WebSocket text frame. Only HTTP + JSON is available. Post-handshake errors send a WebSocket `ERROR` frame and then close the connection with the mapped close code.
+
+> **E-11** uses the same application code **E1008** in two shapes: post-handshake **ERROR + close 1013** (for example Kafka failure while sending), and pre-handshake **HTTP 503 + JSON** when the ownership guard store fails during admission.
 
 ---
 
@@ -248,7 +253,7 @@ This mapping also covers schema-rejected extra fields, such as legacy request fi
 
 ### E-11 Kafka failure or downstream unavailable (close 1013)
 
-Typical case: Kafka send failure. Redis or another dependency outage can also map to **E1008** + **1013**, which matches contract section 4.3 for `E1008`.
+Typical case: Kafka send failure. A Redis or other dependency outage on the **message path** (after handshake) also maps to **E1008** + **1013**, which matches contract **§4.3.3** for `E1008`.
 
 ```json
 {
@@ -257,6 +262,22 @@ Typical case: Kafka send failure. Redis or another dependency outage can also ma
     "code": "E1008",
     "message": "Downstream unavailable",
     "details": "KafkaError: ...",
+    "createdAtTimeStamp": "2026-03-21T03:00:00.000Z"
+  }
+}
+```
+
+### E-11 Conversation ownership guard store unavailable (HTTP 503)
+
+If the service is configured with a conversation ownership guard and the backing store raises while claiming ownership during handshake admission, the upgrade is rejected with **HTTP 503 + E1008** (same scenario id **E-11**, different delivery than the post-handshake row above). No WebSocket session is established and no WebSocket close frame is sent.
+
+```json
+{
+  "metaData": { "conversationId": "conv-1", "eventType": "ERROR" },
+  "error": {
+    "code": "E1008",
+    "message": "Downstream unavailable",
+    "details": "Conversation ownership guard store unavailable",
     "createdAtTimeStamp": "2026-03-21T03:00:00.000Z"
   }
 }
@@ -358,6 +379,7 @@ Validation happens during handshake. If deployment authentication is enabled and
 
 ## 5. Error-Code Notes
 
+- `E1008` is reused for several downstream and capacity cases. **E-11** is documented twice in the error matrix: post-handshake `ERROR + 1013` (for example Kafka failure) and pre-handshake `HTTP 503` when the ownership guard store fails during admission (overlapping error code with **E-02** service draining, which uses a different `message` / `details` shape)
 - `E1009` is intentionally reused for three categories: query/body `conversationId` mismatch, business-rule validation after schema validation passes, and concurrent-sender conflicts on the same `conversationId`. The first two are post-handshake `ERROR + 1008`; the last one is a handshake-time `HTTP 403`
 - `E1010` is reserved exclusively for handshake authentication failure. In V1 it is emitted as `HTTP 401` before the WebSocket upgrade completes
 

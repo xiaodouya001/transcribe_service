@@ -14,7 +14,6 @@ from realtime_transcribe_service.constants import (
     APP_ENV_VAR,
     COMPRESSION_TYPE,
     DEFAULT_HTTP_BACKLOG,
-    DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
     DEFAULT_KAFKA_BATCH_SIZE,
     DEFAULT_KAFKA_LINGER_MS,
@@ -40,6 +39,27 @@ from realtime_transcribe_service.constants import (
     LOCAL_REDIS_URL,
     LOCAL_KAFKA_BOOTSTRAP_SERVERS,
 )
+
+
+def normalize_url_path_prefix_str(raw: str) -> str:
+    """Normalize ``URL_PATH_PREFIX``: empty means disabled; otherwise ``/abc`` (no trailing slash)."""
+    if not isinstance(raw, str):
+        return ""
+    s = raw.strip()
+    if not s:
+        return ""
+    if "\n" in s or "\r" in s or ".." in s:
+        raise ValueError(
+            "URL_PATH_PREFIX must not contain '..' or newline characters"
+        )
+    if not s.startswith("/"):
+        s = "/" + s
+    while "//" in s:
+        s = s.replace("//", "/")
+    s = s.rstrip("/")
+    if not s:
+        return ""
+    return s
 
 
 class Settings(BaseSettings):
@@ -106,13 +126,15 @@ class Settings(BaseSettings):
     auth_jwt_algorithm: Literal["HS256"] = "HS256"
 
     # --- HTTP / Uvicorn ---
-    http_host: str = Field(default=DEFAULT_HTTP_HOST, min_length=1)
     http_port: int = Field(default=DEFAULT_HTTP_PORT, ge=1, le=65535)
     # listen() backlog. If set too low, bursty connection spikes can cause peers to get reset
     # before they read the 101 Switching Protocols response.
     http_backlog: int = Field(default=DEFAULT_HTTP_BACKLOG, gt=0)
     # Only an explicit true exposes /docs, /redoc, and /openapi.json.
     http_enable_docs: bool = False
+    # When non-empty, the ASGI app is mounted so every route is under this path prefix
+    # (for example ALB path /abc -> set /abc or abc; clients call /abc/health, /abc/ws/v1/...).
+    url_path_prefix: str = Field(default="", max_length=512)
     # Maximum concurrent WebSocket connections. New handshakes beyond the limit are rejected.
     # 0 means unlimited.
     ws_max_connections: int = Field(default=0, ge=0)
@@ -181,6 +203,13 @@ class Settings(BaseSettings):
             return value.strip().lower()
         return value
 
+    @field_validator("url_path_prefix", mode="after")
+    @classmethod
+    def _normalize_url_path_prefix(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return ""
+        return normalize_url_path_prefix_str(value)
+
     @field_validator(
         "redis_url",
         "kafka_bootstrap_servers",
@@ -189,7 +218,6 @@ class Settings(BaseSettings):
         "kafka_aws_region",
         "redis_sequence_state_key_prefix",
         "redis_ownership_guard_key_prefix",
-        "http_host",
         "auth_jwt_signing_material",
         mode="before",
     )
@@ -221,6 +249,20 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "Missing required configuration for APP_ENV=deployed: "
                     + ", ".join(missing)
+                )
+            # ElastiCache user ACLs usually scope keys by namespace; code defaults have no
+            # account/env prefix. Require explicit prefixes on deployed so operators align ACLs.
+            if self.redis_sequence_state_key_prefix == DEFAULT_REDIS_SEQUENCE_STATE_KEY_PREFIX:
+                raise ValueError(
+                    "APP_ENV=deployed requires explicit REDIS_SEQUENCE_STATE_KEY_PREFIX "
+                    "matching your Redis/ElastiCache ACL key pattern (defaults are for "
+                    "APP_ENV=local / unscoped Redis only)."
+                )
+            if self.redis_ownership_guard_key_prefix == DEFAULT_REDIS_OWNERSHIP_GUARD_KEY_PREFIX:
+                raise ValueError(
+                    "APP_ENV=deployed requires explicit REDIS_OWNERSHIP_GUARD_KEY_PREFIX "
+                    "matching your Redis/ElastiCache ACL key pattern (defaults are for "
+                    "APP_ENV=local / unscoped Redis only)."
                 )
 
         if self.redis_final_ttl_sec > self.redis_active_ttl_sec:

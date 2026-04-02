@@ -11,16 +11,16 @@ import asyncio
 from typing import Any
 
 import orjson
-import structlog
 from aiokafka import AIOKafkaProducer
 
+from realtime_transcribe_service.config.logging_config import get_logger
 from realtime_transcribe_service.constants import DEFAULT_KAFKA_TOPIC
 from realtime_transcribe_service.producer.kafka_connection import (
     KafkaBrokerConnection,
     LocalPlaintextKafkaConnection,
 )
 
-log = structlog.get_logger(__name__)
+log = get_logger(__name__)
 
 _DEFAULT_LOCAL = LocalPlaintextKafkaConnection()
 

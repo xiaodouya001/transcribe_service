@@ -6,9 +6,9 @@ import asyncio
 import signal
 import sys
 
-import structlog
+from realtime_transcribe_service.config.logging_config import get_logger
 
-log = structlog.get_logger(__name__)
+log = get_logger(__name__)
 
 
 class GracefulShutdown:

@@ -30,11 +30,11 @@ from realtime_transcribe_service.schemas.response import (
     build_transcript_ack,
 )
 from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
-from realtime_transcribe_service.transport.websocket_handler import (
-    ConnectionRegistry,
-    _format_client_addr,
+from realtime_transcribe_service.transport.app import _format_client_addr, create_app
+from realtime_transcribe_service.transport.metrics import RuntimeMetrics
+from realtime_transcribe_service.transport.registry import ConnectionRegistry
+from realtime_transcribe_service.transport.session import (
     _ownership_refresh_loop,
-    create_app,
 )
 
 AUTH_SIGNING_MATERIAL = "signing-material-0123456789-material-012345"
@@ -160,6 +160,48 @@ def app(mock_orchestrator, shutdown, registry):
     return create_app(mock_orchestrator, shutdown, registry)
 
 
+class TestHttpUrlPrefixMount:
+    """Optional ``URL_PATH_PREFIX``: mount all routes under a path (ALB path prefix)."""
+
+    async def test_health_and_ws_under_prefix(self, mock_orchestrator, shutdown, registry):
+        app = create_app(
+            mock_orchestrator,
+            shutdown,
+            registry,
+            url_path_prefix="/abc",
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            assert (await client.get("/health")).status_code == 404
+            assert (await client.get("/abc/health")).status_code == 200
+            assert (await client.get("/abc/metrics")).status_code == 200
+        client_sync = TestClient(app)
+        with client_sync.websocket_connect(
+            "/abc/ws/v1/realtime-transcriptions?conversationId=conv-1"
+        ) as ws:
+            ws.send_text("{}")
+            _ = ws.receive_text()
+
+    async def test_openapi_under_prefix_when_docs_enabled(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        app = create_app(
+            mock_orchestrator,
+            shutdown,
+            registry,
+            http_enable_docs=True,
+            url_path_prefix="api",
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            assert (await client.get("/openapi.json")).status_code == 404
+            openapi = await client.get("/api/openapi.json")
+            assert openapi.status_code == 200
+            assert "/health" in openapi.json()["paths"]
+
+
 class TestHealthEndpoints:
     """HTTP health-check endpoint."""
 
@@ -177,7 +219,16 @@ class TestHealthEndpoints:
         ) as client:
             resp = await client.get("/metrics")
             assert resp.status_code == 200
-            assert "active_connections" in resp.json()
+            assert resp.json() == {
+                "active_connections": 0,
+                "redis_ready_checks_total": 0,
+                "redis_ready_failures_total": 0,
+                "redis_ownership_refresh_total": 0,
+                "redis_ownership_refresh_failures_total": 0,
+                "redis_ownership_refresh_conflicts_total": 0,
+                "redis_last_prepare_ms": None,
+                "redis_last_commit_ms": None,
+            }
 
     async def test_docs_routes_disabled_by_default(
         self, mock_orchestrator, shutdown, registry
@@ -220,55 +271,53 @@ class TestHealthEndpoints:
             assert resp.json()["status"] == "ready"
 
     async def test_ready_redis_and_kafka_ok(self, mock_orchestrator, shutdown, registry):
-        from unittest.mock import patch
-
         fake_r = MagicMock()
         fake_r.ping = AsyncMock()
         fake_r.aclose = AsyncMock()
         prod = MagicMock()
         prod.ensure_ready = AsyncMock()
-        with patch(
-            "realtime_transcribe_service.redis.async_client.create_async_redis_client",
-            return_value=fake_r,
-        ):
-            app = create_app(
-                mock_orchestrator,
-                shutdown,
-                registry,
-                redis_url="redis://127.0.0.1:6379/0",
-                producer=prod,
-            )
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                resp = await client.get("/ready")
-            assert resp.status_code == 200
-            fake_r.aclose.assert_awaited_once()
+        app = create_app(
+            mock_orchestrator,
+            shutdown,
+            registry,
+            redis_client=fake_r,
+            redis_url="redis://127.0.0.1:6379/0",
+            producer=prod,
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            first = await client.get("/ready")
+            second = await client.get("/ready")
+            metrics = await client.get("/metrics")
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert fake_r.ping.await_count == 2
+        fake_r.aclose.assert_not_awaited()
+        assert metrics.json()["redis_ready_checks_total"] == 2
+        assert metrics.json()["redis_ready_failures_total"] == 0
 
     async def test_ready_503_when_redis_fails(self, mock_orchestrator, shutdown, registry):
-        from unittest.mock import patch
-
         fake_r = MagicMock()
         fake_r.ping = AsyncMock(side_effect=RuntimeError("no redis"))
         fake_r.aclose = AsyncMock()
-        with patch(
-            "realtime_transcribe_service.redis.async_client.create_async_redis_client",
-            return_value=fake_r,
-        ):
-            app = create_app(
-                mock_orchestrator,
-                shutdown,
-                registry,
-                redis_url="redis://127.0.0.1:6379/0",
-                producer=None,
-            )
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as client:
-                resp = await client.get("/ready")
-            assert resp.status_code == 503
-            assert "not_ready" in resp.json().get("status", "")
-            fake_r.aclose.assert_awaited_once()
+        app = create_app(
+            mock_orchestrator,
+            shutdown,
+            registry,
+            redis_client=fake_r,
+            redis_url="redis://127.0.0.1:6379/0",
+            producer=None,
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            resp = await client.get("/ready")
+            metrics = await client.get("/metrics")
+        assert resp.status_code == 503
+        assert "not_ready" in resp.json().get("status", "")
+        fake_r.aclose.assert_not_awaited()
+        assert metrics.json()["redis_ready_failures_total"] == 1
 
     async def test_ready_logs_warning_when_redis_close_fails(
         self, mock_orchestrator, shutdown, registry
@@ -289,7 +338,7 @@ class TestHealthEndpoints:
                 redis_url="redis://127.0.0.1:6379/0",
                 producer=None,
             )
-            with patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+            with patch("realtime_transcribe_service.transport.app.log.warning") as warn_mock:
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as client:
@@ -505,7 +554,7 @@ class TestWebSocket:
             client=fake_redis,
             active_ttl_sec=120,
             final_ttl_sec=5,
-            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
         )
         producer = AsyncMock()
         producer.send = AsyncMock()
@@ -534,7 +583,7 @@ class TestWebSocket:
                 resp = orjson.loads(ws.receive_text())
                 assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
 
-            key = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num:conv-reconnect"
+            key = "realtime-transcribe-service:expect-transcript-seq-num:conv-reconnect"
             ttl = _await_in_runner(fake_redis.ttl(key))
             assert 5 < ttl <= 120
             assert _await_in_runner(fake_redis.get(key)) == "1"
@@ -563,7 +612,7 @@ class TestWebSocket:
         owner = RedisConversationOwnershipGuard(
             client=fake_redis,
             guard_ttl_sec=30,
-            key_prefix="ods-dev:realtime-transcribe-service:conversation-owner",
+            key_prefix="realtime-transcribe-service:conversation-owner",
         )
         app = create_app(
             mock_orchestrator,
@@ -602,7 +651,7 @@ class TestWebSocket:
         owner = RedisConversationOwnershipGuard(
             client=fake_redis,
             guard_ttl_sec=30,
-            key_prefix="ods-dev:realtime-transcribe-service:conversation-owner",
+            key_prefix="realtime-transcribe-service:conversation-owner",
         )
         app = create_app(
             mock_orchestrator,
@@ -618,14 +667,14 @@ class TestWebSocket:
             ):
                 assert (
                     _await_in_runner(
-                        fake_redis.get("ods-dev:realtime-transcribe-service:conversation-owner:conv-1")
+                        fake_redis.get("realtime-transcribe-service:conversation-owner:conv-1")
                     )
                     is not None
                 )
 
             assert (
                 _await_in_runner(
-                    fake_redis.get("ods-dev:realtime-transcribe-service:conversation-owner:conv-1")
+                    fake_redis.get("realtime-transcribe-service:conversation-owner:conv-1")
                 )
                 is None
             )
@@ -666,14 +715,14 @@ class TestWebSocket:
     def test_ws_owner_store_unavailable_on_fallback_claim_returns_e1008(
         self, mock_orchestrator, shutdown, registry
     ):
-        from realtime_transcribe_service.transport import websocket_handler as wh
+        from realtime_transcribe_service.transport import app as app_mod
 
         owner = ScriptedOwnerBackend([RuntimeError("owner store down")])
 
         async def passthrough(self, scope, receive, send):
             await self._app(scope, receive, send)
 
-        with patch.object(wh._WsGuardMiddleware, "__call__", new=passthrough):
+        with patch.object(app_mod._WsGuardMiddleware, "__call__", new=passthrough):
             app = create_app(
                 mock_orchestrator,
                 shutdown,
@@ -697,14 +746,14 @@ class TestWebSocket:
     def test_ws_owner_conflict_on_fallback_claim_returns_e1009(
         self, mock_orchestrator, shutdown, registry
     ):
-        from realtime_transcribe_service.transport import websocket_handler as wh
+        from realtime_transcribe_service.transport import app as app_mod
 
         owner = ScriptedOwnerBackend([False])
 
         async def passthrough(self, scope, receive, send):
             await self._app(scope, receive, send)
 
-        with patch.object(wh._WsGuardMiddleware, "__call__", new=passthrough):
+        with patch.object(app_mod._WsGuardMiddleware, "__call__", new=passthrough):
             app = create_app(
                 mock_orchestrator,
                 shutdown,
@@ -723,6 +772,35 @@ class TestWebSocket:
                     ws.receive_text()
                 assert ei.value.code == 1008
         mock_orchestrator.handle_message.assert_not_awaited()
+
+    def test_ws_owner_fallback_claim_success_continues_session(
+        self, mock_orchestrator, shutdown, registry
+    ):
+        from realtime_transcribe_service.transport import app as app_mod
+
+        owner = ScriptedOwnerBackend([True])
+
+        async def passthrough(self, scope, receive, send):
+            await self._app(scope, receive, send)
+
+        with patch.object(app_mod._WsGuardMiddleware, "__call__", new=passthrough):
+            app = create_app(
+                mock_orchestrator,
+                shutdown,
+                registry,
+                ownership_guard=owner,
+            )
+            client = TestClient(app)
+
+            with client.websocket_connect(
+                "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+            ) as ws:
+                ws.send_text(orjson.dumps(_ongoing_message()).decode())
+                resp = orjson.loads(ws.receive_text())
+                assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+
+        mock_orchestrator.handle_message.assert_awaited_once()
+        assert len(owner.release_calls) == 1
 
     def test_ws_owner_store_unavailable_during_background_refresh_returns_e1008(
         self, mock_orchestrator, shutdown, registry
@@ -784,7 +862,7 @@ class TestWebSocket:
         )
         client = TestClient(app)
 
-        with patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+        with patch("realtime_transcribe_service.transport.session.log.warning") as warn_mock:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ):
@@ -816,7 +894,7 @@ class TestWebSocket:
         self, app, mock_orchestrator
     ):
         client = TestClient(app)
-        with patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+        with patch("realtime_transcribe_service.transport.session.log.warning") as warn_mock:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ) as ws:
@@ -986,7 +1064,7 @@ class TestWebSocket:
 
     def test_ws_invalid_json_warning_includes_error_and_close_code(self, app):
         client = TestClient(app)
-        with patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+        with patch("realtime_transcribe_service.transport.session.log.warning") as warn_mock:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ) as ws:
@@ -1093,7 +1171,7 @@ class TestWebSocket:
         )
         client = TestClient(app)
         msg = _ongoing_message()
-        with patch("realtime_transcribe_service.transport.websocket_handler.log.info") as info_mock:
+        with patch("realtime_transcribe_service.transport.session.log.info") as info_mock:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ) as ws:
@@ -1117,7 +1195,7 @@ class TestWebSocket:
                     "validate_ms": 0.11,
                     "prepare_ms": 0.22,
                     "kafka_send_ms": 0.33,
-                    "commit_ms": 0.44,
+                    "redis_commit_ms": 0.44,
                     "ack_build_ms": 0.55,
                     "orchestrator_ms": 12.34,
                 },
@@ -1133,9 +1211,9 @@ class TestWebSocket:
         client = TestClient(app)
 
         with patch(
-            "realtime_transcribe_service.transport.websocket_handler._elapsed_ms",
+            "realtime_transcribe_service.transport.session._elapsed_ms",
             side_effect=[0.12, 12.34, 0.45, 12.79],
-        ), patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+        ), patch("realtime_transcribe_service.transport.session.log.warning") as warn_mock:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ) as ws:
@@ -1166,7 +1244,7 @@ class TestWebSocket:
             "validate_ms": 0.11,
             "prepare_ms": 0.22,
             "kafka_send_ms": 0.33,
-            "commit_ms": 0.44,
+            "redis_commit_ms": 0.44,
             "ack_build_ms": 0.55,
             "orchestrator_ms": 12.34,
         }
@@ -1176,6 +1254,34 @@ class TestWebSocket:
             "pct": 4.5,
         }
         assert slow_log["bottleneck_hint"] == "ack_build_ms=0.55ms (~4.5% of orchestrator_ms)"
+
+    def test_metrics_track_last_redis_timings(self, mock_orchestrator, shutdown, registry):
+        async def timed_handle(_raw_json, _conversation_id=""):
+            return OrchestratorResult(
+                response=build_transcript_ack("conv-1", 0),
+                disconnect=False,
+                timings_ms={
+                    "prepare_ms": 0.22,
+                    "redis_commit_ms": 0.44,
+                    "orchestrator_ms": 12.34,
+                },
+            )
+
+        mock_orchestrator.handle_message.side_effect = timed_handle
+        app = create_app(mock_orchestrator, shutdown, registry)
+        client = TestClient(app)
+
+        with client.websocket_connect(
+            "/ws/v1/realtime-transcriptions?conversationId=conv-1"
+        ) as ws:
+            ws.send_text(orjson.dumps(_ongoing_message()).decode())
+            resp = orjson.loads(ws.receive_text())
+            assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
+
+        metrics = client.get("/metrics")
+        assert metrics.status_code == 200
+        assert metrics.json()["redis_last_prepare_ms"] == 0.22
+        assert metrics.json()["redis_last_commit_ms"] == 0.44
 
     def test_ws_does_not_log_slow_message_when_threshold_disabled(
         self, mock_orchestrator, shutdown, registry
@@ -1192,9 +1298,9 @@ class TestWebSocket:
         client = TestClient(app)
 
         with patch(
-            "realtime_transcribe_service.transport.websocket_handler._elapsed_ms",
+            "realtime_transcribe_service.transport.session._elapsed_ms",
             side_effect=[0.12, 12.34, 0.45],
-        ), patch("realtime_transcribe_service.transport.websocket_handler.log.warning") as warn_mock:
+        ), patch("realtime_transcribe_service.transport.session.log.warning") as warn_mock:
             with client.websocket_connect(
                 "/ws/v1/realtime-transcriptions?conversationId=conv-1"
             ) as ws:
@@ -1210,19 +1316,22 @@ class TestWebSocket:
 
 @pytest.mark.asyncio
 async def test_send_error_and_close_swallows_inner_failure():
-    from realtime_transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import session as wh
 
     ws = MagicMock()
     ws.client_state = WebSocketState.CONNECTED
     ws.send_text = AsyncMock(side_effect=RuntimeError("send failed"))
     ws.close = AsyncMock()
     await wh._send_error_and_close(
-        ws, "conv-x", "E1001", "bad", wh.WsCloseCode.INVALID_PAYLOAD
+        ws,
+        "conv-x",
+        wh.ProtocolErrorScenario.INVALID_JSON,
+        details="bad",
     )
 
 
 def test_orchestrator_bottleneck_prefers_leaf_max_and_falls_back_to_leaf_sum():
-    from realtime_transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import session as wh
 
     out = wh._orchestrator_bottleneck(
         {"validate_ms": 1.0, "kafka_send_ms": 10.0, "orchestrator_ms": 50.0}
@@ -1242,14 +1351,14 @@ def test_orchestrator_bottleneck_prefers_leaf_max_and_falls_back_to_leaf_sum():
 
 
 def test_orchestrator_bottleneck_none_when_no_leaf_timings():
-    from realtime_transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import session as wh
 
     assert wh._orchestrator_bottleneck({"orchestrator_ms": 100.0}) is None
     assert wh._orchestrator_bottleneck(None) is None
 
 
 def test_maybe_log_slow_message_skips_when_below_threshold():
-    from realtime_transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import session as wh
 
     wh._slow_message_log_window_started_at = 0.0
     wh._slow_message_log_emitted_in_window = 0
@@ -1271,14 +1380,14 @@ def test_maybe_log_slow_message_skips_when_below_threshold():
 
 
 def test_maybe_log_slow_message_rate_limits_and_reports_suppressed():
-    from realtime_transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import session as wh
 
     wh._slow_message_log_window_started_at = 0.0
     wh._slow_message_log_emitted_in_window = 0
     wh._slow_message_log_suppressed = 0
 
     with patch.object(wh, "_elapsed_ms", return_value=120.0), patch(
-        "realtime_transcribe_service.transport.websocket_handler.time.perf_counter",
+        "realtime_transcribe_service.transport.session.time.perf_counter",
         side_effect=[1.0, 1.2, 2.5],
     ), patch.object(wh.log, "warning") as warn_mock:
         for _ in range(3):
@@ -1300,19 +1409,18 @@ def test_maybe_log_slow_message_rate_limits_and_reports_suppressed():
 
 @pytest.mark.asyncio
 async def test_send_error_and_close_logs_error_frame_when_enabled():
-    from realtime_transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import session as wh
 
     ws = MagicMock()
     ws.client_state = WebSocketState.CONNECTED
     ws.send_text = AsyncMock()
     ws.close = AsyncMock()
-    with patch("realtime_transcribe_service.transport.websocket_handler.log.info") as info_mock:
+    with patch("realtime_transcribe_service.transport.session.log.info") as info_mock:
         await wh._send_error_and_close(
             ws,
             "conv-x",
-            "E1001",
-            "bad",
-            wh.WsCloseCode.INVALID_PAYLOAD,
+            wh.ProtocolErrorScenario.INVALID_JSON,
+            details="bad",
             log_ws_error_frames=True,
         )
     info_mock.assert_any_call(
@@ -1330,13 +1438,14 @@ async def test_send_error_and_close_logs_error_frame_when_enabled():
 
 @pytest.mark.asyncio
 async def test_ownership_refresh_loop_error_closes_ws():
-    from realtime_transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import session as wh
 
     ws = MagicMock()
     ws.client_state = WebSocketState.CONNECTED
     ws.send_text = AsyncMock()
     ws.close = AsyncMock()
     owner = ScriptedOwnerBackend([RuntimeError("owner store down")])
+    metrics = RuntimeMetrics()
 
     await _ownership_refresh_loop(
         ws,
@@ -1344,21 +1453,26 @@ async def test_ownership_refresh_loop_error_closes_ws():
         ownership_guard=owner,
         ownership_token="owner-a",
         refresh_interval_sec=0.01,
+        runtime_metrics=metrics,
     )
 
     ws.send_text.assert_awaited()
     ws.close.assert_awaited_once_with(code=wh.WsCloseCode.TRY_AGAIN_LATER)
+    assert metrics.redis_ownership_refresh_total == 1
+    assert metrics.redis_ownership_refresh_failures_total == 1
+    assert metrics.redis_ownership_refresh_conflicts_total == 0
 
 
 @pytest.mark.asyncio
 async def test_ownership_refresh_loop_conflict_closes_ws():
-    from realtime_transcribe_service.transport import websocket_handler as wh
+    from realtime_transcribe_service.transport import session as wh
 
     ws = MagicMock()
     ws.client_state = WebSocketState.CONNECTED
     ws.send_text = AsyncMock()
     ws.close = AsyncMock()
     owner = ScriptedOwnerBackend([False])
+    metrics = RuntimeMetrics()
 
     await _ownership_refresh_loop(
         ws,
@@ -1366,10 +1480,14 @@ async def test_ownership_refresh_loop_conflict_closes_ws():
         ownership_guard=owner,
         ownership_token="owner-a",
         refresh_interval_sec=0.01,
+        runtime_metrics=metrics,
     )
 
     ws.send_text.assert_awaited()
     ws.close.assert_awaited_once_with(code=wh.WsCloseCode.POLICY_VIOLATION)
+    assert metrics.redis_ownership_refresh_total == 1
+    assert metrics.redis_ownership_refresh_failures_total == 0
+    assert metrics.redis_ownership_refresh_conflicts_total == 1
 
 
 class TestConnectionRegistry:
@@ -1466,4 +1584,7 @@ class TestConnectionRegistry:
         registry.add("conv-2", MagicMock())
         registry.remove("conv-1")
         assert registry.active_count == 1
+
+
+
 

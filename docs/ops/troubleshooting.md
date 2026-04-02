@@ -40,9 +40,12 @@ The [API contract §1.1](../design/api-contract.md) specifies **`wss`** (TLS) as
 
 ### Handshake rejected with HTTP 503
 
-**Cause:** the service is draining during graceful shutdown.
+**Causes (both use application code `E1008`; use `error.message` / `error.details` to tell them apart):**
 
-**Resolution:** reconnect after the replacement pod or task becomes ready.
+1. **Service draining** — rolling deploy or scale-in; the process is rejecting new upgrades while existing sockets are closed.
+2. **Ownership guard store unavailable** — Redis (or the configured guard backend) raised while claiming send ownership during handshake admission.
+
+**Resolution:** for (1), reconnect to a healthy task once it is ready. For (2), fix Redis connectivity or credentials, then retry; see also [protocol-scenario-matrix.md §1 E-11 (pre-handshake)](../design/protocol-scenario-matrix.md).
 
 ### Connection closed with WebSocket code 1008
 
@@ -74,13 +77,18 @@ The [API contract §1.1](../design/api-contract.md) specifies **`wss`** (TLS) as
 
 ## 4. Log Keywords
 
-| Keyword | Meaning |
-|--------|------|
-| `Realtime Transcribe Service: Started` | Startup completed successfully |
-| `Transport: Connection established` | A WebSocket connection was accepted |
-| `StateMachine.prepare` | Redis Lua pre-check result |
-| `StateMachine.commit` | Sequence state advanced |
-| `Kafka: Sent` | The message was written to Kafka |
-| `Orchestrator: Idempotent replay hit, returning ACK directly` | A duplicate packet was short-circuited |
-| `Orchestrator: Sequence number out of order` | An out-of-order packet was rejected |
-| `Shutdown: Starting graceful shutdown` | The service began shutdown handling |
+In JSON logs, fixed context is often grouped under an `identity` object (`service`, `version`, `conversation_id`). Events may still include `conversation_id` at the top level when bound per call. See [configuration.md — Logging (structured output)](../config/configuration.md#logging-structured-output).
+
+| Keyword | Level | Meaning |
+|--------|-------|---------|
+| `Realtime Transcribe Service: Started` | INFO | Startup completed successfully |
+| `Transport: Connection established` | INFO | WebSocket accepted after handshake |
+| `Transport: Slow message stage timings` | WARNING | End-to-end handling exceeded `LOG_SLOW_MESSAGE_THRESHOLD_MS` (rate-limited: at most one emit per rolling second per process) |
+| `StateMachine.prepare` | DEBUG | Redis Lua pre-check outcome (`result`, `expected_sequence`, …) |
+| `StateMachine.commit` | DEBUG | Sequence advanced after Kafka ACK (`next_expected`, …) |
+| `StateMachine.cleanup` | INFO | `SESSION_COMPLETE` TTL shrink completed |
+| `Kafka: Sent` | DEBUG | Kafka acknowledged the send (high volume; not at INFO) |
+| `Kafka: Send timed out` / `Kafka: Send failed` | ERROR | Downstream send failure (see `E1011` / `E1008` in contract) |
+| `Orchestrator: Idempotent replay hit, returning ACK directly` | INFO | Duplicate `(conversationId, seq)` short-circuited |
+| `Orchestrator: Sequence number out of order` | WARNING | Out-of-order seq (`E1006`) |
+| `Shutdown: Starting graceful shutdown` | INFO | Shutdown handling began |

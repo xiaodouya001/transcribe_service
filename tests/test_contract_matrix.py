@@ -27,7 +27,8 @@ from realtime_transcribe_service.redis.ownership_guard import RedisConversationO
 from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
 from realtime_transcribe_service.schemas.response import build_transcript_ack
 from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
-from realtime_transcribe_service.transport.websocket_handler import ConnectionRegistry, create_app
+from realtime_transcribe_service.transport.app import create_app
+from realtime_transcribe_service.transport.registry import ConnectionRegistry
 
 AUTH_SIGNING_MATERIAL = "signing-material-0123456789-material-012345"
 WRONG_AUTH_SIGNING_MATERIAL = "wrong-material-0123456789-material-012345"
@@ -160,6 +161,34 @@ class TestTransportContractMatrix:
         assert "Too many connections" in body
         orchestrator.handle_message.assert_not_awaited()
 
+    def test_ownership_guard_store_error_returns_e1008_and_http_503(self):
+        """E-11: ownership guard store failure during handshake returns HTTP 503 / E1008."""
+        orchestrator = AsyncMock()
+        orchestrator.handle_message = AsyncMock()
+        guard = AsyncMock()
+        guard.claim_or_refresh = AsyncMock(side_effect=RuntimeError("redis down"))
+        guard.release = AsyncMock()
+        guard.close = AsyncMock()
+        client = TestClient(
+            create_app(
+                orchestrator,
+                GracefulShutdown(),
+                ConnectionRegistry(),
+                ownership_guard=guard,
+            )
+        )
+
+        with pytest.raises(Exception) as ei:
+            with client.websocket_connect("/ws/v1/realtime-transcriptions?conversationId=conv-1"):
+                pass
+
+        assert getattr(ei.value, "status_code", None) == 503
+        body = getattr(ei.value, "text", "")
+        assert "E1008" in body
+        assert "Downstream unavailable" in body
+        assert "Conversation ownership guard store unavailable" in body
+        orchestrator.handle_message.assert_not_awaited()
+
     def test_missing_or_invalid_bearer_jwt_returns_e1010_and_http_401(self):
         """E-17: missing or invalid Bearer JWT during handshake returns HTTP 401 / E1010."""
         orchestrator = AsyncMock()
@@ -232,7 +261,7 @@ class TestTransportContractMatrix:
         client = TestClient(_build_app(orchestrator))
 
         with patch(
-            "realtime_transcribe_service.transport.websocket_handler.orjson.loads",
+            "realtime_transcribe_service.transport.session.orjson.loads",
             side_effect=RuntimeError("boom"),
         ):
             with client.websocket_connect(
@@ -270,7 +299,7 @@ class TestTransportContractMatrix:
         owner = RedisConversationOwnershipGuard(
             client=fakeredis.aioredis.FakeRedis(decode_responses=True),
             guard_ttl_sec=30,
-            key_prefix="ods-dev:realtime-transcribe-service:conversation-owner",
+            key_prefix="realtime-transcribe-service:conversation-owner",
         )
         client = TestClient(
             create_app(
@@ -517,4 +546,5 @@ class TestOrchestratorContractMatrix:
         assert result.response["error"]["code"] == "E1007"
         assert result.disconnect is True
         assert result.close_code == 1011
+
 

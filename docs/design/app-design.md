@@ -78,9 +78,9 @@ sequenceDiagram
     participant RedisCore as Redis (Ownership Guard + State Machine)
     participant Kafka as Kafka
 
-    Main->>Main: Load settings
-    Main->>Main: Initialize Producer, RedisSequenceStateMachine, RedisConversationOwnershipGuard, and Registry
-    Main->>Main: Register SIGTERM and SIGINT handlers
+    Main->>Main: Load settings and configure logging
+    Main->>Main: create_runtime_bundle (service_runtime): shared Redis client, sequence machine, ownership guard, Kafka producer, orchestrator, ConnectionRegistry, FastAPI app, Uvicorn server
+    Note over Main: Signal handlers are registered on GracefulShutdown inside the runtime bundle
 
     Main->>Main: Run Redis and Kafka startup checks in parallel
     par Redis startup check
@@ -309,16 +309,18 @@ The application follows a dependency-inversion architecture. The orchestrator si
 
 | Module | Primary Responsibility | Allowed Core Actions | Architectural No-Go Zone |
 | --- | --- | --- | --- |
-| `main.py` | Application lifecycle and dependency assembly | Initialize Redis, Kafka, and optional auth components; wire the app; handle graceful shutdown | No business decisions and no JSON parsing |
+| `main.py` | Process entrypoint and shutdown orchestration | Load settings; configure logging; `create_runtime_bundle`; parallel Redis/Kafka startup checks; run Uvicorn; on exit, `close_all` + `flush` then `close_runtime_bundle` | No dependency graph assembly details; no per-message JSON parsing |
+| `service_runtime.py` | `RuntimeBundle` assembly and teardown | `create_runtime_bundle`, `build_web_app`, `create_uvicorn_server`, `close_runtime_bundle` | No WebSocket message loop; no orchestrator business rules beyond wiring |
 | `config/` | Environment-backed settings and logging bootstrap | Load and validate `Settings` (Pydantic Settings / `.env`); derive local defaults vs. deployed required keys; configure structlog and stdlib logging (`LOG_LEVEL`, `LOG_FORMAT`) | No WebSocket or protocol handling; no Redis, Kafka, or orchestration calls |
-| `auth/` | Handshake authentication boundary | Validate `Authorization: Bearer <JWT>` during handshake and expose the authenticated subject to the transport scope | No ownership claims, no sequence advancement, and no Kafka/orchestrator calls |
-| `schemas/` | Protocol contract and validation layer | Validate fields, types, timestamps, and business rules; build standard responses | No network I/O and no data-store calls |
+| `auth/` | Handshake authentication boundary | Validate `Authorization: Bearer <JWT>` during handshake and expose the authenticated subject to the transport scope; `auth/runtime.py` builds the backend from settings | No ownership claims, no sequence advancement, and no Kafka/orchestrator calls |
+| `schemas/` | Protocol contract and validation layer | Validate fields, types, timestamps, and business rules; build standard responses; `error_codes.py` / `error_scenarios.py` map contract codes to HTTP/WS close behavior | No network I/O and no data-store calls |
 | `converter/` | Kafka outbound conversion layer | Build `KafkaOutboundMessage` from validated `InboundMessage`, set `enrich.eventProduceTimestamp` immediately before `producer.send`, and validate outbound schema | Must not perform network I/O or mutate caller input |
 | `utils/` | Shared utility helpers | Provide reusable pure helpers such as canonical UTC timestamp formatting | No business orchestration and no network/data-store I/O |
-| `transport/` | WebSocket ingress layer | Handshake admission, connection keepalive, protocol consistency checks, and error mapping | No business orchestration, state advancement, or downstream delivery |
+| `transport/` | WebSocket ingress layer | `app.py`: handshake admission ASGI middleware and `create_app` factory; `session.py`: per-connection receive loop, schema/consistency checks, ERROR frames and close codes; `registry.py`: active sockets; `metrics.py`: runtime counters | No embedded two-phase commit or Redis/Kafka logic beyond delegating to the orchestrator and shared backends |
 | `redis/ownership_guard.py` | Conversation ownership control | Claim, refresh, and release send ownership for a conversation | No sequence advancement, field validation, or message delivery |
+| `redis/runtime.py` | Redis client and guard factories | Shared async Redis client, `create_sequence_state_machine`, `create_ownership_guard`, ordered `close_redis_runtime` | No WebSocket or Kafka calls |
 | `redis/sequence_state_machine.py` | Sequence state machine | Atomic Lua pre-check and state advancement; manage active and final TTL | No Kafka awareness and no downstream business logic |
-| `producer/` | Kafka delivery layer | Async send, partition routing, and send-timeout handling | Must not mutate the original message payload |
+| `producer/` | Kafka delivery layer | Async send, partition routing, and send-timeout handling; `producer/runtime.py` builds the producer from settings | Must not mutate the original message payload |
 | `orchestrator/` | Two-phase commit orchestration | Call state pre-check, invoke Kafka send, commit state, and return ACK | Depends only on `protocols.py` abstractions, not concrete implementations |
 
 ### 3.2 Technology Stack and Concurrency Model
@@ -411,9 +413,9 @@ The system does not rely on a distributed transaction manager. Instead, it achie
 
 | Phase | Operation |
 | --- | --- |
-| **Prepare** | Lua pre-check verifies that `payload.sequenceNumber` matches `ods-dev:realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` without incrementing it |
+| **Prepare** | Lua pre-check verifies that `payload.sequenceNumber` matches `{REDIS_SEQUENCE_STATE_KEY_PREFIX}:{conversationId}` without incrementing it |
 | **Persistence** | Converter-assembled Kafka value, then Kafka write keyed by `conversationId`, with `acks=all` |
-| **Commit** | After Kafka ACK, increment `ods-dev:realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` |
+| **Commit** | After Kafka ACK, increment `{REDIS_SEQUENCE_STATE_KEY_PREFIX}:{conversationId}` |
 | **ACK** | Return `TRANSCRIPT_ACK` or `EOL_ACK` based on the processed event |
 
 ### 3.6 Container Replacement and Graceful Shutdown
@@ -453,8 +455,8 @@ The full Kafka write contract is documented in [api-contract.md](api-contract.md
 
 | Item | Configuration | Description |
 | --- | --- | --- |
-| Sequence state key | `ods-dev:realtime-transcribe-service:expect-transcript-seq-num:{conversationId}` | Stores the next expected `sequenceNumber` |
-| Ownership guard key | `ods-dev:realtime-transcribe-service:conversation-owner:{conversationId}` | Enforces the single-sender rule |
+| Sequence state key | `{REDIS_SEQUENCE_STATE_KEY_PREFIX}:{conversationId}` | Stores the next expected `sequenceNumber` (prefix is settings-driven, not environment-specific in code) |
+| Ownership guard key | `{REDIS_OWNERSHIP_GUARD_KEY_PREFIX}:{conversationId}` | Enforces the single-sender rule |
 | Value | Sequence state: integer string; ownership guard: ownership token | Used for sequence advancement and sender ownership respectively |
 | Update strategy | Lua pre-check plus commit, and `SET NX`-based lease renewal | Keeps sequence control and single-sender enforcement atomic enough for the use case |
 | TTL | Ownership guard TTL defaults to 30 seconds; active TTL defaults to 3600 seconds; final TTL defaults to 60 seconds | All values are environment-configurable |

@@ -25,7 +25,7 @@ async def test_get_client_lazy_and_close_calls_aclose():
             max_connections=5,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
         )
         assert sm._client is None
         r = await sm.prepare("c1", 0)
@@ -45,7 +45,7 @@ async def test_close_skips_aclose_for_injected_client():
         client=injected,
         active_ttl_sec=3600,
         final_ttl_sec=60,
-        key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
+        key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
     )
     await sm.close()
     injected.aclose.assert_not_awaited()
@@ -66,7 +66,7 @@ async def test_prepare_reload_script_on_noscript():
             redis_url="redis://127.0.0.1:6379/0",
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
         )
         r = await sm.prepare("c1", 0)
         assert r == PrepareOutcome(PrepareResult.PRE_CHECK_OK, expected_sequence=0)
@@ -87,7 +87,7 @@ async def test_prepare_parses_expected_sequence_from_lua_tuple():
             redis_url="redis://127.0.0.1:6379/0",
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
         )
         r = await sm.prepare("c1", 5)
         assert r == PrepareOutcome(PrepareResult.OUT_OF_ORDER, expected_sequence=3)
@@ -121,7 +121,7 @@ async def test_prepare_raises_on_unexpected_lua_result_shape():
             redis_url="redis://127.0.0.1:6379/0",
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
         )
         with pytest.raises(ValueError, match="Unexpected prepare result shape"):
             await sm.prepare("c1", 5)
@@ -140,7 +140,7 @@ async def test_prepare_raises_on_unexpected_lua_result_type():
             redis_url="redis://127.0.0.1:6379/0",
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
         )
         with pytest.raises(ValueError, match="Unexpected prepare result type"):
             await sm.prepare("c1", 5)

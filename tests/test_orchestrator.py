@@ -14,7 +14,7 @@ from realtime_transcribe_service.converter.kafka_message_converter import KafkaM
 from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
 from realtime_transcribe_service.redis.protocols import PrepareOutcome, PrepareResult
 from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
-from realtime_transcribe_service.schemas.errors import ErrorCode, WsCloseCode
+from realtime_transcribe_service.schemas.error_scenarios import ProtocolErrorScenario
 
 
 @pytest.fixture
@@ -62,7 +62,14 @@ class TestScenarioA:
         assert result.response["payload"]["sequenceNumber"] == 0
         assert result.disconnect is False
         assert result.timings_ms is not None
-        assert {"validate_ms", "prepare_ms", "kafka_send_ms", "commit_ms", "ack_build_ms", "orchestrator_ms"} <= set(result.timings_ms)
+        assert {
+            "validate_ms",
+            "prepare_ms",
+            "kafka_send_ms",
+            "redis_commit_ms",
+            "ack_build_ms",
+            "orchestrator_ms",
+        } <= set(result.timings_ms)
         mock_sm.prepare.assert_awaited_once()
         mock_converter.to_kafka_payload.assert_called_once()
         mock_producer.send.assert_awaited_once()
@@ -303,7 +310,7 @@ class TestScenarioE:
             client=client,
             active_ttl_sec=3600,
             final_ttl_sec=60,
-            key_prefix="ods-dev:realtime-transcribe-service:expect-transcript-seq-num",
+            key_prefix="realtime-transcribe-service:expect-transcript-seq-num",
         )
         producer = AsyncMock()
         producer.send = AsyncMock(side_effect=[RuntimeError("broker down"), None])
@@ -326,7 +333,7 @@ class TestScenarioE:
                 assert first.close_code == 1013
 
                 cid = valid_ongoing_msg["metaData"]["conversationId"]
-                key = f"ods-dev:realtime-transcribe-service:expect-transcript-seq-num:{cid}"
+                key = f"realtime-transcribe-service:expect-transcript-seq-num:{cid}"
                 assert await client.get(key) == "0"
 
                 second = await orchestrator.handle_message(valid_ongoing_msg)
@@ -366,72 +373,83 @@ class TestClassifyValidationError:
     def test_branch_json(self):
         e = MagicMock()
         e.errors.return_value = [{"type": "json_invalid"}]
-        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
-        assert c == ErrorCode.E1001
-        assert w == WsCloseCode.INVALID_PAYLOAD
+        scenario = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert scenario is ProtocolErrorScenario.INVALID_JSON
+        assert scenario.error_code.value == "E1001"
+        assert scenario.require_ws_close_code() == 1007
 
     def test_branch_missing(self):
         e = MagicMock()
         e.errors.return_value = [{"type": "missing"}]
-        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
-        assert c == ErrorCode.E1003
+        scenario = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert scenario is ProtocolErrorScenario.MISSING_REQUIRED_FIELD
+        assert scenario.error_code.value == "E1003"
 
     def test_branch_enum(self):
         e = MagicMock()
         e.errors.return_value = [{"type": "enum"}]
-        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
-        assert c == ErrorCode.E1002
+        scenario = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert scenario is ProtocolErrorScenario.INVALID_ENUM_VALUE
+        assert scenario.error_code.value == "E1002"
 
     def test_branch_literal(self):
         e = MagicMock()
         e.errors.return_value = [{"type": "literal_error"}]
-        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
-        assert c == ErrorCode.E1002
+        scenario = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert scenario is ProtocolErrorScenario.INVALID_ENUM_VALUE
+        assert scenario.error_code.value == "E1002"
 
     def test_branch_intish_without_parsing_substring(self):
         """Avoid putting the substring ``parsing`` in the type so it does not hit the JSON branch."""
         e = MagicMock()
         e.errors.return_value = [{"type": "int_type"}]
-        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
-        assert c == ErrorCode.E1004
+        scenario = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert scenario is ProtocolErrorScenario.INVALID_FIELD_TYPE
+        assert scenario.error_code.value == "E1004"
 
     def test_branch_datetime_without_parsing_substring(self):
         e = MagicMock()
         e.errors.return_value = [{"type": "clock_isoformat"}]
-        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
-        assert c == ErrorCode.E1005
+        scenario = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert scenario is ProtocolErrorScenario.INVALID_TIMESTAMP_FORMAT
+        assert scenario.error_code.value == "E1005"
 
     def test_branch_datetime_with_parsing_substring(self):
         e = MagicMock()
         e.errors.return_value = [{"type": "datetime_from_date_parsing"}]
-        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
-        assert c == ErrorCode.E1005
+        scenario = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert scenario is ProtocolErrorScenario.INVALID_TIMESTAMP_FORMAT
+        assert scenario.error_code.value == "E1005"
 
     def test_branch_bool_in_type(self):
         e = MagicMock()
         e.errors.return_value = [{"type": "boolean_error"}]
-        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
-        assert c == ErrorCode.E1004
+        scenario = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert scenario is ProtocolErrorScenario.INVALID_FIELD_TYPE
+        assert scenario.error_code.value == "E1004"
 
     def test_branch_extra_forbidden(self):
         e = MagicMock()
         e.errors.return_value = [{"type": "extra_forbidden"}]
-        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
-        assert c == ErrorCode.E1004
-        assert w == WsCloseCode.POLICY_VIOLATION
+        scenario = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert scenario is ProtocolErrorScenario.INVALID_FIELD_TYPE
+        assert scenario.error_code.value == "E1004"
+        assert scenario.require_ws_close_code() == 1008
 
     def test_branch_value_error(self):
         e = MagicMock()
         e.errors.return_value = [{"type": "value_error"}]
-        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
-        assert c == ErrorCode.E1009
-        assert w == WsCloseCode.POLICY_VIOLATION
+        scenario = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert scenario is ProtocolErrorScenario.BUSINESS_RULE_VIOLATION
+        assert scenario.error_code.value == "E1009"
+        assert scenario.require_ws_close_code() == 1008
 
     def test_fallback_no_match(self):
         e = MagicMock()
         e.errors.return_value = [{"type": "other"}]
-        c, w = TwoPhaseOrchestrator._classify_validation_error(e)
-        assert c == ErrorCode.E1003
+        scenario = TwoPhaseOrchestrator._classify_validation_error(e)
+        assert scenario is ProtocolErrorScenario.MISSING_REQUIRED_FIELD
+        assert scenario.error_code.value == "E1003"
 
 
 class TestScenarioG:

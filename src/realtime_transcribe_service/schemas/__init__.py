@@ -1,7 +1,15 @@
 """Schema contract layer — strongly typed Pydantic validation with no I/O."""
 
-from realtime_transcribe_service.schemas.errors import ErrorCode, WsCloseCode, close_code_for_error
+from realtime_transcribe_service.schemas.error_codes import (
+    ErrorCode,
+    WsCloseCode,
+    close_code_for_error,
+)
 from realtime_transcribe_service.schemas.events import EventType, ResponseEventType, Speaker
+from realtime_transcribe_service.schemas.error_scenarios import (
+    ProtocolErrorScenario,
+    ProtocolErrorSpec,
+)
 from realtime_transcribe_service.schemas.request import (
     InboundMessage,
     MetaData,
@@ -21,6 +29,8 @@ __all__ = [
     "ErrorCode",
     "WsCloseCode",
     "close_code_for_error",
+    "ProtocolErrorScenario",
+    "ProtocolErrorSpec",
     "EventType",
     "ResponseEventType",
     "InboundMessage",

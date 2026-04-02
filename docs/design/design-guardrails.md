@@ -89,7 +89,8 @@ These tests directly protect the design choice of preserving state across discon
 
 Existing tests lock the following order:
 
-- `close_all -> flush -> close producer/redis_sequence_state_machine/redis_ownership_guard`
+- **While draining:** `registry.close_all` (WebSocket **1001**) -> `producer.flush` -> stop accepting new work / exit the server task as implemented in `main.py`
+- **Process teardown:** `close_runtime_bundle` closes the Kafka **producer** first, then `close_redis_runtime` (sequence state machine, ownership guard, shared Redis client) as implemented in `service_runtime.py` / `redis/runtime.py`
 
 These tests protect the shutdown sequence itself, not just the fact that the methods were called.
 
@@ -123,6 +124,7 @@ The matrix covers the following key scenarios:
 - `conversationId` mismatch -> `E1009 + 1008`
 - business-rule violation -> `E1009 + 1008`
 - concurrent sender conflict at handshake -> HTTP `403` + `E1009`
+- ownership guard store error at handshake (same application code **E1008** as downstream unavailable) -> HTTP `503` + `E1008` (see [protocol-scenario-matrix.md](protocol-scenario-matrix.md) **E-11** pre-handshake row)
 
 These tests intentionally avoid implementation detail checks and instead protect the protocol contract directly.
 

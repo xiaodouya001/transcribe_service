@@ -8,20 +8,21 @@ from __future__ import annotations
 import asyncio
 import time
 
-import structlog
 from pydantic import ValidationError
 
+from realtime_transcribe_service.config.logging_config import get_logger
 from realtime_transcribe_service.converter.protocols import KafkaMessageConverterBackend
 from realtime_transcribe_service.constants import MAX_ERROR_DETAILS_LEN, MAX_ERROR_MESSAGE_LEN
 from realtime_transcribe_service.orchestrator.protocols import OrchestratorResult
 from realtime_transcribe_service.producer.protocols import ProducerBackend
 from realtime_transcribe_service.redis.protocols import PrepareResult, SequenceStateMachineBackend
-from realtime_transcribe_service.schemas.errors import ErrorCode, WsCloseCode
+from realtime_transcribe_service.schemas.error_codes import WsCloseCode
+from realtime_transcribe_service.schemas.error_scenarios import ProtocolErrorScenario
 from realtime_transcribe_service.schemas.events import EventType
 from realtime_transcribe_service.schemas.request import InboundMessage
-from realtime_transcribe_service.schemas.response import build_eol_ack, build_error, build_transcript_ack
+from realtime_transcribe_service.schemas.response import build_eol_ack, build_transcript_ack
 
-log = structlog.get_logger(__name__)
+log = get_logger(__name__)
 
 
 class TwoPhaseOrchestrator:
@@ -78,20 +79,19 @@ class TwoPhaseOrchestrator:
             return await self._process(raw_json, conversation_id)
         except Exception as exc:
             # Scenario F: unhandled exception -> E1007 + disconnect 1011
+            scenario = ProtocolErrorScenario.ORCHESTRATOR_INTERNAL_EXCEPTION
             log.exception(
-                "Orchestrator: Unhandled exception",
+                scenario.default_log_reason,
                 conversation_id=conversation_id,
                 error=str(exc),
             )
             return OrchestratorResult(
-                response=build_error(
-                    conversation_id=conversation_id,
-                    code=ErrorCode.E1007.value,
-                    message="Internal server error",
+                response=scenario.build_response(
+                    conversation_id,
                     details=str(exc)[:MAX_ERROR_MESSAGE_LEN],
                 ),
                 disconnect=True,
-                close_code=WsCloseCode.INTERNAL_ERROR,
+                close_code=scenario.require_ws_close_code(),
                 timings_ms={"orchestrator_ms": self._elapsed_ms(started_at)},
             )
 
@@ -108,23 +108,21 @@ class TwoPhaseOrchestrator:
             msg = InboundMessage.model_validate(raw_json)
         except ValidationError as e:
             timings["validate_ms"] = self._elapsed_ms(validate_started_at)
-            error_code, close_code = self._classify_validation_error(e)
+            scenario = self._classify_validation_error(e)
             log.warning(
-                "Orchestrator: Schema validation failed",
+                scenario.default_log_reason,
                 conversation_id=conversation_id,
-                error_code=error_code.value,
-                close_code=int(close_code),
+                error_code=scenario.error_code.value,
+                close_code=int(scenario.require_ws_close_code()),
                 errors=str(e),
             )
             return OrchestratorResult(
-                response=build_error(
-                    conversation_id=conversation_id,
-                    code=error_code.value,
-                    message="Validation failed",
+                response=scenario.build_response(
+                    conversation_id,
                     details=str(e)[:MAX_ERROR_DETAILS_LEN],
                 ),
                 disconnect=True,
-                close_code=close_code,
+                close_code=scenario.require_ws_close_code(),
                 timings_ms=self._finalize_timings(timings, process_started_at),
             )
         timings["validate_ms"] = self._elapsed_ms(validate_started_at)
@@ -166,24 +164,23 @@ class TwoPhaseOrchestrator:
 
         # Scenario C: OUT_OF_ORDER -> E1006 + disconnect 1008
         if prepare.status == PrepareResult.OUT_OF_ORDER:
+            scenario = ProtocolErrorScenario.SEQUENCE_OUT_OF_ORDER
             log.warning(
-                "Orchestrator: Sequence number out of order",
+                scenario.default_log_reason,
                 conversation_id=cid,
                 seq=seq,
                 actual_sequence=seq,
                 expected_sequence=prepare.expected_sequence,
-                error_code=ErrorCode.E1006.value,
-                close_code=int(WsCloseCode.POLICY_VIOLATION),
+                error_code=scenario.error_code.value,
+                close_code=int(scenario.require_ws_close_code()),
             )
             return OrchestratorResult(
-                response=build_error(
-                    conversation_id=cid,
-                    code=ErrorCode.E1006.value,
-                    message="Sequence number out of order",
-                    details=f"sequenceNumber={seq} is not expected",
+                response=scenario.build_response(
+                    cid,
+                    details=scenario.format_details(sequence_number=seq),
                 ),
                 disconnect=True,
-                close_code=WsCloseCode.POLICY_VIOLATION,
+                close_code=scenario.require_ws_close_code(),
                 timings_ms=self._finalize_timings(timings, process_started_at),
             )
 
@@ -198,25 +195,22 @@ class TwoPhaseOrchestrator:
         except asyncio.TimeoutError:
             timings["kafka_send_ms"] = self._elapsed_ms(kafka_send_started_at)
             # Scenario E: Kafka timeout -> E1011 + no commit + disconnect 1013
+            scenario = ProtocolErrorScenario.DOWNSTREAM_TIMEOUT
             log.error(
-                "Orchestrator: Kafka timed out",
+                scenario.default_log_reason,
                 conversation_id=cid,
                 seq=seq,
             )
             return OrchestratorResult(
-                response=build_error(
-                    conversation_id=cid,
-                    code=ErrorCode.E1011.value,
-                    message="Downstream timeout",
-                    details="Kafka send timed out",
-                ),
+                response=scenario.build_response(cid),
                 disconnect=True,
-                close_code=WsCloseCode.TRY_AGAIN_LATER,
+                close_code=scenario.require_ws_close_code(),
                 timings_ms=self._finalize_timings(timings, process_started_at),
             )
         except Exception as e:
             timings["kafka_send_ms"] = self._elapsed_ms(kafka_send_started_at)
             # Scenario E: Kafka failure -> E1008 + no commit + disconnect 1013
+            scenario = ProtocolErrorScenario.DOWNSTREAM_UNAVAILABLE
             log.error(
                 "Orchestrator: Kafka send failed",
                 conversation_id=cid,
@@ -224,24 +218,22 @@ class TwoPhaseOrchestrator:
                 error=str(e),
             )
             return OrchestratorResult(
-                response=build_error(
-                    conversation_id=cid,
-                    code=ErrorCode.E1008.value,
-                    message="Downstream unavailable",
+                response=scenario.build_response(
+                    cid,
                     details=str(e)[:MAX_ERROR_MESSAGE_LEN],
                 ),
                 disconnect=True,
-                close_code=WsCloseCode.TRY_AGAIN_LATER,
+                close_code=scenario.require_ws_close_code(),
                 timings_ms=self._finalize_timings(timings, process_started_at),
             )
         timings["kafka_send_ms"] = self._elapsed_ms(kafka_send_started_at)
 
         # ------------------------------------------------------------------
-        # 4. Commit — advance Redis state
+        # 4. Redis sequence commit — advance expected seq in Redis (after Kafka OK)
         # ------------------------------------------------------------------
         commit_started_at = time.perf_counter()
         await self._sm.commit(cid, seq)
-        timings["commit_ms"] = self._elapsed_ms(commit_started_at)
+        timings["redis_commit_ms"] = self._elapsed_ms(commit_started_at)
 
         # ------------------------------------------------------------------
         # 5. SESSION_COMPLETE -> cleanup + proactive disconnect 1000 (Scenario G)
@@ -290,23 +282,23 @@ class TwoPhaseOrchestrator:
         )
 
     @staticmethod
-    def _classify_validation_error(e: ValidationError) -> tuple[ErrorCode, WsCloseCode]:
-        """Map a Pydantic ``ValidationError`` to ``(application_error_code, ws_close_code)``."""
+    def _classify_validation_error(e: ValidationError) -> ProtocolErrorScenario:
+        """Map a Pydantic ``ValidationError`` to the protocol error scenario."""
         for err in e.errors():
             err_type = err.get("type", "")
             if "datetime" in err_type or "time" in err_type or "iso" in err_type:
-                return ErrorCode.E1005, WsCloseCode.POLICY_VIOLATION
+                return ProtocolErrorScenario.INVALID_TIMESTAMP_FORMAT
             if "json" in err_type:
-                return ErrorCode.E1001, WsCloseCode.INVALID_PAYLOAD
+                return ProtocolErrorScenario.INVALID_JSON
             if "missing" in err_type:
-                return ErrorCode.E1003, WsCloseCode.POLICY_VIOLATION
+                return ProtocolErrorScenario.MISSING_REQUIRED_FIELD
             if "enum" in err_type or "literal" in err_type:
-                return ErrorCode.E1002, WsCloseCode.POLICY_VIOLATION
+                return ProtocolErrorScenario.INVALID_ENUM_VALUE
             if err_type == "extra_forbidden":
-                return ErrorCode.E1004, WsCloseCode.POLICY_VIOLATION
+                return ProtocolErrorScenario.INVALID_FIELD_TYPE
             if "type" in err_type or "int" in err_type or "bool" in err_type:
-                return ErrorCode.E1004, WsCloseCode.POLICY_VIOLATION
+                return ProtocolErrorScenario.INVALID_FIELD_TYPE
             if err_type == "value_error":
-                return ErrorCode.E1009, WsCloseCode.POLICY_VIOLATION
-        return ErrorCode.E1003, WsCloseCode.POLICY_VIOLATION
+                return ProtocolErrorScenario.BUSINESS_RULE_VIOLATION
+        return ProtocolErrorScenario.MISSING_REQUIRED_FIELD
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,9 +11,8 @@ import pytest
 from pydantic import ValidationError
 
 import realtime_transcribe_service.main as main_mod
-from realtime_transcribe_service.auth.jwt_bearer import JwtBearerAuthBackend
-from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
 from realtime_transcribe_service.config.settings import Settings
+from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
 
 
 def _settings(**kwargs: Any) -> Settings:
@@ -20,17 +20,43 @@ def _settings(**kwargs: Any) -> Settings:
     return Settings(**kwargs)  # pyright: ignore[reportCallIssue]
 
 
-def _mock_settings_kafka_local(settings: MagicMock) -> None:
-    """``main.run()`` calls ``kafka_connection_for_mode``; MagicMock.kafka_mode must be concrete."""
-    settings.kafka_mode = "local"
-    settings.kafka_aws_region = None
-    settings.kafka_ssl_ca_file = None
-    settings.kafka_aws_debug_creds = False
-    settings.kafka_linger_ms = 1
-    settings.kafka_batch_size = 32768
-    settings.redis_username = None
-    settings.redis_password = None
-    settings.redis_ssl_check_hostname = False
+def _shared_redis_client() -> MagicMock:
+    client = MagicMock()
+    client.ping = AsyncMock()
+    client.aclose = AsyncMock()
+    return client
+
+
+def _runtime_bundle(**overrides: Any) -> SimpleNamespace:
+    shared_redis_client = overrides.pop("shared_redis_client", _shared_redis_client())
+    sequence_state_machine = overrides.pop(
+        "sequence_state_machine", MagicMock(close=AsyncMock())
+    )
+    ownership_guard = overrides.pop("ownership_guard", MagicMock(close=AsyncMock()))
+    producer = overrides.pop("producer", MagicMock())
+    if not isinstance(getattr(producer, "flush", None), AsyncMock):
+        producer.flush = AsyncMock()
+    if not isinstance(getattr(producer, "close", None), AsyncMock):
+        producer.close = AsyncMock()
+    shutdown = overrides.pop("shutdown", GracefulShutdown(stop_timeout=1))
+    registry = overrides.pop("registry", MagicMock(close_all=AsyncMock()))
+    server = overrides.pop("server", MagicMock())
+    should_exit = getattr(server, "should_exit", False)
+    server.should_exit = False if isinstance(should_exit, MagicMock) else should_exit
+    defaults = {
+        "shared_redis_client": shared_redis_client,
+        "sequence_state_machine": sequence_state_machine,
+        "ownership_guard": ownership_guard,
+        "producer": producer,
+        "orchestrator": overrides.pop("orchestrator", MagicMock()),
+        "shutdown": shutdown,
+        "registry": registry,
+        "auth_backend": overrides.pop("auth_backend", None),
+        "app": overrides.pop("app", object()),
+        "server": server,
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
 
 
 @pytest.mark.asyncio
@@ -39,10 +65,7 @@ async def test_check_redis_success():
     fake.ping = AsyncMock()
     fake.aclose = AsyncMock()
     s = _settings(_env_file=None, app_env="local")
-    with patch(
-        "realtime_transcribe_service.redis.async_client.create_async_redis_client",
-        return_value=fake,
-    ):
+    with patch.object(main_mod, "create_shared_redis_client", return_value=fake):
         await main_mod._check_redis(s)
     fake.ping.assert_awaited_once()
     fake.aclose.assert_awaited_once()
@@ -54,10 +77,7 @@ async def test_check_redis_failure():
     fake.ping = AsyncMock(side_effect=RuntimeError("down"))
     fake.aclose = AsyncMock()
     s = _settings(_env_file=None, app_env="local", redis_url="redis://x")
-    with patch(
-        "realtime_transcribe_service.redis.async_client.create_async_redis_client",
-        return_value=fake,
-    ):
+    with patch.object(main_mod, "create_shared_redis_client", return_value=fake):
         with pytest.raises(RuntimeError, match="Redis"):
             await main_mod._check_redis(s)
     fake.aclose.assert_awaited_once()
@@ -74,15 +94,21 @@ async def test_check_redis_failure_does_not_leak_password():
         redis_url="redis://127.0.0.1:6379/0",
         redis_password="topsecret",
     )
-    with patch(
-        "realtime_transcribe_service.redis.async_client.create_async_redis_client",
-        return_value=fake,
-    ):
+    with patch.object(main_mod, "create_shared_redis_client", return_value=fake):
         with pytest.raises(RuntimeError) as ei:
             await main_mod._check_redis(s)
     msg = str(ei.value)
     assert "topsecret" not in msg
     fake.aclose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_check_redis_with_injected_client_does_not_close():
+    fake = _shared_redis_client()
+    s = _settings(_env_file=None, app_env="local", redis_url="redis://x")
+    await main_mod._check_redis(s, client=fake)
+    fake.ping.assert_awaited_once()
+    fake.aclose.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -154,113 +180,42 @@ async def test_run_invalid_settings_fail_before_startup_checks(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_graceful_shutdown_path(monkeypatch):
-    """Exercise run(): server serve loop, shutdown, registry, producer, sequence state machine."""
+    """Exercise run(): startup checks, serve loop, graceful stop, final cleanup."""
     settings = MagicMock()
     settings.redis_url = "redis://127.0.0.1:6379/0"
     settings.log_level = "INFO"
     settings.log_format = "json"
     settings.kafka_bootstrap_servers = "127.0.0.1:9092"
-    settings.kafka_topic = "t"
-    settings.kafka_compression_type = "none"
-    settings.kafka_send_timeout_sec = 2.0
-    settings.redis_max_connections = 10
-    settings.redis_active_ttl_sec = 3600
-    settings.redis_final_ttl_sec = 60
-    settings.stop_timeout = 120
-    settings.http_host = "127.0.0.1"
     settings.http_port = 18080
-    settings.http_backlog = 4096
-    settings.http_enable_docs = True
     settings.kafka_startup_timeout_sec = 5.0
-    settings.ws_ping_interval = 20.0
-    settings.ws_ping_timeout = 21.0
-    settings.ws_max_connections = 0
-    settings.log_ws_error_frames = False
-    settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
-    settings.ws_ownership_guard_refresh_interval_sec = 5.0
-    settings.auth_enabled = True
-    settings.auth_jwt_signing_material = "signing-material"
-    settings.auth_jwt_algorithm = "HS256"
-    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
+    shutdown_inst = GracefulShutdown(stop_timeout=1)
+    bundle = _runtime_bundle(shutdown=shutdown_inst)
 
-    sm = MagicMock()
-    sm.close = AsyncMock()
-    monkeypatch.setattr(main_mod, "RedisSequenceStateMachine", lambda **kw: sm)
+    redis_check = AsyncMock()
+    kafka_check = AsyncMock()
+    create_runtime_bundle = AsyncMock(return_value=bundle)
+    close_runtime_bundle = AsyncMock()
+    monkeypatch.setattr(main_mod, "create_runtime_bundle", create_runtime_bundle)
+    monkeypatch.setattr(main_mod, "close_runtime_bundle", close_runtime_bundle)
+    monkeypatch.setattr(main_mod, "_check_redis", redis_check)
+    monkeypatch.setattr(main_mod, "_check_kafka", kafka_check)
 
-    owner = MagicMock()
-    owner.close = AsyncMock()
-    monkeypatch.setattr(main_mod, "RedisConversationOwnershipGuard", lambda **kw: owner)
-
-    prod = MagicMock()
-    prod.flush = AsyncMock()
-    prod.close = AsyncMock()
-    monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: prod)
-
-    orch = MagicMock()
-    orchestrator_kwargs: dict = {}
-
-    def make_orchestrator(**kw):
-        orchestrator_kwargs.update(kw)
-        return orch
-
-    monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", make_orchestrator)
-
-    shutdown_inst = main_mod.GracefulShutdown(stop_timeout=1)
-
-    def make_shutdown(**kw):
-        return shutdown_inst
-
-    monkeypatch.setattr(main_mod, "GracefulShutdown", make_shutdown)
-
-    reg = MagicMock()
-    reg.close_all = AsyncMock()
-    monkeypatch.setattr(main_mod, "ConnectionRegistry", lambda: reg)
-
-    app_obj = object()
-    create_app_kwargs: dict = {}
-
-    def capture_create_app(**kw):
-        create_app_kwargs.update(kw)
-        return app_obj
-
-    monkeypatch.setattr(main_mod, "create_app", capture_create_app)
-
-    monkeypatch.setattr(main_mod, "_check_redis", AsyncMock())
-    monkeypatch.setattr(main_mod, "_check_kafka", AsyncMock())
-
-    server_inst = MagicMock()
-    server_inst.should_exit = False
     serve_started = asyncio.Event()
 
     async def fake_serve():
         serve_started.set()
-        while not server_inst.should_exit:
+        while not bundle.server.should_exit:
             await asyncio.sleep(0.01)
 
-    server_inst.serve = fake_serve
-
-    config_calls: list[tuple[object, dict]] = []
-
-    def capture_config(app, **kw):
-        config_calls.append((app, kw))
-        return MagicMock(app=app)
-
-    def server_factory(cfg):
-        assert cfg.app is app_obj
-        return server_inst
-
-    monkeypatch.setattr(main_mod.uvicorn, "Config", capture_config)
-    monkeypatch.setattr(main_mod.uvicorn, "Server", server_factory)
+    bundle.server.serve = fake_serve
 
     async def stop_soon():
         await serve_started.wait()
         await asyncio.sleep(0.02)
-        await shutdown_inst._on_signal()
+        await bundle.shutdown._on_signal()
 
     stop_task = asyncio.create_task(stop_soon())
     try:
@@ -268,27 +223,13 @@ async def test_run_graceful_shutdown_path(monkeypatch):
     finally:
         await asyncio.wait([stop_task], timeout=1.0)
 
-    assert len(config_calls) == 1
-    _app, kw = config_calls[0]
-    assert _app is app_obj
-    assert kw["ws"] == "websockets"
-    assert kw["ws_ping_interval"] == 20.0
-    assert kw["ws_ping_timeout"] == 21.0
-    assert kw["backlog"] == 4096
-    assert kw["log_config"] is None
-    assert kw["log_level"] == "info"
-    assert create_app_kwargs["http_enable_docs"] is True
-    assert isinstance(orchestrator_kwargs["message_converter"], KafkaMessageConverter)
-    assert isinstance(create_app_kwargs["auth_backend"], JwtBearerAuthBackend)
-    assert create_app_kwargs["redis_username"] is None
-    assert create_app_kwargs["redis_password"] is None
-    assert create_app_kwargs["redis_ssl_check_hostname"] is False
-
-    reg.close_all.assert_awaited()
-    prod.flush.assert_awaited()
-    prod.close.assert_awaited()
-    sm.close.assert_awaited()
-    owner.close.assert_awaited()
+    create_runtime_bundle.assert_awaited_once_with(settings)
+    assert redis_check.await_args is not None
+    assert redis_check.await_args.kwargs["client"] is bundle.shared_redis_client
+    kafka_check.assert_awaited_once_with(bundle.producer, settings.kafka_startup_timeout_sec)
+    bundle.registry.close_all.assert_awaited_once()
+    bundle.producer.flush.assert_awaited_once()
+    close_runtime_bundle.assert_awaited_once_with(bundle)
 
 
 @pytest.mark.asyncio
@@ -298,93 +239,50 @@ async def test_run_graceful_shutdown_order(monkeypatch):
     settings.log_level = "INFO"
     settings.log_format = "json"
     settings.kafka_bootstrap_servers = "127.0.0.1:9092"
-    settings.kafka_topic = "t"
-    settings.kafka_compression_type = "none"
-    settings.kafka_send_timeout_sec = 2.0
-    settings.redis_max_connections = 10
-    settings.redis_active_ttl_sec = 3600
-    settings.redis_final_ttl_sec = 60
-    settings.stop_timeout = 120
-    settings.http_host = "127.0.0.1"
     settings.http_port = 18083
-    settings.http_backlog = 4096
     settings.kafka_startup_timeout_sec = 5.0
-    settings.ws_ping_interval = 20.0
-    settings.ws_ping_timeout = 21.0
-    settings.ws_max_connections = 0
-    settings.log_ws_error_frames = False
-    settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
-    settings.ws_ownership_guard_refresh_interval_sec = 5.0
-    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
 
     calls: list[str] = []
-
-    sm = MagicMock()
-
-    async def sm_close():
-        calls.append("sequence_state_machine.close")
-
-    sm.close = AsyncMock(side_effect=sm_close)
-    monkeypatch.setattr(main_mod, "RedisSequenceStateMachine", lambda **kw: sm)
-
-    owner = MagicMock()
-
-    async def owner_close():
-        calls.append("ownership_guard.close")
-
-    owner.close = AsyncMock(side_effect=owner_close)
-    monkeypatch.setattr(main_mod, "RedisConversationOwnershipGuard", lambda **kw: owner)
-
-    prod = MagicMock()
-
-    async def prod_flush():
-        calls.append("producer.flush")
-
-    async def prod_close():
-        calls.append("producer.close")
-
-    prod.flush = AsyncMock(side_effect=prod_flush)
-    prod.close = AsyncMock(side_effect=prod_close)
-    monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: prod)
-
-    monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: MagicMock())
-
-    shutdown_inst = main_mod.GracefulShutdown(stop_timeout=1)
-    monkeypatch.setattr(main_mod, "GracefulShutdown", lambda **kw: shutdown_inst)
-
+    shutdown_inst = GracefulShutdown(stop_timeout=1)
     reg = MagicMock()
 
     async def reg_close_all(*args, **kwargs):
         calls.append("registry.close_all")
 
     reg.close_all = AsyncMock(side_effect=reg_close_all)
-    monkeypatch.setattr(main_mod, "ConnectionRegistry", lambda: reg)
-    monkeypatch.setattr(main_mod, "create_app", lambda **kw: object())
+    prod = MagicMock()
+
+    async def prod_flush():
+        calls.append("producer.flush")
+
+    prod.flush = AsyncMock(side_effect=prod_flush)
+    bundle = _runtime_bundle(shutdown=shutdown_inst, registry=reg, producer=prod)
+    monkeypatch.setattr(
+        main_mod,
+        "create_runtime_bundle",
+        AsyncMock(return_value=bundle),
+    )
+    close_runtime_bundle = AsyncMock(side_effect=lambda _bundle: calls.append("close_runtime_bundle"))
+    monkeypatch.setattr(main_mod, "close_runtime_bundle", close_runtime_bundle)
     monkeypatch.setattr(main_mod, "_check_redis", AsyncMock())
     monkeypatch.setattr(main_mod, "_check_kafka", AsyncMock())
 
-    server_inst = MagicMock()
-    server_inst.should_exit = False
     serve_started = asyncio.Event()
 
     async def fake_serve():
         serve_started.set()
-        while not server_inst.should_exit:
+        while not bundle.server.should_exit:
             await asyncio.sleep(0.01)
 
-    server_inst.serve = fake_serve
-    monkeypatch.setattr(main_mod.uvicorn, "Config", lambda app, **kw: MagicMock(app=app))
-    monkeypatch.setattr(main_mod.uvicorn, "Server", lambda cfg: server_inst)
+    bundle.server.serve = fake_serve
 
     async def stop_soon():
         await serve_started.wait()
         await asyncio.sleep(0.02)
-        await shutdown_inst._on_signal()
+        await bundle.shutdown._on_signal()
 
     stop_task = asyncio.create_task(stop_soon())
     try:
@@ -395,9 +293,7 @@ async def test_run_graceful_shutdown_order(monkeypatch):
     assert calls == [
         "registry.close_all",
         "producer.flush",
-        "producer.close",
-        "sequence_state_machine.close",
-        "ownership_guard.close",
+        "close_runtime_bundle",
     ]
 
 
@@ -408,57 +304,27 @@ async def test_run_startup_checks_are_parallel(monkeypatch):
     settings.log_level = "INFO"
     settings.log_format = "json"
     settings.kafka_bootstrap_servers = "127.0.0.1:9092"
-    settings.kafka_topic = "t"
-    settings.kafka_compression_type = "none"
-    settings.kafka_send_timeout_sec = 2.0
-    settings.redis_max_connections = 10
-    settings.redis_active_ttl_sec = 3600
-    settings.redis_final_ttl_sec = 60
-    settings.stop_timeout = 120
-    settings.http_host = "127.0.0.1"
     settings.http_port = 18084
-    settings.http_backlog = 4096
     settings.kafka_startup_timeout_sec = 5.0
-    settings.ws_ping_interval = 20.0
-    settings.ws_ping_timeout = 21.0
-    settings.ws_max_connections = 0
-    settings.log_ws_error_frames = False
-    settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
-    settings.ws_ownership_guard_refresh_interval_sec = 5.0
-    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
-    monkeypatch.setattr(
-        main_mod, "RedisSequenceStateMachine", lambda **kw: MagicMock(close=AsyncMock())
-    )
-    monkeypatch.setattr(
-        main_mod,
-        "RedisConversationOwnershipGuard",
-        lambda **kw: MagicMock(close=AsyncMock()),
-    )
+    shutdown_inst = GracefulShutdown(stop_timeout=1)
+    bundle = _runtime_bundle(shutdown=shutdown_inst)
     monkeypatch.setattr(
         main_mod,
-        "KafkaProducer",
-        lambda **kw: MagicMock(flush=AsyncMock(), close=AsyncMock()),
+        "create_runtime_bundle",
+        AsyncMock(return_value=bundle),
     )
-    monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: MagicMock())
-
-    shutdown_inst = main_mod.GracefulShutdown(stop_timeout=1)
-    monkeypatch.setattr(main_mod, "GracefulShutdown", lambda **kw: shutdown_inst)
-    monkeypatch.setattr(
-        main_mod, "ConnectionRegistry", lambda: MagicMock(close_all=AsyncMock())
-    )
-    monkeypatch.setattr(main_mod, "create_app", lambda **kw: object())
+    monkeypatch.setattr(main_mod, "close_runtime_bundle", AsyncMock())
 
     order: list[str] = []
     redis_started = asyncio.Event()
     kafka_started = asyncio.Event()
     release_checks = asyncio.Event()
 
-    async def fake_check_redis(_settings: object) -> None:
+    async def fake_check_redis(_settings: object, *, client: object | None = None) -> None:
+        assert client is bundle.shared_redis_client
         order.append("redis-start")
         redis_started.set()
         await kafka_started.wait()
@@ -476,23 +342,19 @@ async def test_run_startup_checks_are_parallel(monkeypatch):
     monkeypatch.setattr(main_mod, "_check_redis", fake_check_redis)
     monkeypatch.setattr(main_mod, "_check_kafka", fake_check_kafka)
 
-    server_inst = MagicMock()
-    server_inst.should_exit = False
     serve_started = asyncio.Event()
 
     async def fake_serve():
         serve_started.set()
-        while not server_inst.should_exit:
+        while not bundle.server.should_exit:
             await asyncio.sleep(0.01)
 
-    server_inst.serve = fake_serve
-    monkeypatch.setattr(main_mod.uvicorn, "Config", lambda app, **kw: MagicMock(app=app))
-    monkeypatch.setattr(main_mod.uvicorn, "Server", lambda cfg: server_inst)
+    bundle.server.serve = fake_serve
 
     async def stop_soon():
         await serve_started.wait()
         await asyncio.sleep(0.02)
-        await shutdown_inst._on_signal()
+        await bundle.shutdown._on_signal()
 
     stop_task = asyncio.create_task(stop_soon())
     try:
@@ -511,49 +373,24 @@ async def test_run_stop_timeout_forces_cleanup(monkeypatch):
     settings.log_level = "INFO"
     settings.log_format = "json"
     settings.kafka_bootstrap_servers = "127.0.0.1:9092"
-    settings.kafka_topic = "t"
-    settings.kafka_compression_type = "none"
-    settings.kafka_send_timeout_sec = 2.0
-    settings.redis_max_connections = 10
-    settings.redis_active_ttl_sec = 3600
-    settings.redis_final_ttl_sec = 60
     settings.stop_timeout = 0.05
-    settings.http_host = "127.0.0.1"
     settings.http_port = 18085
-    settings.http_backlog = 4096
     settings.kafka_startup_timeout_sec = 5.0
-    settings.ws_ping_interval = 20.0
-    settings.ws_ping_timeout = 21.0
-    settings.ws_max_connections = 0
-    settings.log_ws_error_frames = False
-    settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
-    settings.ws_ownership_guard_refresh_interval_sec = 5.0
-    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
-
-    sm = MagicMock(close=AsyncMock())
-    monkeypatch.setattr(main_mod, "RedisSequenceStateMachine", lambda **kw: sm)
-    owner = MagicMock(close=AsyncMock())
-    monkeypatch.setattr(main_mod, "RedisConversationOwnershipGuard", lambda **kw: owner)
-    prod = MagicMock(flush=AsyncMock(), close=AsyncMock())
-    monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: prod)
-    monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: MagicMock())
-
-    shutdown_inst = main_mod.GracefulShutdown(stop_timeout=settings.stop_timeout)
-    monkeypatch.setattr(main_mod, "GracefulShutdown", lambda **kw: shutdown_inst)
-
-    reg = MagicMock(close_all=AsyncMock())
-    monkeypatch.setattr(main_mod, "ConnectionRegistry", lambda: reg)
-    monkeypatch.setattr(main_mod, "create_app", lambda **kw: object())
+    shutdown_inst = GracefulShutdown(stop_timeout=settings.stop_timeout)
+    bundle = _runtime_bundle(shutdown=shutdown_inst)
+    monkeypatch.setattr(
+        main_mod,
+        "create_runtime_bundle",
+        AsyncMock(return_value=bundle),
+    )
+    close_runtime_bundle = AsyncMock()
+    monkeypatch.setattr(main_mod, "close_runtime_bundle", close_runtime_bundle)
     monkeypatch.setattr(main_mod, "_check_redis", AsyncMock())
     monkeypatch.setattr(main_mod, "_check_kafka", AsyncMock())
 
-    server_inst = MagicMock()
-    server_inst.should_exit = False
     serve_started = asyncio.Event()
 
     async def fake_serve():
@@ -561,9 +398,7 @@ async def test_run_stop_timeout_forces_cleanup(monkeypatch):
         while True:
             await asyncio.sleep(0.01)
 
-    server_inst.serve = fake_serve
-    monkeypatch.setattr(main_mod.uvicorn, "Config", lambda app, **kw: MagicMock(app=app))
-    monkeypatch.setattr(main_mod.uvicorn, "Server", lambda cfg: server_inst)
+    bundle.server.serve = fake_serve
 
     warn_mock = MagicMock()
     monkeypatch.setattr(main_mod.log, "warning", warn_mock)
@@ -571,7 +406,7 @@ async def test_run_stop_timeout_forces_cleanup(monkeypatch):
     async def stop_soon():
         await serve_started.wait()
         await asyncio.sleep(0.02)
-        await shutdown_inst._on_signal()
+        await bundle.shutdown._on_signal()
 
     stop_task = asyncio.create_task(stop_soon())
     try:
@@ -583,11 +418,9 @@ async def test_run_stop_timeout_forces_cleanup(monkeypatch):
         "Shutdown: Graceful shutdown timed out, forcing final cleanup",
         timeout_sec=shutdown_inst.stop_timeout,
     )
-    reg.close_all.assert_awaited_once()
-    prod.flush.assert_awaited_once()
-    prod.close.assert_awaited_once()
-    sm.close.assert_awaited_once()
-    owner.close.assert_awaited_once()
+    bundle.registry.close_all.assert_awaited_once()
+    bundle.producer.flush.assert_awaited_once()
+    close_runtime_bundle.assert_awaited_once_with(bundle)
 
 
 @pytest.mark.asyncio
@@ -597,52 +430,29 @@ async def test_run_stop_timeout_cancels_server_task_when_graceful_stop_stalls(mo
     settings.log_level = "INFO"
     settings.log_format = "json"
     settings.kafka_bootstrap_servers = "127.0.0.1:9092"
-    settings.kafka_topic = "t"
-    settings.kafka_compression_type = "none"
-    settings.kafka_send_timeout_sec = 2.0
-    settings.redis_max_connections = 10
-    settings.redis_active_ttl_sec = 3600
-    settings.redis_final_ttl_sec = 60
     settings.stop_timeout = 0.05
-    settings.http_host = "127.0.0.1"
     settings.http_port = 18086
-    settings.http_backlog = 4096
     settings.kafka_startup_timeout_sec = 5.0
-    settings.ws_ping_interval = 20.0
-    settings.ws_ping_timeout = 21.0
-    settings.ws_max_connections = 0
-    settings.log_ws_error_frames = False
-    settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
-    settings.ws_ownership_guard_refresh_interval_sec = 5.0
-    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
-
-    sm = MagicMock(close=AsyncMock())
-    monkeypatch.setattr(main_mod, "RedisSequenceStateMachine", lambda **kw: sm)
-    owner = MagicMock(close=AsyncMock())
-    monkeypatch.setattr(main_mod, "RedisConversationOwnershipGuard", lambda **kw: owner)
-    prod = MagicMock(flush=AsyncMock(), close=AsyncMock())
-    monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: prod)
-    monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: MagicMock())
-
-    shutdown_inst = main_mod.GracefulShutdown(stop_timeout=settings.stop_timeout)
-    monkeypatch.setattr(main_mod, "GracefulShutdown", lambda **kw: shutdown_inst)
+    shutdown_inst = GracefulShutdown(stop_timeout=settings.stop_timeout)
 
     async def slow_close_all(*args, **kwargs):
         await asyncio.sleep(1)
 
     reg = MagicMock(close_all=AsyncMock(side_effect=slow_close_all))
-    monkeypatch.setattr(main_mod, "ConnectionRegistry", lambda: reg)
-    monkeypatch.setattr(main_mod, "create_app", lambda **kw: object())
+    bundle = _runtime_bundle(shutdown=shutdown_inst, registry=reg)
+    monkeypatch.setattr(
+        main_mod,
+        "create_runtime_bundle",
+        AsyncMock(return_value=bundle),
+    )
+    close_runtime_bundle = AsyncMock()
+    monkeypatch.setattr(main_mod, "close_runtime_bundle", close_runtime_bundle)
     monkeypatch.setattr(main_mod, "_check_redis", AsyncMock())
     monkeypatch.setattr(main_mod, "_check_kafka", AsyncMock())
 
-    server_inst = MagicMock()
-    server_inst.should_exit = False
     serve_started = asyncio.Event()
 
     async def fake_serve():
@@ -650,9 +460,7 @@ async def test_run_stop_timeout_cancels_server_task_when_graceful_stop_stalls(mo
         while True:
             await asyncio.sleep(0.01)
 
-    server_inst.serve = fake_serve
-    monkeypatch.setattr(main_mod.uvicorn, "Config", lambda app, **kw: MagicMock(app=app))
-    monkeypatch.setattr(main_mod.uvicorn, "Server", lambda cfg: server_inst)
+    bundle.server.serve = fake_serve
 
     warn_mock = MagicMock()
     monkeypatch.setattr(main_mod.log, "warning", warn_mock)
@@ -660,7 +468,7 @@ async def test_run_stop_timeout_cancels_server_task_when_graceful_stop_stalls(mo
     async def stop_soon():
         await serve_started.wait()
         await asyncio.sleep(0.02)
-        await shutdown_inst._on_signal()
+        await bundle.shutdown._on_signal()
 
     stop_task = asyncio.create_task(stop_soon())
     try:
@@ -672,11 +480,9 @@ async def test_run_stop_timeout_cancels_server_task_when_graceful_stop_stalls(mo
         "Shutdown: Graceful shutdown timed out, forcing final cleanup",
         timeout_sec=shutdown_inst.stop_timeout,
     )
-    reg.close_all.assert_awaited_once()
-    prod.flush.assert_not_awaited()
-    prod.close.assert_awaited_once()
-    sm.close.assert_awaited_once()
-    owner.close.assert_awaited_once()
+    bundle.registry.close_all.assert_awaited_once()
+    bundle.producer.flush.assert_not_awaited()
+    close_runtime_bundle.assert_awaited_once_with(bundle)
 
 
 def test_main_sync_entry_invokes_asyncio_run(monkeypatch):
@@ -723,6 +529,7 @@ def test_main_catches_keyboard_interrupt(monkeypatch):
     monkeypatch.setattr(main_mod.asyncio, "run", interrupted)
     main_mod.main()
 
+
 @pytest.mark.asyncio
 async def test_run_propagates_exception(monkeypatch):
     settings = MagicMock()
@@ -730,58 +537,35 @@ async def test_run_propagates_exception(monkeypatch):
     settings.log_level = "INFO"
     settings.log_format = "json"
     settings.kafka_bootstrap_servers = "127.0.0.1:9092"
-    settings.kafka_topic = "t"
-    settings.kafka_compression_type = "none"
-    settings.kafka_send_timeout_sec = 2.0
-    settings.redis_max_connections = 10
-    settings.redis_active_ttl_sec = 3600
-    settings.redis_final_ttl_sec = 60
-    settings.stop_timeout = 120
-    settings.http_host = "127.0.0.1"
     settings.http_port = 18081
     settings.kafka_startup_timeout_sec = 5.0
-    settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
-    settings.ws_ownership_guard_refresh_interval_sec = 5.0
-    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
-    monkeypatch.setattr(
-        main_mod, "RedisSequenceStateMachine", lambda **kw: MagicMock(close=AsyncMock())
-    )
-    monkeypatch.setattr(
-        main_mod,
-        "RedisConversationOwnershipGuard",
-        lambda **kw: MagicMock(close=AsyncMock()),
-    )
-    monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: MagicMock(flush=AsyncMock(), close=AsyncMock()))
-    monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: MagicMock())
-
-    shutdown_inst = main_mod.GracefulShutdown(stop_timeout=1)
-    monkeypatch.setattr(main_mod, "GracefulShutdown", lambda **kw: shutdown_inst)
-
     reg = MagicMock()
     reg.close_all = AsyncMock(side_effect=RuntimeError("close_all boom"))
-    monkeypatch.setattr(main_mod, "ConnectionRegistry", lambda: reg)
-    monkeypatch.setattr(main_mod, "create_app", lambda **kw: object())
+    shutdown_inst = GracefulShutdown(stop_timeout=1)
+    bundle = _runtime_bundle(shutdown=shutdown_inst, registry=reg)
+    monkeypatch.setattr(
+        main_mod,
+        "create_runtime_bundle",
+        AsyncMock(return_value=bundle),
+    )
+    close_runtime_bundle = AsyncMock()
+    monkeypatch.setattr(main_mod, "close_runtime_bundle", close_runtime_bundle)
     monkeypatch.setattr(main_mod, "_check_redis", AsyncMock())
     monkeypatch.setattr(main_mod, "_check_kafka", AsyncMock())
 
-    server_inst = MagicMock()
-
     async def serve_boom():
-        await shutdown_inst._on_signal()
+        await bundle.shutdown._on_signal()
         await asyncio.sleep(0)
 
-    server_inst.serve = serve_boom
-    server_inst.should_exit = False
-    monkeypatch.setattr(main_mod.uvicorn, "Config", lambda app, **kw: MagicMock(app=app))
-    monkeypatch.setattr(main_mod.uvicorn, "Server", lambda cfg: server_inst)
+    bundle.server.serve = serve_boom
 
     with pytest.raises(RuntimeError, match="close_all boom"):
         await main_mod.run()
+
+    close_runtime_bundle.assert_awaited_once_with(bundle)
 
 
 @pytest.mark.asyncio
@@ -792,52 +576,29 @@ async def test_run_port_conflict_system_exit(monkeypatch):
     settings.log_level = "INFO"
     settings.log_format = "json"
     settings.kafka_bootstrap_servers = "127.0.0.1:9092"
-    settings.kafka_topic = "t"
-    settings.kafka_compression_type = "none"
-    settings.kafka_send_timeout_sec = 2.0
-    settings.redis_max_connections = 10
-    settings.redis_active_ttl_sec = 3600
-    settings.redis_final_ttl_sec = 60
-    settings.stop_timeout = 120
-    settings.http_host = "127.0.0.1"
     settings.http_port = 18082
     settings.kafka_startup_timeout_sec = 5.0
-    settings.redis_ownership_guard_ttl_sec = 30
-    settings.redis_sequence_state_key_prefix = "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
-    settings.redis_ownership_guard_key_prefix = "ods-dev:realtime-transcribe-service:conversation-owner"
-    settings.ws_ownership_guard_refresh_interval_sec = 5.0
-    _mock_settings_kafka_local(settings)
 
     monkeypatch.setattr(main_mod, "get_settings", lambda: settings)
     monkeypatch.setattr(main_mod, "configure_logging", MagicMock())
-    sm = MagicMock(close=AsyncMock())
-    monkeypatch.setattr(main_mod, "RedisSequenceStateMachine", lambda **kw: sm)
-    owner = MagicMock(close=AsyncMock())
-    monkeypatch.setattr(main_mod, "RedisConversationOwnershipGuard", lambda **kw: owner)
-    prod = MagicMock(flush=AsyncMock(), close=AsyncMock())
-    monkeypatch.setattr(main_mod, "KafkaProducer", lambda **kw: prod)
-    monkeypatch.setattr(main_mod, "TwoPhaseOrchestrator", lambda **kw: MagicMock())
-    from realtime_transcribe_service.shutdown.graceful import GracefulShutdown as _GS
-    shutdown_inst = _GS(stop_timeout=1)
-    monkeypatch.setattr(main_mod, "GracefulShutdown", lambda **kw: shutdown_inst)
-    monkeypatch.setattr(main_mod, "ConnectionRegistry", lambda: MagicMock(close_all=AsyncMock()))
-    monkeypatch.setattr(main_mod, "create_app", lambda **kw: object())
+    bundle = _runtime_bundle()
+    monkeypatch.setattr(
+        main_mod,
+        "create_runtime_bundle",
+        AsyncMock(return_value=bundle),
+    )
+    close_runtime_bundle = AsyncMock()
+    monkeypatch.setattr(main_mod, "close_runtime_bundle", close_runtime_bundle)
     monkeypatch.setattr(main_mod, "_check_redis", AsyncMock())
     monkeypatch.setattr(main_mod, "_check_kafka", AsyncMock())
-
-    server_inst = MagicMock()
 
     async def serve_exit():
         raise SystemExit(1)
 
-    server_inst.serve = serve_exit
-    server_inst.should_exit = False
-    monkeypatch.setattr(main_mod.uvicorn, "Config", lambda app, **kw: MagicMock(app=app))
-    monkeypatch.setattr(main_mod.uvicorn, "Server", lambda cfg: server_inst)
+    bundle.server.serve = serve_exit
 
     with pytest.raises(RuntimeError, match="Uvicorn"):
         await main_mod.run()
 
-    prod.close.assert_awaited()
-    sm.close.assert_awaited()
+    close_runtime_bundle.assert_awaited_once_with(bundle)
 

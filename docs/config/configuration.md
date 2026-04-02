@@ -34,7 +34,7 @@ cp .env.example .env
 Secret JSON rules:
 
 - Root must be a **JSON object** (not an array).
-- Keys should match the usual environment variable names (e.g. `REDIS_URL`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_MODE`, `KAFKA_AWS_REGION`). See [§2 Configuration Reference](#2-configuration-reference) and `.env.example` for the full set.
+- Keys should match the usual environment variable names (e.g. `REDIS_URL`, `REDIS_SEQUENCE_STATE_KEY_PREFIX`, `REDIS_OWNERSHIP_GUARD_KEY_PREFIX`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_MODE`, `KAFKA_AWS_REGION`). For `APP_ENV=deployed`, the two `REDIS_*_KEY_PREFIX` entries are **required** in secret or task env (they cannot use the local-only code defaults). See [§2 Configuration Reference](#2-configuration-reference) and `.env.example` for the full set.
 - Values must be JSON **string**, **number**, **boolean**, or **null** (`null` becomes an empty string in the environment). Nested objects are not supported.
 
 IAM: the task role (or other AWS credential chain) must allow `secretsmanager:GetSecretValue` on the configured secret.
@@ -48,7 +48,7 @@ Uses pydantic-settings as today: **process environment overrides `.env`** for th
 - `APP_ENV` is required in every environment
 - Blank string values fail startup
 - Unknown keys in `.env` fail startup (local only; deployed merges `.env` once into `os.environ` before `Settings`, then `Settings` does not re-read the file)
-- `REDIS_URL` and `KAFKA_BOOTSTRAP_SERVERS` are required when `APP_ENV=deployed`
+- `REDIS_URL`, `REDIS_SEQUENCE_STATE_KEY_PREFIX`, `REDIS_OWNERSHIP_GUARD_KEY_PREFIX`, and `KAFKA_BOOTSTRAP_SERVERS` are required when `APP_ENV=deployed` (the two key-prefix variables must differ from the local code defaults)
 - `APP_ENV=deployed` requires `KAFKA_MODE=aws_msk` (MSK IAM). `KAFKA_MODE=local` is for local docker-compose only
 - `AUTH_JWT_SIGNING_MATERIAL` is required when `AUTH_ENABLED=true`
 
@@ -74,8 +74,8 @@ Uses pydantic-settings as today: **process environment overrides `.env`** for th
 | `REDIS_ACTIVE_TTL_SEC` | 3600 | TTL for active conversations in seconds. Must be `> 0` |
 | `REDIS_FINAL_TTL_SEC` | 60 | Residual TTL after `SESSION_COMPLETE`. Must be `> 0` and `<= REDIS_ACTIVE_TTL_SEC` |
 | `REDIS_OWNERSHIP_GUARD_TTL_SEC` | 30 | TTL for the per-`conversationId` ownership key. Must be `> 0` |
-| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | `ods-dev:realtime-transcribe-service:expect-transcript-seq-num` | Key prefix for the Redis sequence state machine. Must align with cluster ACL key patterns (e.g. `~ods-dev:*`). Must not be empty |
-| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | `ods-dev:realtime-transcribe-service:conversation-owner` | Key prefix for the Redis ownership guard. Must not be empty |
+| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | `realtime-transcribe-service:expect-transcript-seq-num` | Key prefix for the Redis sequence state machine. In AWS ElastiCache (and similar), prepend **your** environment/account namespace when user ACLs require it (for example `prod:realtime-transcribe-service:expect-transcript-seq-num` and an ACL pattern like `~prod:*`). Must not be empty |
+| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | `realtime-transcribe-service:conversation-owner` | Key prefix for the Redis ownership guard. Same namespace rules as `REDIS_SEQUENCE_STATE_KEY_PREFIX`. Must not be empty |
 
 ### Kafka
 
@@ -120,7 +120,7 @@ Pick **one** row and treat it as a bundle. Do not rely on “leftover” variabl
 |------|------|------|
 | `WS_PING_INTERVAL` | 20.0 | Seconds. Must be `> 0` |
 | `WS_PING_TIMEOUT` | 10.0 | Seconds. Must be `> 0` |
-| `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 5.0 | Seconds between ownership-guard refreshes. Must be `> 0` and `< REDIS_OWNERSHIP_GUARD_TTL_SEC` |
+| `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 15.0 | Seconds between ownership-guard refreshes. Must be `> 0` and `< REDIS_OWNERSHIP_GUARD_TTL_SEC` |
 | `WS_MAX_CONNECTIONS` | 0 | Maximum concurrent WebSocket connections. Must be `>= 0`. `0` means unlimited |
 
 > The service enables the WebSocket runtime with `uvicorn.Config(ws="websockets", ...)`. `WS_PING_INTERVAL` and `WS_PING_TIMEOUT` are enforced by the Uvicorn `websockets` backend rather than by application-level JSON messages.
@@ -139,12 +139,14 @@ Pick **one** row and treat it as a bundle. Do not rely on “leftover” variabl
 
 | Variable | Default | Description |
 |------|------|------|
-| `HTTP_HOST` | `0.0.0.0` | Bind address. Must not be empty |
 | `HTTP_PORT` | 8080 | Listen port. Must be in `1..65535` |
 | `HTTP_BACKLOG` | 4096 | Uvicorn `listen(backlog)` value. Must be `> 0` |
 | `HTTP_ENABLE_DOCS` | false | Only `true` exposes `/docs`, `/redoc`, and `/openapi.json`; any other value keeps them disabled |
+| `URL_PATH_PREFIX` | *(empty)* | Optional path prefix for **all** HTTP and WebSocket routes (for example an ALB listener rule that forwards `https://host/abc/...` to the task). Empty or unset = no prefix (current paths: `/health`, `/ws/v1/...`, etc.). Non-empty values are normalized: leading `/` is added if missing, trailing `/` is stripped, `//` segments are collapsed (e.g. `abc` → `/abc`, `/api/v1/` → `/api/v1`). Must not contain `..` or newlines. When set together with `HTTP_ENABLE_DOCS=true`, docs live under `{prefix}/docs`, `{prefix}/redoc`, and `{prefix}/openapi.json` |
 
-> `HTTP_ENABLE_DOCS` controls only the FastAPI documentation surface. It does not protect or disable `/health`, `/ready`, or `/metrics`; those routes should be restricted by ingress, load balancer, security-group, or internal-network policy.
+> The HTTP bind address is fixed to `0.0.0.0` in code (`DEFAULT_HTTP_HOST` in `src/realtime_transcribe_service/constants.py`); it is not an environment variable. Do not set legacy `HTTP_HOST` in `.env` or secret JSON — `Settings` uses `extra=forbid` and unknown keys will fail validation.
+
+> `HTTP_ENABLE_DOCS` controls only the FastAPI documentation surface. It does not protect or disable `/health`, `/ready`, or `/metrics`; those routes should be restricted by ingress, load balancer, security-group, or internal-network policy. With `URL_PATH_PREFIX` set, the same applies to `{prefix}/health`, `{prefix}/ready`, and `{prefix}/metrics`.
 
 ### Startup Checks
 
@@ -161,6 +163,16 @@ Pick **one** row and treat it as a bundle. Do not rely on “leftover” variabl
 | `LOG_FORMAT` | `auto` | Log format: `json`, `console`, or `auto` |
 | `LOG_WS_ERROR_FRAMES` | false | Whether to log the full outbound `ERROR` response JSON |
 | `LOG_SLOW_MESSAGE_THRESHOLD_MS` | 0.0 | Slow-message warning threshold in milliseconds. Must be `>= 0`. `0` disables it |
+
+### Logging (structured output)
+
+The service uses **structlog** with either **JSON** (non-TTY stderr, or `LOG_FORMAT=json`) or **console** rendering (`LOG_FORMAT=console`, or `auto` on a TTY). Uvicorn / Starlette / FastAPI stdlib log records are routed through the same formatter.
+
+- **Stable fields:** each event includes `timestamp` (ISO-8601 UTC), `level`, `logger` (module name), and an `event` string (the human-oriented message key).
+- **`identity`:** JSON output groups `service` (`realtime-transcribe-service`), package **`version`** (from distribution metadata), and **`conversation_id`** when known; otherwise `conversation_id` is **`"-"`** for correlation in log pipelines.
+- **Redaction:** `redis_url` and other URL-like fields containing `redis` are masked; `*password*` keys and string `error` values are passed through text redaction helpers (embedded `redis://` URLs and optional secrets).
+- **`LOG_WS_ERROR_FRAMES`:** when `true`, the transport may log full outbound `ERROR` JSON bodies (can be large; default off for load tests).
+- **`LOG_SLOW_MESSAGE_THRESHOLD_MS`:** when `> 0`, emits **`Transport: Slow message stage timings`** (WARNING) if handling exceeds the threshold; additional slow events within the same ~1s window may be suppressed to avoid log storms.
 
 ---
 
@@ -183,6 +195,8 @@ HTTP_ENABLE_DOCS=false
 ```env
 APP_ENV=deployed
 REDIS_URL=redis://your-elasticache:6379/0
+REDIS_SEQUENCE_STATE_KEY_PREFIX=your-namespace:realtime-transcribe-service:expect-transcript-seq-num
+REDIS_OWNERSHIP_GUARD_KEY_PREFIX=your-namespace:realtime-transcribe-service:conversation-owner
 KAFKA_BOOTSTRAP_SERVERS=b-1.example.msk.amazonaws.com:9098,b-2.example.msk.amazonaws.com:9098
 KAFKA_MODE=aws_msk
 KAFKA_TOPIC=AI_STAGING_TRANSCRIPTION
@@ -194,3 +208,5 @@ AUTH_ENABLED=true
 AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material
 HTTP_ENABLE_DOCS=false
 ```
+
+> **`APP_ENV=deployed`** requires both `REDIS_*_KEY_PREFIX` to be set explicitly (they cannot stay on the local-only code defaults). That forces alignment with ElastiCache user ACL key patterns before traffic hits Redis.

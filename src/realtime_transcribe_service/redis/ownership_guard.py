@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Awaitable
 from typing import cast
 
-import structlog
 from redis.asyncio import Redis
 from redis.exceptions import NoScriptError
 
+from realtime_transcribe_service.config.logging_config import get_logger
 from realtime_transcribe_service.redis.async_client import create_async_redis_client
 
-log = structlog.get_logger(__name__)
-RedisEvalArg = str | int | float | bytes | bytearray | memoryview[int]
+log = get_logger(__name__)
+RedisEvalArg = str | int | float | bytes | bytearray | memoryview
 
 LUA_CLAIM_OR_REFRESH = """
 local key = KEYS[1]

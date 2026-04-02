@@ -9,8 +9,11 @@ from typing import Any, cast
 import uvicorn
 from pydantic import ValidationError
 
-from realtime_transcribe_service.auth.jwt_bearer import JwtBearerAuthBackend
-from realtime_transcribe_service.converter.kafka_message_converter import KafkaMessageConverter
+from realtime_transcribe_service.service_runtime import (
+    RuntimeBundle,
+    close_runtime_bundle,
+    create_runtime_bundle,
+)
 from realtime_transcribe_service.config.logging_config import (
     configure_logging,
     get_logger,
@@ -18,36 +21,25 @@ from realtime_transcribe_service.config.logging_config import (
     redact_text_for_logs,
 )
 from realtime_transcribe_service.config.settings import Settings, get_settings
-from realtime_transcribe_service.orchestrator.two_phase import TwoPhaseOrchestrator
-from realtime_transcribe_service.producer.kafka_connection import kafka_connection_for_mode
 from realtime_transcribe_service.producer.kafka_producer import KafkaProducer
-from realtime_transcribe_service.redis.ownership_guard import RedisConversationOwnershipGuard
-from realtime_transcribe_service.redis.sequence_state_machine import RedisSequenceStateMachine
-from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
-from realtime_transcribe_service.schemas.errors import WsCloseCode
-from realtime_transcribe_service.constants import WS_CLOSE_REASON_GOING_AWAY, WS_PATH
-from realtime_transcribe_service.transport.websocket_handler import (
-    ConnectionRegistry,
-    create_app,
+from realtime_transcribe_service.schemas.error_codes import WsCloseCode
+from realtime_transcribe_service.constants import (
+    DEFAULT_HTTP_HOST,
+    WS_CLOSE_REASON_GOING_AWAY,
+    WS_PATH,
 )
+from realtime_transcribe_service.redis.runtime import create_shared_redis_client
 
 log = get_logger(__name__)
 
 
-async def _check_redis(settings: Settings) -> None:
+async def _check_redis(settings: Settings, *, client: Any | None = None) -> None:
     """Verify Redis connectivity."""
-    from realtime_transcribe_service.redis.async_client import create_async_redis_client
-
     redis_url = settings.redis_url
     assert redis_url is not None
-    client = create_async_redis_client(
-        redis_url,
-        username=settings.redis_username,
-        password=settings.redis_password,
-        ssl_check_hostname=settings.redis_ssl_check_hostname,
-        decode_responses=True,
-        max_connections=settings.redis_max_connections,
-    )
+    owns_client = client is None
+    client = create_shared_redis_client(settings) if client is None else client
+    assert client is not None
     redacted_url = redact_redis_url_for_logs(redis_url)
     try:
         await cast(Awaitable[Any], client.ping())
@@ -64,7 +56,9 @@ async def _check_redis(settings: Settings) -> None:
             f"Redis unavailable: {redacted_url} - {err_safe}"
         ) from e
     finally:
-        await client.aclose()
+        if owns_client:
+            assert client is not None
+            await client.aclose()
 
 
 async def _startup_phase_timed(phase: str, coro: Awaitable[Any]) -> None:
@@ -93,6 +87,14 @@ async def _graceful_stop(
     await producer.flush()
     server.should_exit = True
     await server_task
+
+
+async def _safe_serve(server: uvicorn.Server) -> None:
+    """Run uvicorn and normalize startup failures into RuntimeError."""
+    try:
+        await server.serve()
+    except SystemExit as e:
+        raise RuntimeError(f"Uvicorn failed to start (exit code {e.code})") from e
 
 
 async def _check_kafka(producer: KafkaProducer, timeout: float) -> None:
@@ -133,120 +135,36 @@ async def run() -> None:
     assert redis_url is not None
     assert kafka_bootstrap_servers is not None
 
-    # --- Initialize components ---
-    sequence_state_machine = RedisSequenceStateMachine(
-        redis_url=redis_url,
-        max_connections=settings.redis_max_connections,
-        redis_username=settings.redis_username,
-        redis_password=settings.redis_password,
-        ssl_check_hostname=settings.redis_ssl_check_hostname,
-        active_ttl_sec=settings.redis_active_ttl_sec,
-        final_ttl_sec=settings.redis_final_ttl_sec,
-        key_prefix=settings.redis_sequence_state_key_prefix,
-    )
-    ownership_guard = RedisConversationOwnershipGuard(
-        redis_url=redis_url,
-        max_connections=settings.redis_max_connections,
-        redis_username=settings.redis_username,
-        redis_password=settings.redis_password,
-        ssl_check_hostname=settings.redis_ssl_check_hostname,
-        guard_ttl_sec=settings.redis_ownership_guard_ttl_sec,
-        key_prefix=settings.redis_ownership_guard_key_prefix,
-    )
-    producer = KafkaProducer(
-        bootstrap_servers=kafka_bootstrap_servers,
-        topic=settings.kafka_topic,
-        connection=kafka_connection_for_mode(
-            settings.kafka_mode,
-            aws_region=settings.kafka_aws_region,
-            ssl_ca_file=settings.kafka_ssl_ca_file,
-            aws_debug_creds=settings.kafka_aws_debug_creds,
-        ),
-        compression_type=settings.kafka_compression_type,
-        send_timeout_sec=settings.kafka_send_timeout_sec,
-        linger_ms=settings.kafka_linger_ms,
-        batch_size=settings.kafka_batch_size,
-    )
-    orchestrator = TwoPhaseOrchestrator(
-        state_machine=sequence_state_machine,
-        producer=producer,
-        message_converter=KafkaMessageConverter(),
-    )
-    shutdown = GracefulShutdown(stop_timeout=settings.stop_timeout)
-    shutdown.register_signal()
-    registry = ConnectionRegistry()
+    runtime: RuntimeBundle | None = None
+    try:
+        runtime = await create_runtime_bundle(settings)
 
-    # --- Pre-start checks (Redis and Kafka run in parallel to reduce cold-start latency) ---
-    t_checks = time.perf_counter()
-    await asyncio.gather(
-        _startup_phase_timed("redis", _check_redis(settings)),
-        _startup_phase_timed(
-            "kafka",
-            _check_kafka(producer, settings.kafka_startup_timeout_sec),
-        ),
-    )
-    log.info(
-        "Startup: Redis+Kafka checks completed (parallel)",
-        wall_ms=round((time.perf_counter() - t_checks) * 1000, 2),
-    )
-
-    auth_backend = None
-    if settings.auth_enabled is True:
-        auth_backend = JwtBearerAuthBackend(
-            signing_material=settings.auth_jwt_signing_material or "",
-            algorithm=settings.auth_jwt_algorithm,
+        # --- Pre-start checks (Redis and Kafka run in parallel to reduce cold-start latency) ---
+        t_checks = time.perf_counter()
+        await asyncio.gather(
+            _startup_phase_timed(
+                "redis",
+                _check_redis(settings, client=runtime.shared_redis_client),
+            ),
+            _startup_phase_timed(
+                "kafka",
+                _check_kafka(runtime.producer, settings.kafka_startup_timeout_sec),
+            ),
+        )
+        log.info(
+            "Startup: Redis+Kafka checks completed (parallel)",
+            wall_ms=round((time.perf_counter() - t_checks) * 1000, 2),
         )
 
-    # --- Build the FastAPI application ---
-    app = create_app(
-        orchestrator=orchestrator,
-        shutdown=shutdown,
-        registry=registry,
-        auth_backend=auth_backend,
-        ownership_guard=ownership_guard,
-        redis_url=redis_url,
-        redis_username=settings.redis_username,
-        redis_password=settings.redis_password,
-        redis_ssl_check_hostname=settings.redis_ssl_check_hostname,
-        redis_max_connections=settings.redis_max_connections,
-        producer=producer,
-        max_connections=settings.ws_max_connections,
-        ownership_guard_refresh_interval_sec=settings.ws_ownership_guard_refresh_interval_sec,
-        log_ws_error_frames=settings.log_ws_error_frames,
-        log_slow_message_threshold_ms=settings.log_slow_message_threshold_ms,
-        http_enable_docs=settings.http_enable_docs,
-    )
+        log.info(
+            "Realtime Transcribe Service: Started",
+            ws_endpoint=WS_PATH,
+            host=DEFAULT_HTTP_HOST,
+            port=settings.http_port,
+        )
 
-    config = uvicorn.Config(
-        app,
-        host=settings.http_host,
-        port=settings.http_port,
-        ws="websockets",
-        access_log=True,
-        backlog=settings.http_backlog,
-        ws_ping_interval=settings.ws_ping_interval,
-        ws_ping_timeout=settings.ws_ping_timeout,
-        log_config=None,
-        log_level=settings.log_level.lower(),
-    )
-    server = uvicorn.Server(config)
-
-    log.info(
-        "Realtime Transcribe Service: Started",
-        ws_endpoint=WS_PATH,
-        host=settings.http_host,
-        port=settings.http_port,
-    )
-
-    async def _safe_serve() -> None:
-        try:
-            await server.serve()
-        except SystemExit as e:
-            raise RuntimeError(f"Uvicorn failed to start (exit code {e.code})") from e
-
-    try:
-        server_task = asyncio.create_task(_safe_serve())
-        shutdown_task = asyncio.create_task(shutdown.wait_for_shutdown())
+        server_task = asyncio.create_task(_safe_serve(runtime.server))
+        shutdown_task = asyncio.create_task(runtime.shutdown.wait_for_shutdown())
 
         done, _ = await asyncio.wait(
             [server_task, shutdown_task],
@@ -258,18 +176,26 @@ async def run() -> None:
             server_task.result()
 
         # --- Graceful shutdown ---
-        log.info("Shutdown: Starting graceful shutdown", timeout_sec=shutdown.stop_timeout)
+        log.info(
+            "Shutdown: Starting graceful shutdown",
+            timeout_sec=runtime.shutdown.stop_timeout,
+        )
         try:
             await asyncio.wait_for(
-                _graceful_stop(server, server_task, registry, producer),
-                timeout=shutdown.stop_timeout,
+                _graceful_stop(
+                    runtime.server,
+                    server_task,
+                    runtime.registry,
+                    runtime.producer,
+                ),
+                timeout=runtime.shutdown.stop_timeout,
             )
         except asyncio.TimeoutError:
             log.warning(
                 "Shutdown: Graceful shutdown timed out, forcing final cleanup",
-                timeout_sec=shutdown.stop_timeout,
+                timeout_sec=runtime.shutdown.stop_timeout,
             )
-            server.should_exit = True
+            runtime.server.should_exit = True
             if not server_task.done():
                 server_task.cancel()
                 try:
@@ -281,9 +207,8 @@ async def run() -> None:
         raise
     finally:
         log.info("Shutdown: Releasing resources")
-        await producer.close()
-        await sequence_state_machine.close()
-        await ownership_guard.close()
+        if runtime is not None:
+            await close_runtime_bundle(runtime)
         log.info("Realtime Transcribe Service: Exited cleanly")
 
 

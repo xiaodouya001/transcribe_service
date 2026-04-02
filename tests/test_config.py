@@ -13,6 +13,7 @@ from realtime_transcribe_service.config.settings import (
     LOCAL_KAFKA_BOOTSTRAP_SERVERS,
     LOCAL_REDIS_URL,
     Settings,
+    normalize_url_path_prefix_str,
 )
 from realtime_transcribe_service.constants import (
     DEFAULT_REDIS_OWNERSHIP_GUARD_KEY_PREFIX,
@@ -40,15 +41,15 @@ class TestSettings:
         assert s.ws_ping_interval == 20.0
         assert s.ws_ping_timeout == 10.0
         assert s.stop_timeout == 120.0
-        assert s.http_host == "0.0.0.0"
         assert s.http_port == 8080
         assert s.http_backlog == 4096
         assert s.http_enable_docs is False
+        assert s.url_path_prefix == ""
         assert s.kafka_startup_timeout_sec == 30.0
         assert s.redis_ownership_guard_ttl_sec == 30
         assert s.redis_sequence_state_key_prefix == DEFAULT_REDIS_SEQUENCE_STATE_KEY_PREFIX
         assert s.redis_ownership_guard_key_prefix == DEFAULT_REDIS_OWNERSHIP_GUARD_KEY_PREFIX
-        assert s.ws_ownership_guard_refresh_interval_sec == 5.0
+        assert s.ws_ownership_guard_refresh_interval_sec == 15.0
         assert s.log_slow_message_threshold_ms == 0.0
         assert s.auth_enabled is False
         assert s.auth_jwt_signing_material is None
@@ -79,6 +80,36 @@ class TestSettings:
         with pytest.raises(ValidationError, match="APP_ENV=deployed"):
             _settings(_env_file=None, app_env="deployed")
 
+    def test_deployed_rejects_default_redis_sequence_key_prefix(self):
+        with pytest.raises(
+            ValidationError,
+            match="REDIS_SEQUENCE_STATE_KEY_PREFIX",
+        ):
+            _settings(
+                _env_file=None,
+                app_env="deployed",
+                redis_url="redis://127.0.0.1:6379/0",
+                kafka_bootstrap_servers="b-1.example.amazonaws.com:9098",
+                kafka_mode="aws_msk",
+                kafka_aws_region="ap-east-1",
+                redis_ownership_guard_key_prefix="prod:realtime-transcribe-service:conversation-owner",
+            )
+
+    def test_deployed_rejects_default_redis_ownership_key_prefix(self):
+        with pytest.raises(
+            ValidationError,
+            match="REDIS_OWNERSHIP_GUARD_KEY_PREFIX",
+        ):
+            _settings(
+                _env_file=None,
+                app_env="deployed",
+                redis_url="redis://127.0.0.1:6379/0",
+                kafka_bootstrap_servers="b-1.example.amazonaws.com:9098",
+                kafka_mode="aws_msk",
+                kafka_aws_region="ap-east-1",
+                redis_sequence_state_key_prefix="prod:realtime-transcribe-service:expect-transcript-seq-num",
+            )
+
     def test_stop_timeout_accepts_float(self):
         s = _settings(
             _env_file=None,
@@ -86,6 +117,28 @@ class TestSettings:
             stop_timeout=12.5,
         )
         assert s.stop_timeout == 12.5
+
+    def test_url_path_prefix_normalizes(self):
+        s = _settings(_env_file=None, app_env="local", url_path_prefix="abc")
+        assert s.url_path_prefix == "/abc"
+        s2 = _settings(_env_file=None, app_env="local", url_path_prefix="/api/v1/")
+        assert s2.url_path_prefix == "/api/v1"
+
+    def test_url_path_prefix_rejects_path_traversal(self):
+        with pytest.raises(ValidationError, match="URL_PATH_PREFIX"):
+            _settings(_env_file=None, app_env="local", url_path_prefix="/../x")
+
+    def test_normalize_url_path_prefix_str_non_string(self):
+        assert normalize_url_path_prefix_str(None) == ""  # type: ignore[arg-type]
+
+    def test_normalize_url_path_prefix_only_slashes_is_disabled(self):
+        assert normalize_url_path_prefix_str("///") == ""
+
+    def test_normalize_url_path_prefix_str_collapses_slashes(self):
+        assert normalize_url_path_prefix_str("////a////b//") == "/a/b"
+
+    def test_url_path_prefix_validator_non_str_returns_empty(self):
+        assert Settings._normalize_url_path_prefix(None) == ""
 
     def test_blank_redis_url_is_rejected(self):
         with pytest.raises(ValidationError, match="must not be empty"):
@@ -200,6 +253,8 @@ class TestSettings:
                 redis_url="redis://127.0.0.1:6379/0",
                 kafka_bootstrap_servers="127.0.0.1:9092",
                 kafka_mode="local",
+                redis_sequence_state_key_prefix="prod:realtime-transcribe-service:expect-transcript-seq-num",
+                redis_ownership_guard_key_prefix="prod:realtime-transcribe-service:conversation-owner",
             )
 
     def test_local_mode_rejects_ssl_ca_file(self):
@@ -221,6 +276,8 @@ class TestSettings:
                 redis_url="redis://127.0.0.1:6379/0",
                 kafka_bootstrap_servers="b-1.example.amazonaws.com:9098",
                 kafka_mode="aws_msk",
+                redis_sequence_state_key_prefix="prod:realtime-transcribe-service:expect-transcript-seq-num",
+                redis_ownership_guard_key_prefix="prod:realtime-transcribe-service:conversation-owner",
             )
 
     def test_aws_msk_mode_accepts_region_and_debug_flag(self):
@@ -232,6 +289,8 @@ class TestSettings:
             kafka_mode="aws_msk",
             kafka_aws_region="ap-east-1",
             kafka_aws_debug_creds=True,
+            redis_sequence_state_key_prefix="prod:realtime-transcribe-service:expect-transcript-seq-num",
+            redis_ownership_guard_key_prefix="prod:realtime-transcribe-service:conversation-owner",
         )
         assert s.kafka_aws_region == "ap-east-1"
         assert s.kafka_aws_debug_creds is True

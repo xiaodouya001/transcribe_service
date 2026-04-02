@@ -1,4 +1,4 @@
-"""Application error codes and WebSocket close-code enums aligned with API Contract §4."""
+"""Application error-code enums aligned with API Contract §4."""
 
 from __future__ import annotations
 

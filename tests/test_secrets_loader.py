@@ -335,6 +335,8 @@ def test_get_settings_deployed_secret_overrides_dotenv(monkeypatch, tmp_path):
     bad_env.write_text(
         "APP_ENV=deployed\n"
         "REDIS_URL=redis://bad:6379/0\n"
+        "REDIS_SEQUENCE_STATE_KEY_PREFIX=bad:realtime-transcribe-service:expect-transcript-seq-num\n"
+        "REDIS_OWNERSHIP_GUARD_KEY_PREFIX=bad:realtime-transcribe-service:conversation-owner\n"
         "KAFKA_BOOTSTRAP_SERVERS=bad:9098\n"
         "KAFKA_MODE=aws_msk\n"
         "KAFKA_AWS_REGION=ap-east-1\n",
@@ -349,6 +351,8 @@ def test_get_settings_deployed_secret_overrides_dotenv(monkeypatch, tmp_path):
             {
                 "APP_ENV": "deployed",
                 "REDIS_URL": "redis://good:6379/0",
+                "REDIS_SEQUENCE_STATE_KEY_PREFIX": "good:realtime-transcribe-service:expect-transcript-seq-num",
+                "REDIS_OWNERSHIP_GUARD_KEY_PREFIX": "good:realtime-transcribe-service:conversation-owner",
                 "KAFKA_BOOTSTRAP_SERVERS": "good:9098",
                 "KAFKA_MODE": "aws_msk",
                 "KAFKA_AWS_REGION": "ap-east-1",
@@ -365,3 +369,5 @@ def test_get_settings_deployed_secret_overrides_dotenv(monkeypatch, tmp_path):
     # Secret wins over .env for application keys.
     assert s.redis_url == "redis://good:6379/0"
     assert s.kafka_bootstrap_servers == "good:9098"
+    assert s.redis_sequence_state_key_prefix == "good:realtime-transcribe-service:expect-transcript-seq-num"
+    assert s.redis_ownership_guard_key_prefix == "good:realtime-transcribe-service:conversation-owner"

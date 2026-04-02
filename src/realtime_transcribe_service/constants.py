@@ -22,6 +22,7 @@ AWS_REGION_ENV = "AWS_REGION"
 AWS_DEFAULT_REGION_ENV = "AWS_DEFAULT_REGION"
 LOG_LEVEL_ENV = "LOG_LEVEL"
 LOG_FORMAT_ENV = "LOG_FORMAT"
+URL_PATH_PREFIX_ENV = "URL_PATH_PREFIX"
 
 # Never overridden by Secret / .env merge — always taken from the process env at loader start.
 DEPLOYED_BOOTSTRAP_ENV_KEYS = frozenset(
@@ -44,11 +45,15 @@ DEFAULT_REDIS_MAX_CONNECTIONS = 100
 DEFAULT_REDIS_ACTIVE_TTL_SEC = 3600
 DEFAULT_REDIS_FINAL_TTL_SEC = 60
 DEFAULT_REDIS_OWNERSHIP_GUARD_TTL_SEC = 30
+# Service-scoped Redis key stems (no account/environment namespace). Used as defaults for
+# APP_ENV=local. For APP_ENV=deployed, Settings rejects these defaults so you must set
+# REDIS_SEQUENCE_STATE_KEY_PREFIX / REDIS_OWNERSHIP_GUARD_KEY_PREFIX to strings allowed by
+# your ElastiCache user ACL (otherwise you may get NOPERM at runtime even if PING works).
 DEFAULT_REDIS_SEQUENCE_STATE_KEY_PREFIX = (
-    "ods-dev:realtime-transcribe-service:expect-transcript-seq-num"
+    "realtime-transcribe-service:expect-transcript-seq-num"
 )
 DEFAULT_REDIS_OWNERSHIP_GUARD_KEY_PREFIX = (
-    "ods-dev:realtime-transcribe-service:conversation-owner"
+    "realtime-transcribe-service:conversation-owner"
 )
 DEFAULT_REDIS_SSL_CHECK_HOSTNAME = False
 
@@ -58,7 +63,7 @@ DEFAULT_KAFKA_BATCH_SIZE = 32768
 
 DEFAULT_WS_PING_INTERVAL = 20.0
 DEFAULT_WS_PING_TIMEOUT = 10.0
-DEFAULT_WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC = 5.0
+DEFAULT_WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC = 15.0
 
 DEFAULT_HTTP_HOST = "0.0.0.0"
 DEFAULT_HTTP_PORT = 8080
