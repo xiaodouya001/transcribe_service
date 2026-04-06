@@ -265,10 +265,12 @@ class TestSettings:
                 kafka_ssl_ca_file="/tmp/ca.pem",
             )
 
-    def test_aws_msk_mode_requires_aws_region(self):
+    def test_aws_msk_mode_requires_aws_region_when_no_bootstrap_region_exists(self, monkeypatch):
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
         with pytest.raises(
             ValidationError,
-            match="KAFKA_AWS_REGION must be set",
+            match="KAFKA_AWS_REGION must be set, or AWS_REGION/AWS_DEFAULT_REGION must be available",
         ):
             _settings(
                 _env_file=None,
@@ -279,6 +281,34 @@ class TestSettings:
                 redis_sequence_state_key_prefix="prod:realtime-transcribe-service:expect-transcript-seq-num",
                 redis_ownership_guard_key_prefix="prod:realtime-transcribe-service:conversation-owner",
             )
+
+    def test_aws_msk_mode_falls_back_to_aws_region(self, monkeypatch):
+        monkeypatch.setenv("AWS_REGION", "ap-east-1")
+        monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+        s = _settings(
+            _env_file=None,
+            app_env="deployed",
+            redis_url="redis://127.0.0.1:6379/0",
+            kafka_bootstrap_servers="b-1.example.amazonaws.com:9098",
+            kafka_mode="aws_msk",
+            redis_sequence_state_key_prefix="prod:realtime-transcribe-service:expect-transcript-seq-num",
+            redis_ownership_guard_key_prefix="prod:realtime-transcribe-service:conversation-owner",
+        )
+        assert s.kafka_aws_region == "ap-east-1"
+
+    def test_aws_msk_mode_falls_back_to_aws_default_region(self, monkeypatch):
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.setenv("AWS_DEFAULT_REGION", "us-west-2")
+        s = _settings(
+            _env_file=None,
+            app_env="deployed",
+            redis_url="redis://127.0.0.1:6379/0",
+            kafka_bootstrap_servers="b-1.example.amazonaws.com:9098",
+            kafka_mode="aws_msk",
+            redis_sequence_state_key_prefix="prod:realtime-transcribe-service:expect-transcript-seq-num",
+            redis_ownership_guard_key_prefix="prod:realtime-transcribe-service:conversation-owner",
+        )
+        assert s.kafka_aws_region == "us-west-2"
 
     def test_aws_msk_mode_accepts_region_and_debug_flag(self):
         s = _settings(
