@@ -167,5 +167,6 @@ Default tests do not require a live Kafka or Redis instance:
 
 - Set `LOG_LEVEL=DEBUG` for verbose diagnostics
 - Set `LOG_FORMAT=console` for more readable local logs
+- Set `SUPPRESS_HEALTH_ACCESS_LOGS=true` in ECS / ALB-style environments if `/health` and `/ready` probes are spamming `uvicorn.access`
 - Inspect `AI_STAGING_TRANSCRIPTION` through Kafka UI at `http://127.0.0.1:8090`
 - Attach breakpoints to `python -m realtime_transcribe_service.main` or `python -m pytest`

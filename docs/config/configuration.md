@@ -208,6 +208,7 @@ Scope meanings:
 | `STOP_TIMEOUT`                            | `runtime-only`        | shutdown  | 120.0                                                   | Always active                              | Total graceful-shutdown budget in seconds. Must be `> 0`                                                                                                                                     |
 | `LOG_LEVEL`                               | `runtime-only`        | logging   | `INFO`                                                  | Always active                              | One of `CRITICAL`, `ERROR`, `WARNING`, `INFO`, or `DEBUG`                                                                                                                                    |
 | `LOG_FORMAT`                              | `runtime-only`        | logging   | `auto`                                                  | Always active                              | `json`, `console`, or `auto`                                                                                                                                                                 |
+| `SUPPRESS_HEALTH_ACCESS_LOGS`             | `runtime-only`        | logging   | `false`                                                 | Optional                                   | When `true`, suppress `uvicorn.access` lines for `/health` and `/ready`. Useful behind ECS / ALB / Target Group health checks                                                                |
 | `LOG_WS_ERROR_FRAMES`                     | `runtime-only`        | logging   | `false`                                                 | Always active                              | Whether to log the full outbound `ERROR` response JSON                                                                                                                                       |
 | `LOG_SLOW_MESSAGE_THRESHOLD_MS`           | `runtime-only`        | logging   | 0.0                                                     | Always active                              | Slow-message warning threshold in milliseconds. Must be `>= 0`. `0` disables it                                                                                                              |
 
@@ -266,6 +267,7 @@ Pick one row and treat it as a bundle. Do not rely on leftover variables from an
 ### Logging (structured output)
 
 - `LOG_FORMAT=json` writes structured JSON logs; `LOG_FORMAT=console` writes console logs; `auto` chooses by TTY.
+- `SUPPRESS_HEALTH_ACCESS_LOGS=true` suppresses only `uvicorn.access` entries for `/health` and `/ready`; it does not disable other application or access logs.
 - Common fields include `timestamp`, `level`, `logger`, and `event`.
 - JSON logs also include an `identity` object with `service`, `version`, and `conversation_id`.
 - Sensitive URL- or password-like values are redacted in logs.

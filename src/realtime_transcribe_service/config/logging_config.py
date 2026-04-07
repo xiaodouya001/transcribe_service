@@ -17,7 +17,11 @@ from urllib.parse import urlparse, urlunparse
 import structlog
 from structlog.typing import EventDict, Processor, WrappedLogger
 
-from realtime_transcribe_service.constants import LOG_FORMAT_ENV, LOG_LEVEL_ENV
+from realtime_transcribe_service.constants import (
+    LOG_FORMAT_ENV,
+    LOG_LEVEL_ENV,
+    SUPPRESS_HEALTH_ACCESS_LOGS_ENV,
+)
 
 
 def _json_serializer(obj: Any, **kwargs: Any) -> str:
@@ -97,6 +101,12 @@ def redact_redis_url_for_logs(url: str) -> str:
 
 
 _REDIS_URL_IN_TEXT = re.compile(r"rediss?://[^\s\]]+", re.IGNORECASE)
+_UVICORN_ACCESS_LINE_RE = re.compile(
+    r'"[A-Z]+\s+(?P<path>\S+)\s+HTTP/[0-9.]+"',
+    re.IGNORECASE,
+)
+_SUPPRESSED_ACCESS_PATH_SUFFIXES = ("/health", "/ready")
+_TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
 def redact_text_for_logs(text: str, *, extra_secret: str | None = None) -> str:
@@ -128,6 +138,47 @@ def _mask_sensitive_processor(
     return event_dict
 
 
+def _env_flag_enabled(name: str, *, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in _TRUE_ENV_VALUES
+
+
+def _normalize_access_path(path: object) -> str | None:
+    if not isinstance(path, str):
+        return None
+    normalized = path.split("?", 1)[0].rstrip("/")
+    return normalized or "/"
+
+
+def _extract_uvicorn_access_path(record: logging.LogRecord) -> str | None:
+    if record.name != "uvicorn.access":
+        return None
+
+    args = record.args
+    if isinstance(args, tuple) and len(args) >= 3:
+        normalized = _normalize_access_path(args[2])
+        if normalized is not None:
+            return normalized
+
+    match = _UVICORN_ACCESS_LINE_RE.search(record.getMessage())
+    if match is None:
+        return None
+    return _normalize_access_path(match.group("path"))
+
+
+class _SuppressHealthAccessFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        path = _extract_uvicorn_access_path(record)
+        if path is None:
+            return True
+        return not any(
+            path == suffix or path.endswith(suffix)
+            for suffix in _SUPPRESSED_ACCESS_PATH_SUFFIXES
+        )
+
+
 _SHARED_PROCESSORS: list[Processor] = [
     _add_service_context,
     _mask_sensitive_processor,
@@ -157,6 +208,8 @@ def _configure_stdlib_logging(
     log_level: int,
     renderer: structlog.processors.JSONRenderer | structlog.dev.ConsoleRenderer,
     foreign_pre_chain: list[Processor],
+    *,
+    suppress_health_access_logs: bool = False,
 ) -> None:
     """Route stdlib logging (including uvicorn) through the same renderer as structlog."""
     processor_formatter = structlog.stdlib.ProcessorFormatter(
@@ -167,6 +220,8 @@ def _configure_stdlib_logging(
     handler = logging.StreamHandler(stream=sys.stderr)
     handler.setFormatter(processor_formatter)
     handler.setLevel(log_level)
+    if suppress_health_access_logs:
+        handler.addFilter(_SuppressHealthAccessFilter())
 
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
@@ -184,10 +239,16 @@ def configure_logging(
     *,
     level: str | None = None,
     format: Literal["json", "console", "auto"] | None = None,
+    suppress_health_access_logs: bool | None = None,
 ) -> None:
     """Configure structlog. LOG_LEVEL and LOG_FORMAT override env."""
     level = level or os.environ.get(LOG_LEVEL_ENV, "INFO").upper()
     fmt = format or os.environ.get(LOG_FORMAT_ENV, "auto").lower()
+    suppress_health_access_logs = (
+        _env_flag_enabled(SUPPRESS_HEALTH_ACCESS_LOGS_ENV)
+        if suppress_health_access_logs is None
+        else suppress_health_access_logs
+    )
 
     log_level = getattr(logging, level, logging.INFO)
     if fmt == "auto":
@@ -213,7 +274,12 @@ def configure_logging(
         ]
         foreign_pre_chain = _CONSOLE_PRE_PROCESSORS[1:]
 
-    _configure_stdlib_logging(log_level, renderer, foreign_pre_chain)
+    _configure_stdlib_logging(
+        log_level,
+        renderer,
+        foreign_pre_chain,
+        suppress_health_access_logs=suppress_health_access_logs,
+    )
 
     structlog.configure(
         processors=processors,

@@ -28,6 +28,7 @@
 | `KAFKA_BATCH_SIZE`           | 32768          | 32768         | 32768          |
 | `KAFKA_SEND_TIMEOUT_SEC`     | 5              | 5             | 5              |
 | `LOG_LEVEL`                  | INFO           | INFO          | INFO           |
+| `SUPPRESS_HEALTH_ACCESS_LOGS` | true when deployed behind ECS/ALB health checks | true when deployed behind ECS/ALB health checks | true when deployed behind ECS/ALB health checks |
 | `WS_PING_INTERVAL`           | 20.0           | 20.0          | 20.0           |
 | `WS_PING_TIMEOUT`            | 10.0           | 10.0          | 10.0           |
 | `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 15.0 | 15.0 | 15.0 |
@@ -65,6 +66,7 @@ KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
 LOG_LEVEL=INFO
+SUPPRESS_HEALTH_ACCESS_LOGS=true
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=15.0
 AUTH_ENABLED=false
 AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material
@@ -86,6 +88,7 @@ KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
 LOG_LEVEL=INFO
+SUPPRESS_HEALTH_ACCESS_LOGS=true
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=15.0
 AUTH_ENABLED=false
 AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material
@@ -107,6 +110,7 @@ KAFKA_LINGER_MS=1
 KAFKA_BATCH_SIZE=32768
 KAFKA_SEND_TIMEOUT_SEC=5
 LOG_LEVEL=INFO
+SUPPRESS_HEALTH_ACCESS_LOGS=true
 WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC=15.0
 AUTH_ENABLED=false
 AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material

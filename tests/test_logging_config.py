@@ -123,6 +123,48 @@ def test_mask_sensitive_processor():
     assert out["password_field"] == "***"
 
 
+def test_env_flag_enabled_and_normalize_access_path(monkeypatch):
+    monkeypatch.delenv("SUPPRESS_HEALTH_ACCESS_LOGS", raising=False)
+    assert lc._env_flag_enabled("SUPPRESS_HEALTH_ACCESS_LOGS", default=True) is True
+
+    monkeypatch.setenv("SUPPRESS_HEALTH_ACCESS_LOGS", " On ")
+    assert lc._env_flag_enabled("SUPPRESS_HEALTH_ACCESS_LOGS") is True
+    assert lc._normalize_access_path(None) is None
+    assert lc._normalize_access_path("/ready/?probe=1") == "/ready"
+    assert lc._normalize_access_path("/") == "/"
+
+
+def test_extract_uvicorn_access_path_and_filter_fallbacks():
+    non_access = logging.LogRecord("app", logging.INFO, __file__, 1, "hello", (), None)
+    assert lc._extract_uvicorn_access_path(non_access) is None
+
+    unparsable = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        "not an access log line",
+        (),
+        None,
+    )
+    assert lc._extract_uvicorn_access_path(unparsable) is None
+
+    regex_fallback = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        1,
+        '127.0.0.1:1234 - "GET /transcribe-svc/ready HTTP/1.1" 200',
+        (),
+        None,
+    )
+    assert lc._extract_uvicorn_access_path(regex_fallback) == "/transcribe-svc/ready"
+
+    access_filter = lc._SuppressHealthAccessFilter()
+    assert access_filter.filter(non_access) is True
+    assert access_filter.filter(regex_fallback) is False
+
+
 def test_configure_logging_console(monkeypatch):
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
     monkeypatch.setenv("LOG_FORMAT", "console")
@@ -150,6 +192,36 @@ def test_configure_logging_stdlib_logger_json(monkeypatch, capsys):
     assert '"logger": "uvicorn.access"' in out
     assert '"conversation_id": "-"' in out
     assert "GET /health 200" in out
+
+
+def test_configure_logging_can_suppress_health_access_logs(monkeypatch, capsys):
+    monkeypatch.delenv("LOG_LEVEL", raising=False)
+    monkeypatch.delenv("LOG_FORMAT", raising=False)
+    lc.configure_logging(
+        level="INFO",
+        format="json",
+        suppress_health_access_logs=True,
+    )
+    logger = logging.getLogger("uvicorn.access")
+    logger.info(
+        '%s - "%s %s HTTP/%s" %d',
+        "127.0.0.1:1234",
+        "GET",
+        "/transcribe-svc/health",
+        "1.1",
+        200,
+    )
+    logger.info(
+        '%s - "%s %s HTTP/%s" %d',
+        "127.0.0.1:1234",
+        "GET",
+        "/metrics",
+        "1.1",
+        200,
+    )
+    out = capsys.readouterr().err
+    assert "/transcribe-svc/health" not in out
+    assert "/metrics" in out
 
 
 def test_configure_logging_structlog_json_includes_conversation_id(monkeypatch, capsys):

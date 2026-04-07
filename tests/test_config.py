@@ -51,6 +51,7 @@ class TestSettings:
         assert s.redis_ownership_guard_key_prefix == DEFAULT_REDIS_OWNERSHIP_GUARD_KEY_PREFIX
         assert s.ws_ownership_guard_refresh_interval_sec == 15.0
         assert s.log_slow_message_threshold_ms == 0.0
+        assert s.suppress_health_access_logs is False
         assert s.auth_enabled is False
         assert s.auth_jwt_signing_material is None
         assert s.auth_jwt_algorithm == "HS256"

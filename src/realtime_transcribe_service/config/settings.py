@@ -150,6 +150,7 @@ class Settings(BaseSettings):
     # --- Logging ---
     log_level: LOG_LEVEL = "INFO"
     log_format: LOG_FORMAT = "auto"
+    suppress_health_access_logs: bool = False
     # Whether to log the full JSON body of outgoing ERROR responses. Disabled by default to
     # avoid oversized load-test logs.
     log_ws_error_frames: bool = False
