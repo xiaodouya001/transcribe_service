@@ -128,7 +128,11 @@ async def _check_kafka(producer: KafkaProducer, timeout: float) -> None:
 async def run() -> None:
     """Start Realtime Transcribe Service."""
     settings = get_settings()
-    configure_logging(level=settings.log_level, format=settings.log_format)
+    configure_logging(
+        level=settings.log_level,
+        format=settings.log_format,
+        suppress_health_access_logs=settings.suppress_health_access_logs,
+    )
 
     redis_url = settings.redis_url
     kafka_bootstrap_servers = settings.kafka_bootstrap_servers

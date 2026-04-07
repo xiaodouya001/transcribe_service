@@ -1,12 +1,12 @@
 # Configuration
 
-This document describes the Realtime Transcribe Service environment variables and maps directly to [src/realtime_transcribe_service/config/settings.py](../src/realtime_transcribe_service/config/settings.py).
+This document describes the Realtime Transcribe Service environment variables and maps directly to [src/realtime_transcribe_service/config/settings.py](../../src/realtime_transcribe_service/config/settings.py).
 
 ---
 
-## 1. Environment Setup
+## 1. Local Development
 
-**Local development**
+### 1.1 Setup
 
 Copy `.env.example` to `.env`, keep `APP_ENV=local`, and edit values as needed.
 
@@ -14,199 +14,268 @@ Copy `.env.example` to `.env`, keep `APP_ENV=local`, and edit values as needed.
 cp .env.example .env
 ```
 
-**Deployed environments (`APP_ENV=deployed`)**
+### 1.2 Local rules
 
-1. **Bootstrap (plain task / container environment)** — must be set outside the secret so the process knows how to load the rest:
-   - `APP_ENV=deployed`
-   - `AWS_SECRETS_MANAGER_SECRET_ID` — name or ARN of the secret whose **SecretString** is JSON (see below)
-   - `AWS_REGION` or `AWS_DEFAULT_REGION` — optional but recommended for the Secrets Manager client
 
-2. **Application configuration** — loaded once at startup when `get_settings()` runs. Merge order (**later overrides earlier**):
+| Item            | Rule                                                             |
+| --------------- | ---------------------------------------------------------------- |
+| Startup mode    | `APP_ENV=local`                                                  |
+| Config sources  | `.env` and process environment                                   |
+| Precedence      | Process environment overrides `.env`                             |
+| Secrets Manager | Not used                                                         |
+| Validation      | Unknown keys and blank string values fail startup                |
+| Auth            | `AUTH_JWT_SIGNING_MATERIAL` is required when `AUTH_ENABLED=true` |
 
-   1. **`.env`** in the process **current working directory** (optional; keys normalized to uppercase like the secret)
-   2. **Process environment** as it existed before the merge (e.g. ECS task definition)
-   3. **Secrets Manager** JSON (highest precedence for application keys)
 
-   Bootstrap variables (`APP_ENV`, `AWS_SECRETS_MANAGER_SECRET_ID`, `AWS_REGION`, `AWS_DEFAULT_REGION`) always keep their **original** process values so the secret body cannot replace them.
+## 2. Deployed Environments (`APP_ENV=deployed`)
 
-   After the merge, `Settings` is built with `_env_file=None` so pydantic does **not** read `.env` a second time.
+### 2.1 Bootstrap variables
 
-Secret JSON rules:
 
-- Root must be a **JSON object** (not an array).
-- Keys should match the usual environment variable names (e.g. `REDIS_URL`, `REDIS_SEQUENCE_STATE_KEY_PREFIX`, `REDIS_OWNERSHIP_GUARD_KEY_PREFIX`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_MODE`, `KAFKA_AWS_REGION`). For `APP_ENV=deployed`, the two `REDIS_*_KEY_PREFIX` entries are **required** in secret or task env (they cannot use the local-only code defaults). See [§2 Configuration Reference](#2-configuration-reference) and `.env.example` for the full set.
-- Values must be JSON **string**, **number**, **boolean**, or **null** (`null` becomes an empty string in the environment). Nested objects are not supported.
+| Variable                        | Required    | Purpose                                                |
+| ------------------------------- | ----------- | ------------------------------------------------------ |
+| `APP_ENV=deployed`              | Yes         | Enables deployed startup flow                          |
+| `AWS_SECRETS_MANAGER_SECRET_ID` | Yes         | Tells the service which Secrets Manager secret to read |
+| `AWS_REGION`                    | Recommended | Preferred region for the Secrets Manager client        |
+| `AWS_DEFAULT_REGION`            | Optional    | Fallback region when `AWS_REGION` is unset             |
 
-IAM: the task role (or other AWS credential chain) must allow `secretsmanager:GetSecretValue` on the configured secret.
 
-**Local development (`APP_ENV=local`)**
+### 2.2 Load order
 
-Uses pydantic-settings as today: **process environment overrides `.env`** for the same variable. Secrets Manager is **not** used.
 
-**Validation behavior**
+| Order | Source                                  | Notes                                   |
+| ----- | --------------------------------------- | --------------------------------------- |
+| 1     | `.env` in the current working directory | Optional                                |
+| 2     | Process environment                     | For example ECS task `environment`      |
+| 3     | Secrets Manager JSON                    | Highest precedence for application keys |
 
-- `APP_ENV` is required in every environment
-- Blank string values fail startup
-- Unknown keys in `.env` fail startup (local only; deployed merges `.env` once into `os.environ` before `Settings`, then `Settings` does not re-read the file)
-- `REDIS_URL`, `REDIS_SEQUENCE_STATE_KEY_PREFIX`, `REDIS_OWNERSHIP_GUARD_KEY_PREFIX`, and `KAFKA_BOOTSTRAP_SERVERS` are required when `APP_ENV=deployed` (the two key-prefix variables must differ from the local code defaults)
-- `APP_ENV=deployed` requires `KAFKA_MODE=aws_msk` (MSK IAM). `KAFKA_MODE=local` is for local docker-compose only
-- `AUTH_JWT_SIGNING_MATERIAL` is required when `AUTH_ENABLED=true`
+
+Bootstrap variables keep their original process values. The secret body must not replace them.
+
+### 2.3 ECS task bootstrap/runtime secret tool and files
+
+This repo includes a small deployment tool at `ci-cd/sync_secret.py`.
+
+Its job is to:
+
+- load `base.toml`, `<env>.toml`, and `<env>.secrets.toml`
+- merge and validate the final deployed configuration
+- write local review files during `dry-run`
+- optionally create or update the AWS Secrets Manager secret
+
+Source of truth is always `ci-cd/secrets/*.toml`.
+Files under `ci-cd/build/*.json` are generated by `dry-run` for review and ECS copy/paste. The sync command does **not** read them back.
+
+
+| File                               | Purpose                                                                                        |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `ci-cd/secrets/base.toml`          | Shared non-sensitive defaults                                                                  |
+| `ci-cd/secrets/dev.toml`           | Dev environment values and AWS metadata                                                        |
+| `ci-cd/secrets/preprod.toml`       | Preprod environment values and AWS metadata                                                    |
+| `ci-cd/secrets/prod.toml`          | Prod environment values and AWS metadata                                                       |
+| `ci-cd/secrets/<env>.secrets.toml` | Local-only sensitive values, ignored by git                                                    |
+| `ci-cd/sync_secret.py`             | CLI tool that renders config, validates it, writes review JSON files, and optionally syncs AWS |
+| `ci-cd/build/<env>.bootstrap.json` | `dry-run` output: generated ECS bootstrap `environment` fragment                               |
+| `ci-cd/build/<env>.secret.json`    | `dry-run` output: generated Secrets Manager payload JSON for local review                      |
+
+
+Common commands:
+
+```bash
+python ci-cd/sync_secret.py --env dev --dry-run
+python ci-cd/sync_secret.py --env dev --dry-run --output-dir ci-cd/build/review
+python ci-cd/sync_secret.py --env dev --sync
+```
+
+Command behavior by mode:
+
+
+| Mode      | Required parameters     | Optional parameters                        | Writes AWS                                | Local output files                                                               |
+| --------- | ----------------------- | ------------------------------------------ | ----------------------------------------- | -------------------------------------------------------------------------------- |
+| `dry-run` | `--env <env> --dry-run` | `--output-dir <dir>`, `--config-dir <dir>` | No                                        | Always writes `<env>.bootstrap.json` and `<env>.secret.json`                     |
+| `sync`    | `--env <env> --sync`    | `--config-dir <dir>`                       | Yes. Creates or updates the target secret | No                                                                               |
+
+
+Defaults:
+
+- `--config-dir` defaults to `ci-cd/secrets`
+- `--output-dir` defaults to `ci-cd/build` for `dry-run`
+
+Parameter reference:
+
+
+| Parameter      | Meaning                                                                                                                                        |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--env`        | Target environment. Supported values: `dev`, `preprod`, `prod`                                                                                 |
+| `--dry-run`    | Render and validate locally, then print the redacted payload without writing to AWS                                                            |
+| `--sync`       | Create or update the target Secrets Manager secret in AWS                                                                                      |
+| `--output-dir` | Dry-run only. Output directory for local inspection files. The command writes `<env>.bootstrap.json` and `<env>.secret.json` here. Defaults to `ci-cd/build` |
+| `--config-dir` | Override the default config directory `ci-cd/secrets`. Mainly useful for tests or ad-hoc local experiments                                     |
+
+
+Without `--output-dir`, `dry-run` writes:
+
+- `ci-cd/build/<env>.bootstrap.json`
+- `ci-cd/build/<env>.secret.json`
+
+Do not edit those generated JSON files and expect the next sync to use them. They are dry-run review artifacts only and are overwritten on each dry-run.
+
+`ci-cd/secrets/<env>.secrets.toml` example:
+
+- Keep only the `[app]` section in this file
+- Put local-only sensitive values or per-environment secret overrides here
+- Values here override `base.toml` and `<env>.toml`
+
+```toml
+[app]
+REDIS_URL = "rediss://your-elasticache:6379/0"
+REDIS_USERNAME = "transcribe-service"
+REDIS_PASSWORD = "replace-with-real-redis-password"
+KAFKA_BOOTSTRAP_SERVERS = "b-1.example.msk.amazonaws.com:9098,b-2.example.msk.amazonaws.com:9098"
+AUTH_JWT_SIGNING_MATERIAL = "replace-with-real-signing-material"
+```
+
+### 2.4 Deployed rules
+
+
+| Topic                          | Rule                                                                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Secret JSON shape              | Root must be a JSON object                                                                                                                              |
+| Secret JSON values             | Only string, number, boolean, or `null`                                                                                                                 |
+| Secret JSON keys               | Use supported environment variable names from [§3 Configuration Reference](#3-configuration-reference)                                                  |
+| Secret JSON nesting            | Nested objects are not supported                                                                                                                        |
+| Secret body restrictions       | Do not include `APP_ENV`, `AWS_REGION`, `AWS_DEFAULT_REGION`, or `AWS_SECRETS_MANAGER_SECRET_ID`                                                        |
+| ECS task `environment`         | Keep only `APP_ENV`, `AWS_REGION`, and `AWS_SECRETS_MANAGER_SECRET_ID`                                                                                  |
+| ECS runtime source of truth    | Put all other supported application keys in the single Secrets Manager JSON payload                                                                     |
+| Per-environment `.env.*` files | Do not use them for ECS runtime                                                                                                                         |
+| Required deployed app keys     | `REDIS_URL`, `REDIS_SEQUENCE_STATE_KEY_PREFIX`, `REDIS_OWNERSHIP_GUARD_KEY_PREFIX`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_MODE=aws_msk`, `AWS_SECRETS_MANAGER_SECRET_ID`; `KAFKA_AWS_REGION` is optional when `AWS_REGION` / `AWS_DEFAULT_REGION` already identifies the same AWS region |
+| Redis key prefixes             | In deployed mode, both `REDIS_*_KEY_PREFIX` values must differ from the local code defaults                                                             |
+| Auth                           | `AUTH_JWT_SIGNING_MATERIAL` is required when `AUTH_ENABLED=true`                                                                                        |
+| IAM                            | The task role or other AWS credential chain must allow `secretsmanager:GetSecretValue` on the configured secret                                         |
+
 
 ---
 
-## 2. Configuration Reference
+## 3. Configuration Reference
 
-### Runtime Mode
+### 3.1 Complete variable reference
 
-| Variable | Default | Description |
-|------|------|------|
-| `APP_ENV` | None | Required. `local` enables localhost fallbacks for Redis/Kafka. `deployed` requires explicit dependency addresses |
+Scope meanings:
 
-### Redis: Sequence State Machine + Ownership Guard
+- `bootstrap-only`: used only during startup
+- `bootstrap + runtime`: used during startup and normal runtime
+- `runtime-only`: normal application configuration after startup
 
-| Variable | Default | Description |
-|------|------|------|
-| `REDIS_URL` | local only: `redis://127.0.0.1:6379/0` | Redis connection URL (**scheme, host, port, db path**). Prefer **no** `user:password@` in the URL; use `REDIS_USERNAME` / `REDIS_PASSWORD` instead. Required when `APP_ENV=deployed` |
-| `REDIS_USERNAME` | None | Optional ACL username (ElastiCache). Empty / whitespace → treated as unset |
-| `REDIS_PASSWORD` | None | Optional password. Prefer ECS **Secrets** → env; do not embed in `REDIS_URL` |
-| `REDIS_SSL_CHECK_HOSTNAME` | `false` | Passed to redis-py as `ssl_check_hostname` for `rediss://`. Use `false` when connecting via an alias (e.g. NLB) whose hostname does not match the TLS certificate SAN; use `true` when connecting to an endpoint whose certificate matches the hostname |
-| `REDIS_MAX_CONNECTIONS` | 100 | Connection-pool size. Must be `> 0` |
-| `REDIS_ACTIVE_TTL_SEC` | 3600 | TTL for active conversations in seconds. Must be `> 0` |
-| `REDIS_FINAL_TTL_SEC` | 60 | Residual TTL after `SESSION_COMPLETE`. Must be `> 0` and `<= REDIS_ACTIVE_TTL_SEC` |
-| `REDIS_OWNERSHIP_GUARD_TTL_SEC` | 30 | TTL for the per-`conversationId` ownership key. Must be `> 0` |
-| `REDIS_SEQUENCE_STATE_KEY_PREFIX` | `realtime-transcribe-service:expect-transcript-seq-num` | Key prefix for the Redis sequence state machine. In AWS ElastiCache (and similar), prepend **your** environment/account namespace when user ACLs require it (for example `prod:realtime-transcribe-service:expect-transcript-seq-num` and an ACL pattern like `~prod:*`). Must not be empty |
-| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` | `realtime-transcribe-service:conversation-owner` | Key prefix for the Redis ownership guard. Same namespace rules as `REDIS_SEQUENCE_STATE_KEY_PREFIX`. Must not be empty |
 
-### Kafka
+| Variable                                  | Scope                 | Component | Default                                                 | Required / active when                     | Description                                                                                                                                                                                  |
+| ----------------------------------------- | --------------------- | --------- | ------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_ENV`                                 | `bootstrap + runtime` | global    | None                                                    | Always required                            | `local` enables localhost fallbacks for Redis/Kafka. `deployed` requires explicit dependency addresses and Secrets Manager bootstrap                                                         |
+| `AWS_SECRETS_MANAGER_SECRET_ID`           | `bootstrap-only`      | startup   | None                                                    | Required when `APP_ENV=deployed`           | Secret name or ARN to read during startup                                                                                                                                                    |
+| `AWS_REGION`                              | `bootstrap-only`      | startup   | None                                                    | Recommended when `APP_ENV=deployed`        | Preferred AWS region during startup                                                                                                                                                          |
+| `AWS_DEFAULT_REGION`                      | `bootstrap-only`      | startup   | None                                                    | Optional fallback when `APP_ENV=deployed`  | Fallback region used only when `AWS_REGION` is unset                                                                                                                                         |
+| `REDIS_URL`                               | `runtime-only`        | redis     | local fallback: `redis://127.0.0.1:6379/0`              | Required when `APP_ENV=deployed`           | Redis connection URL. Prefer `REDIS_USERNAME` / `REDIS_PASSWORD` over embedding credentials in the URL                                                                                       |
+| `REDIS_USERNAME`                          | `runtime-only`        | redis     | None                                                    | Optional                                   | Optional ACL username. Blank / whitespace is treated as unset                                                                                                                                |
+| `REDIS_PASSWORD`                          | `runtime-only`        | redis     | None                                                    | Optional                                   | Optional password. Blank / whitespace is treated as unset. Prefer secret-backed injection over embedding in `REDIS_URL`                                                                      |
+| `REDIS_SSL_CHECK_HOSTNAME`                | `runtime-only`        | redis     | `false`                                                 | Active for `rediss://` URLs                | Passed to redis-py as `ssl_check_hostname`. Use `false` behind aliases such as an NLB whose hostname does not match the certificate SAN                                                      |
+| `REDIS_MAX_CONNECTIONS`                   | `runtime-only`        | redis     | 100                                                     | Always active                              | Redis pool size. Must be `> 0`                                                                                                                                                               |
+| `REDIS_ACTIVE_TTL_SEC`                    | `runtime-only`        | redis     | 3600                                                    | Always active                              | TTL for active conversations. Must be `> 0`                                                                                                                                                  |
+| `REDIS_FINAL_TTL_SEC`                     | `runtime-only`        | redis     | 60                                                      | Always active                              | Residual TTL after `SESSION_COMPLETE`. Must be `> 0` and `<= REDIS_ACTIVE_TTL_SEC`                                                                                                           |
+| `REDIS_OWNERSHIP_GUARD_TTL_SEC`           | `runtime-only`        | redis     | 30                                                      | Always active                              | TTL for the per-`conversationId` ownership key. Must be `> 0`                                                                                                                                |
+| `REDIS_SEQUENCE_STATE_KEY_PREFIX`         | `runtime-only`        | redis     | `realtime-transcribe-service:expect-transcript-seq-num` | Required explicitly for `APP_ENV=deployed` | Key prefix for the Redis sequence state machine. Must not be empty. In deployed environments it must differ from the local code default so it matches your Redis / ElastiCache ACL namespace |
+| `REDIS_OWNERSHIP_GUARD_KEY_PREFIX`        | `runtime-only`        | redis     | `realtime-transcribe-service:conversation-owner`        | Required explicitly for `APP_ENV=deployed` | Key prefix for the Redis ownership guard. Must not be empty. In deployed environments it must differ from the local code default so it matches your Redis / ElastiCache ACL namespace        |
+| `KAFKA_BOOTSTRAP_SERVERS`                 | `runtime-only`        | kafka     | local fallback: `127.0.0.1:9092`                        | Required when `APP_ENV=deployed`           | Kafka bootstrap servers                                                                                                                                                                      |
+| `KAFKA_MODE`                              | `runtime-only`        | kafka     | `local`                                                 | Always active                              | `local` = local docker-compose only, PLAINTEXT fixed in code. `aws_msk` = deployed / remote MSK, `SASL_SSL + OAUTHBEARER` fixed in code. `APP_ENV=deployed` must use `aws_msk`               |
+| `KAFKA_TOPIC`                             | `runtime-only`        | kafka     | `AI_STAGING_TRANSCRIPTION`                              | Always active                              | Topic name. Must not be empty. The service does not auto-create topics                                                                                                                       |
+| `KAFKA_COMPRESSION_TYPE`                  | `runtime-only`        | kafka     | `zstd`                                                  | Always active                              | Compression codec: `none`, `gzip`, `snappy`, `lz4`, or `zstd`                                                                                                                                |
+| `KAFKA_SSL_CA_FILE`                       | `runtime-only`        | kafka     | None                                                    | Optional for `KAFKA_MODE=aws_msk` only     | Custom CA bundle when the broker / NLB certificate chain is not in the default trust store. Not allowed in `KAFKA_MODE=local`                                                                |
+| `KAFKA_AWS_REGION`                        | `runtime-only`        | kafka     | None                                                    | Optional override when `KAFKA_MODE=aws_msk` | AWS region for the MSK IAM signer. When omitted, runtime falls back to `AWS_REGION`, then `AWS_DEFAULT_REGION`. Ignored in `KAFKA_MODE=local`                                              |
+| `KAFKA_AWS_DEBUG_CREDS`                   | `runtime-only`        | kafka     | `false`                                                 | Optional for `KAFKA_MODE=aws_msk`          | When `true`, logs which AWS identity signed the MSK IAM token. Troubleshooting only                                                                                                          |
+| `KAFKA_SEND_TIMEOUT_SEC`                  | `runtime-only`        | kafka     | 2.0                                                     | Always active                              | Kafka send timeout in seconds. Must be `> 0`                                                                                                                                                 |
+| `KAFKA_LINGER_MS`                         | `runtime-only`        | kafka     | 1                                                       | Always active                              | Producer linger in milliseconds. Must be `>= 0`                                                                                                                                              |
+| `KAFKA_BATCH_SIZE`                        | `runtime-only`        | kafka     | 32768                                                   | Always active                              | Producer batch size in bytes. Must be `> 0`                                                                                                                                                  |
+| `WS_PING_INTERVAL`                        | `runtime-only`        | websocket | 20.0                                                    | Always active                              | WebSocket ping interval in seconds. Must be `> 0`                                                                                                                                            |
+| `WS_PING_TIMEOUT`                         | `runtime-only`        | websocket | 10.0                                                    | Always active                              | WebSocket ping timeout in seconds. Must be `> 0`                                                                                                                                             |
+| `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | `runtime-only`        | websocket | 15.0                                                    | Always active                              | Ownership-guard refresh interval. Must be `> 0` and `< REDIS_OWNERSHIP_GUARD_TTL_SEC`                                                                                                        |
+| `WS_MAX_CONNECTIONS`                      | `runtime-only`        | websocket | 0                                                       | Always active                              | Maximum concurrent WebSocket connections. Must be `>= 0`. `0` means unlimited                                                                                                                |
+| `AUTH_ENABLED`                            | `runtime-only`        | auth      | `false`                                                 | Always active                              | Enables handshake-time `Authorization: Bearer <JWT>` validation                                                                                                                              |
+| `AUTH_JWT_SIGNING_MATERIAL`               | `runtime-only`        | auth      | None                                                    | Required when `AUTH_ENABLED=true`          | Signing material for HS256 JWT validation                                                                                                                                                    |
+| `AUTH_JWT_ALGORITHM`                      | `runtime-only`        | auth      | `HS256`                                                 | Always active                              | JWT algorithm. Current implementation supports only `HS256`                                                                                                                                  |
+| `HTTP_PORT`                               | `runtime-only`        | http      | 8080                                                    | Always active                              | Listen port. Must be in `1..65535`                                                                                                                                                           |
+| `HTTP_BACKLOG`                            | `runtime-only`        | http      | 4096                                                    | Always active                              | Uvicorn `listen(backlog)` value. Must be `> 0`                                                                                                                                               |
+| `HTTP_ENABLE_DOCS`                        | `runtime-only`        | http      | `false`                                                 | Always active                              | Only `true` exposes `/docs`, `/redoc`, and `/openapi.json`                                                                                                                                   |
+| `URL_PATH_PREFIX`                         | `runtime-only`        | http      | *(empty)*                                               | Optional                                   | Optional path prefix for all HTTP and WebSocket routes. Normalized to `/prefix`, strips a trailing `/`, collapses `//`, and rejects `..` or newlines                                         |
+| `KAFKA_STARTUP_TIMEOUT_SEC`               | `runtime-only`        | startup   | 30.0                                                    | Always active                              | Timeout for Kafka connectivity checks during startup. Must be `> 0`                                                                                                                          |
+| `STOP_TIMEOUT`                            | `runtime-only`        | shutdown  | 120.0                                                   | Always active                              | Total graceful-shutdown budget in seconds. Must be `> 0`                                                                                                                                     |
+| `LOG_LEVEL`                               | `runtime-only`        | logging   | `INFO`                                                  | Always active                              | One of `CRITICAL`, `ERROR`, `WARNING`, `INFO`, or `DEBUG`                                                                                                                                    |
+| `LOG_FORMAT`                              | `runtime-only`        | logging   | `auto`                                                  | Always active                              | `json`, `console`, or `auto`                                                                                                                                                                 |
+| `SUPPRESS_HEALTH_ACCESS_LOGS`             | `runtime-only`        | logging   | `false`                                                 | Optional                                   | When `true`, suppress `uvicorn.access` lines for `/health` and `/ready`. Useful behind ECS / ALB / Target Group health checks                                                                |
+| `LOG_WS_ERROR_FRAMES`                     | `runtime-only`        | logging   | `false`                                                 | Always active                              | Whether to log the full outbound `ERROR` response JSON                                                                                                                                       |
+| `LOG_SLOW_MESSAGE_THRESHOLD_MS`           | `runtime-only`        | logging   | 0.0                                                     | Always active                              | Slow-message warning threshold in milliseconds. Must be `>= 0`. `0` disables it                                                                                                              |
 
-| Variable | Default | Description |
-|------|------|------|
-| `KAFKA_BOOTSTRAP_SERVERS` | local only: `127.0.0.1:9092` | Kafka bootstrap servers. Required when `APP_ENV=deployed` |
-| `KAFKA_MODE` | `local` | `local` = local docker-compose only: **PLAINTEXT fixed in code**; **does not** create topics (create `KAFKA_TOPIC` yourself, e.g. via Kafka UI / CLI). `aws_msk` = deployed / remote MSK: **SASL_SSL + OAUTHBEARER (MSK IAM) fixed in code**; topic must exist |
-| `KAFKA_TOPIC` | `AI_STAGING_TRANSCRIPTION` | Topic name. Must not be empty |
-| `KAFKA_COMPRESSION_TYPE` | `zstd` | Compression codec: `none`, `gzip`, `snappy`, `lz4`, or `zstd` |
-| `KAFKA_SSL_CA_FILE` | None | Optional CA bundle path for `KAFKA_MODE=aws_msk` when the broker or NLB certificate chain is not trusted by the system default trust store. **Not allowed** when `KAFKA_MODE=local` |
-| `KAFKA_AWS_REGION` | None | Required when `KAFKA_MODE=aws_msk`. Unused when `KAFKA_MODE=local` |
-| `KAFKA_AWS_DEBUG_CREDS` | false | Only effective when `KAFKA_MODE=aws_msk`. When `true`, the IAM signer logs which AWS identity was used (troubleshooting only; keep `false` in production) |
-| `KAFKA_SEND_TIMEOUT_SEC` | 2.0 | Kafka send timeout in seconds. Must be `> 0` |
-| `KAFKA_LINGER_MS` | 1 | Producer linger in milliseconds. Must be `>= 0` |
-| `KAFKA_BATCH_SIZE` | 32768 | Producer batch size in bytes. Must be `> 0` |
 
-#### Kafka: which settings go together
+### 3.2 Scenario tables
 
-Pick **one** row and treat it as a bundle. Do not rely on “leftover” variables from another bundle (for example `KAFKA_AWS_REGION` does nothing when `KAFKA_MODE=local`).
+#### 3.2.1 Runtime mode bundles
 
-| Scenario | `KAFKA_MODE` | Turn **on** / set | Turn **off** / omit / ignore |
-| -------- | ------------ | ------------------- | ---------------------------- |
-| **Local docker-compose** (this repo) | `local` | `APP_ENV=local`, `KAFKA_BOOTSTRAP_SERVERS` (e.g. `127.0.0.1:9092`); **create `KAFKA_TOPIC` before starting the service**; **PLAINTEXT is fixed in code** | Omit `KAFKA_AWS_REGION`, `KAFKA_SSL_CA_FILE`. Keep `KAFKA_AWS_DEBUG_CREDS=false` (or omit) |
-| **Deployed / remote Kafka (ECS, etc.)** | `aws_msk` | `APP_ENV=deployed`, `KAFKA_AWS_REGION`, `KAFKA_BOOTSTRAP_SERVERS` on **MSK IAM** endpoints (commonly `:9098`), AWS credentials via the [default credential chain](https://docs.aws.amazon.com/sdkref/latest/guide/overview.html); optional `KAFKA_SSL_CA_FILE` if TLS chain is non-public; **SASL_SSL + OAUTHBEARER is fixed in code** | Create `KAFKA_TOPIC` **before** deploy |
-| **Debug “which AWS identity signs the token?”** | `aws_msk` only | Temporarily set `KAFKA_AWS_DEBUG_CREDS=true`, reproduce once, read logs | Set back to **`false`** after troubleshooting (avoid in steady-state production) |
 
-**Do not mix:** `APP_ENV=deployed` **must** use `KAFKA_MODE=aws_msk`. There is **no** `KAFKA_SECURITY_PROTOCOL` (or similar) environment variable; wire security follows `KAFKA_MODE` only. **`KAFKA_MODE=local` never uses MSK IAM** and must not set `KAFKA_SSL_CA_FILE`; `KAFKA_AWS_REGION` / `KAFKA_AWS_DEBUG_CREDS` have **no effect** on the Kafka client in local mode.
+| Scenario           | Must set                                                                                                                                                                                                                               | Can rely on defaults                                                                                                                                          | Must not rely on                                                      |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `APP_ENV=local`    | `APP_ENV=local`                                                                                                                                                                                                                        | `REDIS_URL` falls back to `redis://127.0.0.1:6379/0`; `KAFKA_BOOTSTRAP_SERVERS` falls back to `127.0.0.1:9092`; Redis key prefixes may stay on local defaults | Secrets Manager is not used                                           |
+| `APP_ENV=deployed` | `APP_ENV=deployed`, `REDIS_URL`, `REDIS_SEQUENCE_STATE_KEY_PREFIX`, `REDIS_OWNERSHIP_GUARD_KEY_PREFIX`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_MODE=aws_msk`, `AWS_SECRETS_MANAGER_SECRET_ID`; usually `AWS_REGION` too | Optional tunables such as pool sizes, ping intervals, log settings, and Kafka batching may stay on defaults; `KAFKA_AWS_REGION` is only needed for cross-region override | Local-only Redis / Kafka fallbacks and the default Redis key prefixes |
 
-#### Kafka authentication
 
-- **Not supported:** SASL **SCRAM** or SASL **PLAIN** (username / password) to Kafka. There are no `KAFKA_SASL_*` settings.
-- **`KAFKA_MODE=local`:** **Local docker-compose only**. **PLAINTEXT** only (not configurable). **No Kafka Admin topic creation** — create `KAFKA_TOPIC` out of band. Do not use for `APP_ENV=deployed`.
-- **`KAFKA_MODE=aws_msk`:** **AWS MSK IAM** for all deployed / remote Kafka. The client always uses **`SASL_SSL`** + **`OAUTHBEARER`** (not configurable). Tokens from **`aws-msk-iam-sasl-signer-python`**. Set **`KAFKA_AWS_REGION`** and AWS credentials (e.g. ECS task role). Optional **`KAFKA_SSL_CA_FILE`** if the broker chain is not in the default trust store.
+#### 3.2.2 ECS deployed placement
 
-> `KAFKA_MODE=local` is only for local debugging with this repo’s docker-compose broker.
-> Both modes expect the topic to exist before the service starts; the service does not auto-create it.
-> In `KAFKA_MODE=aws_msk`, AWS credentials come from the standard AWS default credential chain, for example ECS task role, exported STS credentials, or `AWS_PROFILE`.
 
-### WebSocket
+| Location                   | Keys                                                                                                     | Notes                                                                                    |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| ECS task `environment`     | `APP_ENV`, `AWS_REGION`, `AWS_SECRETS_MANAGER_SECRET_ID`                                                 | Bootstrap only. These values tell the process how to load the real application config    |
+| Secrets Manager JSON       | All supported app keys such as `REDIS_`*, `KAFKA_`*, `AUTH_*`, `HTTP_*`, `WS_*`, `LOG_*`, `STOP_TIMEOUT` | Highest precedence for application keys in `APP_ENV=deployed`                            |
+| Unsupported in secret body | `APP_ENV`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_SECRETS_MANAGER_SECRET_ID`                           | Bootstrap keys keep their original process values and must not be supplied by the secret |
 
-| Variable | Default | Description |
-|------|------|------|
-| `WS_PING_INTERVAL` | 20.0 | Seconds. Must be `> 0` |
-| `WS_PING_TIMEOUT` | 10.0 | Seconds. Must be `> 0` |
-| `WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC` | 15.0 | Seconds between ownership-guard refreshes. Must be `> 0` and `< REDIS_OWNERSHIP_GUARD_TTL_SEC` |
-| `WS_MAX_CONNECTIONS` | 0 | Maximum concurrent WebSocket connections. Must be `>= 0`. `0` means unlimited |
 
-> The service enables the WebSocket runtime with `uvicorn.Config(ws="websockets", ...)`. `WS_PING_INTERVAL` and `WS_PING_TIMEOUT` are enforced by the Uvicorn `websockets` backend rather than by application-level JSON messages.
+#### 3.2.3 Kafka mode bundles
 
-### Handshake Authentication
+Pick one row and treat it as a bundle. Do not rely on leftover variables from another bundle.
 
-| Variable | Default | Description |
-|------|------|------|
-| `AUTH_ENABLED` | false | Enables handshake-time `Authorization: Bearer <JWT>` validation |
-| `AUTH_JWT_SIGNING_MATERIAL` | None | Signing material for HS256 Bearer JWT validation. Required when `AUTH_ENABLED=true` |
-| `AUTH_JWT_ALGORITHM` | `HS256` | JWT algorithm. V1 currently supports only `HS256` |
 
-> V1 currently uses **HS256 signing material**. It does not use an RSA `private key` / `public key` pair, so there is no private-key generation step in the current implementation.
+| Scenario                                    | `KAFKA_MODE` | Turn on / set                                                                                                                                                            | Omit / ignore                                                               |
+| ------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| Local docker-compose                        | `local`      | `APP_ENV=local`, `KAFKA_BOOTSTRAP_SERVERS` if you do not want the local fallback, `KAFKA_TOPIC` if you use a non-default topic                                           | `KAFKA_AWS_REGION`, `KAFKA_SSL_CA_FILE`; keep `KAFKA_AWS_DEBUG_CREDS=false` |
+| Deployed / remote Kafka (ECS, etc.)         | `aws_msk`    | `APP_ENV=deployed`, `KAFKA_BOOTSTRAP_SERVERS` on MSK IAM endpoints (commonly `:9098`), optional `KAFKA_SSL_CA_FILE`; set `KAFKA_AWS_REGION` only when it differs from `AWS_REGION` / `AWS_DEFAULT_REGION` | `KAFKA_MODE=local`; do not expect the service to create the topic           |
+| Debug "which AWS identity signs the token?" | `aws_msk`    | Temporarily set `KAFKA_AWS_DEBUG_CREDS=true`, reproduce once, inspect logs                                                                                               | Leave it enabled in steady-state production                                 |
 
-### HTTP / Uvicorn
 
-| Variable | Default | Description |
-|------|------|------|
-| `HTTP_PORT` | 8080 | Listen port. Must be in `1..65535` |
-| `HTTP_BACKLOG` | 4096 | Uvicorn `listen(backlog)` value. Must be `> 0` |
-| `HTTP_ENABLE_DOCS` | false | Only `true` exposes `/docs`, `/redoc`, and `/openapi.json`; any other value keeps them disabled |
-| `URL_PATH_PREFIX` | *(empty)* | Optional path prefix for **all** HTTP and WebSocket routes (for example an ALB listener rule that forwards `https://host/abc/...` to the task). Empty or unset = no prefix (current paths: `/health`, `/ws/v1/...`, etc.). Non-empty values are normalized: leading `/` is added if missing, trailing `/` is stripped, `//` segments are collapsed (e.g. `abc` → `/abc`, `/api/v1/` → `/api/v1`). Must not contain `..` or newlines. When set together with `HTTP_ENABLE_DOCS=true`, docs live under `{prefix}/docs`, `{prefix}/redoc`, and `{prefix}/openapi.json` |
+#### 3.2.4 Handshake authentication toggle
 
-> The HTTP bind address is fixed to `0.0.0.0` in code (`DEFAULT_HTTP_HOST` in `src/realtime_transcribe_service/constants.py`); it is not an environment variable. Do not set legacy `HTTP_HOST` in `.env` or secret JSON — `Settings` uses `extra=forbid` and unknown keys will fail validation.
 
-> `HTTP_ENABLE_DOCS` controls only the FastAPI documentation surface. It does not protect or disable `/health`, `/ready`, or `/metrics`; those routes should be restricted by ingress, load balancer, security-group, or internal-network policy. With `URL_PATH_PREFIX` set, the same applies to `{prefix}/health`, `{prefix}/ready`, and `{prefix}/metrics`.
+| Scenario      | Set                                                                                   | Omit / keep disabled                | Notes                                                       |
+| ------------- | ------------------------------------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------- |
+| Auth disabled | `AUTH_ENABLED=false` or omit it                                                       | `AUTH_JWT_SIGNING_MATERIAL`         | No JWT validation at handshake time                         |
+| Auth enabled  | `AUTH_ENABLED=true`, `AUTH_JWT_SIGNING_MATERIAL`, optional `AUTH_JWT_ALGORITHM=HS256` | RSA-style key settings do not exist | Current implementation supports only HS256 signing material |
 
-### Startup Checks
 
-| Variable | Default | Description |
-|------|------|------|
-| `KAFKA_STARTUP_TIMEOUT_SEC` | 30.0 | Timeout for Kafka connectivity checks during startup. Must be `> 0` |
+## 4. Notes
 
-### Other
+### Kafka authentication
 
-| Variable | Default | Description |
-|------|------|------|
-| `STOP_TIMEOUT` | 120.0 | Total graceful-shutdown budget in seconds. Must be `> 0` |
-| `LOG_LEVEL` | `INFO` | Log level. One of `CRITICAL`, `ERROR`, `WARNING`, `INFO`, or `DEBUG` |
-| `LOG_FORMAT` | `auto` | Log format: `json`, `console`, or `auto` |
-| `LOG_WS_ERROR_FRAMES` | false | Whether to log the full outbound `ERROR` response JSON |
-| `LOG_SLOW_MESSAGE_THRESHOLD_MS` | 0.0 | Slow-message warning threshold in milliseconds. Must be `>= 0`. `0` disables it |
+- **Not supported:** SASL **SCRAM** or SASL **PLAIN**. There are no `KAFKA_SASL_*` settings.
+- `**KAFKA_MODE=local`:** local docker-compose only, **PLAINTEXT** only, topic must already exist.
+- `**KAFKA_MODE=aws_msk`:** deployed / remote Kafka only, always `**SASL_SSL`** + `**OAUTHBEARER**`, AWS credentials come from the standard AWS default credential chain.
+- There is no `KAFKA_SECURITY_PROTOCOL` environment variable; wire security follows `KAFKA_MODE` only.
 
 ### Logging (structured output)
 
-The service uses **structlog** with either **JSON** (non-TTY stderr, or `LOG_FORMAT=json`) or **console** rendering (`LOG_FORMAT=console`, or `auto` on a TTY). Uvicorn / Starlette / FastAPI stdlib log records are routed through the same formatter.
+- `LOG_FORMAT=json` writes structured JSON logs; `LOG_FORMAT=console` writes console logs; `auto` chooses by TTY.
+- `SUPPRESS_HEALTH_ACCESS_LOGS=true` suppresses only `uvicorn.access` entries for `/health` and `/ready`; it does not disable other application or access logs.
+- Common fields include `timestamp`, `level`, `logger`, and `event`.
+- JSON logs also include an `identity` object with `service`, `version`, and `conversation_id`.
+- Sensitive URL- or password-like values are redacted in logs.
 
-- **Stable fields:** each event includes `timestamp` (ISO-8601 UTC), `level`, `logger` (module name), and an `event` string (the human-oriented message key).
-- **`identity`:** JSON output groups `service` (`realtime-transcribe-service`), package **`version`** (from distribution metadata), and **`conversation_id`** when known; otherwise `conversation_id` is **`"-"`** for correlation in log pipelines.
-- **Redaction:** `redis_url` and other URL-like fields containing `redis` are masked; `*password*` keys and string `error` values are passed through text redaction helpers (embedded `redis://` URLs and optional secrets).
-- **`LOG_WS_ERROR_FRAMES`:** when `true`, the transport may log full outbound `ERROR` JSON bodies (can be large; default off for load tests).
-- **`LOG_SLOW_MESSAGE_THRESHOLD_MS`:** when `> 0`, emits **`Transport: Slow message stage timings`** (WARNING) if handling exceeds the threshold; additional slow events within the same ~1s window may be suppressed to avoid log storms.
+### Other notes
 
----
-
-## 3. Example Configurations
-
-**Local development**
-
-```env
-APP_ENV=local
-REDIS_URL=redis://127.0.0.1:6379/0
-KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092
-KAFKA_MODE=local
-KAFKA_COMPRESSION_TYPE=zstd
-LOG_FORMAT=console
-HTTP_ENABLE_DOCS=false
-```
-
-**Deployed on AWS MSK with IAM**
-
-```env
-APP_ENV=deployed
-REDIS_URL=redis://your-elasticache:6379/0
-REDIS_SEQUENCE_STATE_KEY_PREFIX=your-namespace:realtime-transcribe-service:expect-transcript-seq-num
-REDIS_OWNERSHIP_GUARD_KEY_PREFIX=your-namespace:realtime-transcribe-service:conversation-owner
-KAFKA_BOOTSTRAP_SERVERS=b-1.example.msk.amazonaws.com:9098,b-2.example.msk.amazonaws.com:9098
-KAFKA_MODE=aws_msk
-KAFKA_TOPIC=AI_STAGING_TRANSCRIPTION
-KAFKA_AWS_REGION=ap-east-1
-KAFKA_SSL_CA_FILE=/path/to/custom-ca-chain.pem
-KAFKA_AWS_DEBUG_CREDS=false
-LOG_FORMAT=json
-AUTH_ENABLED=true
-AUTH_JWT_SIGNING_MATERIAL=replace-with-signing-material
-HTTP_ENABLE_DOCS=false
-```
-
-> **`APP_ENV=deployed`** requires both `REDIS_*_KEY_PREFIX` to be set explicitly (they cannot stay on the local-only code defaults). That forces alignment with ElastiCache user ACL key patterns before traffic hits Redis.
+- `HTTP_HOST` is not a supported environment variable. The bind address is fixed to `0.0.0.0`.
+- Blank strings are rejected for active string-backed settings such as `REDIS_URL`, `KAFKA_BOOTSTRAP_SERVERS`, `KAFKA_TOPIC`, `KAFKA_AWS_REGION` (when explicitly set), and `AUTH_JWT_SIGNING_MATERIAL`.
+- WebSocket ping settings are enforced by Uvicorn's `websockets` backend.
+- `AUTH_JWT_ALGORITHM` currently supports only `HS256`.
+- If `URL_PATH_PREFIX` is set and `HTTP_ENABLE_DOCS=true`, docs move under `{prefix}/docs`, `{prefix}/redoc`, and `{prefix}/openapi.json`.

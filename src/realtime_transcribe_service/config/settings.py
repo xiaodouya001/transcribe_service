@@ -12,6 +12,8 @@ from realtime_transcribe_service.constants import (
     APP_ENV,
     APP_ENV_DEPLOYED,
     APP_ENV_VAR,
+    AWS_DEFAULT_REGION_ENV,
+    AWS_REGION_ENV,
     COMPRESSION_TYPE,
     DEFAULT_HTTP_BACKLOG,
     DEFAULT_HTTP_PORT,
@@ -148,6 +150,7 @@ class Settings(BaseSettings):
     # --- Logging ---
     log_level: LOG_LEVEL = "INFO"
     log_format: LOG_FORMAT = "auto"
+    suppress_health_access_logs: bool = False
     # Whether to log the full JSON body of outgoing ERROR responses. Disabled by default to
     # avoid oversized load-test logs.
     log_ws_error_frames: bool = False
@@ -293,8 +296,15 @@ class Settings(BaseSettings):
 
         if self.kafka_mode == "aws_msk":
             if self.kafka_aws_region is None:
+                bootstrap_region = (
+                    os.environ.get(AWS_REGION_ENV, "").strip()
+                    or os.environ.get(AWS_DEFAULT_REGION_ENV, "").strip()
+                )
+                self.kafka_aws_region = bootstrap_region or None
+            if self.kafka_aws_region is None:
                 raise ValueError(
-                    "KAFKA_AWS_REGION must be set when KAFKA_MODE=aws_msk"
+                    "KAFKA_AWS_REGION must be set, or AWS_REGION/AWS_DEFAULT_REGION "
+                    "must be available, when KAFKA_MODE=aws_msk"
                 )
 
         return self

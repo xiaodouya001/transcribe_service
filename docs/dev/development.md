@@ -133,7 +133,7 @@ See [kafka-ui-usage.md](../ops/kafka-ui-usage.md) for Kafka UI details.
 ### 3.6 Kafka: local broker vs AWS MSK
 
 - **Local (`docker compose`)** — keep defaults: `APP_ENV=local`, `KAFKA_MODE=local`, `KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092`. **PLAINTEXT fixed in code**; create `KAFKA_TOPIC` first (Kafka UI in compose, or CLI). The service does **not** auto-create topics.
-- **Deployed / remote Kafka** — use `APP_ENV=deployed` with **`KAFKA_MODE=aws_msk`** (MSK IAM only in this project). Set `KAFKA_AWS_REGION` and bootstrap servers for the **IAM** port (often `:9098`). Not SCRAM. See [configuration.md](../config/configuration.md#kafka-authentication).
+- **Deployed / remote Kafka** — use `APP_ENV=deployed` with **`KAFKA_MODE=aws_msk`** (MSK IAM only in this project). Set bootstrap servers for the **IAM** port (often `:9098`). `KAFKA_AWS_REGION` is only needed when it differs from `AWS_REGION` / `AWS_DEFAULT_REGION`. Not SCRAM. See [configuration.md](../config/configuration.md#kafka-authentication).
 
 ---
 
@@ -167,5 +167,6 @@ Default tests do not require a live Kafka or Redis instance:
 
 - Set `LOG_LEVEL=DEBUG` for verbose diagnostics
 - Set `LOG_FORMAT=console` for more readable local logs
+- Set `SUPPRESS_HEALTH_ACCESS_LOGS=true` in ECS / ALB-style environments if `/health` and `/ready` probes are spamming `uvicorn.access`
 - Inspect `AI_STAGING_TRANSCRIPTION` through Kafka UI at `http://127.0.0.1:8090`
 - Attach breakpoints to `python -m realtime_transcribe_service.main` or `python -m pytest`

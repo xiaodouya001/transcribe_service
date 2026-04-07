@@ -17,7 +17,7 @@ from realtime_transcribe_service.constants import (
     DEFAULT_WS_OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
     MAX_ERROR_DETAILS_LEN,
 )
-from realtime_transcribe_service.schemas.error_codes import WsCloseCode
+from realtime_transcribe_service.schemas.error_codes import WsCloseCode  # noqa: F401
 from realtime_transcribe_service.schemas.events import ResponseEventType
 from realtime_transcribe_service.schemas.error_scenarios import ProtocolErrorScenario
 from realtime_transcribe_service.transport.metrics import RuntimeMetrics

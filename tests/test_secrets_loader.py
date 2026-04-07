@@ -371,3 +371,30 @@ def test_get_settings_deployed_secret_overrides_dotenv(monkeypatch, tmp_path):
     assert s.kafka_bootstrap_servers == "good:9098"
     assert s.redis_sequence_state_key_prefix == "good:realtime-transcribe-service:expect-transcript-seq-num"
     assert s.redis_ownership_guard_key_prefix == "good:realtime-transcribe-service:conversation-owner"
+
+
+def test_get_settings_deployed_uses_bootstrap_region_when_kafka_region_is_omitted(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "deployed")
+    monkeypatch.setenv("AWS_SECRETS_MANAGER_SECRET_ID", "s")
+    monkeypatch.setenv("AWS_REGION", "ap-east-1")
+    mock_client = MagicMock()
+    mock_client.get_secret_value.return_value = {
+        "SecretString": json.dumps(
+            {
+                "REDIS_URL": "redis://good:6379/0",
+                "REDIS_SEQUENCE_STATE_KEY_PREFIX": "good:realtime-transcribe-service:expect-transcript-seq-num",
+                "REDIS_OWNERSHIP_GUARD_KEY_PREFIX": "good:realtime-transcribe-service:conversation-owner",
+                "KAFKA_BOOTSTRAP_SERVERS": "good:9098",
+                "KAFKA_MODE": "aws_msk",
+                "AUTH_ENABLED": False,
+            }
+        )
+    }
+
+    from realtime_transcribe_service.config.settings import get_settings
+
+    get_settings.cache_clear()
+    with patch("boto3.client", return_value=mock_client):
+        s = get_settings()
+
+    assert s.kafka_aws_region == "ap-east-1"
