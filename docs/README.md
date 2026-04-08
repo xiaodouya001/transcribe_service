@@ -38,6 +38,7 @@ This page collects the main documentation entry points for the Realtime Transcri
 | [dev/development.md](dev/development.md)         | Local development, unit tests, and debugging |
 | [ops/troubleshooting.md](ops/troubleshooting.md) | Operational troubleshooting guide            |
 | [ops/faq.md](ops/faq.md)                         | Frequently asked questions                   |
+| [ops/aws-ha-autoscaling-checklist.md](ops/aws-ha-autoscaling-checklist.md) | AWS high-availability and autoscaling baseline |
 
 
 ---
