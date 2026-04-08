@@ -215,13 +215,13 @@ def test_configure_logging_can_suppress_health_access_logs(monkeypatch, capsys):
         '%s - "%s %s HTTP/%s" %d',
         "127.0.0.1:1234",
         "GET",
-        "/metrics",
+        "/transcribe-svc/docs",
         "1.1",
         200,
     )
     out = capsys.readouterr().err
     assert "/transcribe-svc/health" not in out
-    assert "/metrics" in out
+    assert "/transcribe-svc/docs" in out
 
 
 def test_configure_logging_structlog_json_includes_conversation_id(monkeypatch, capsys):

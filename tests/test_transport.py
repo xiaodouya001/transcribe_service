@@ -31,7 +31,6 @@ from realtime_transcribe_service.schemas.response import (
 )
 from realtime_transcribe_service.shutdown.graceful import GracefulShutdown
 from realtime_transcribe_service.transport.app import _format_client_addr, create_app
-from realtime_transcribe_service.transport.metrics import RuntimeMetrics
 from realtime_transcribe_service.transport.registry import ConnectionRegistry
 from realtime_transcribe_service.transport.session import (
     _ownership_refresh_loop,
@@ -175,7 +174,7 @@ class TestHttpUrlPrefixMount:
         ) as client:
             assert (await client.get("/health")).status_code == 404
             assert (await client.get("/abc/health")).status_code == 200
-            assert (await client.get("/abc/metrics")).status_code == 200
+            assert (await client.get("/abc/ready")).status_code == 200
         client_sync = TestClient(app)
         with client_sync.websocket_connect(
             "/abc/ws/v1/realtime-transcriptions?conversationId=conv-1"
@@ -233,23 +232,6 @@ class TestHealthEndpoints:
             resp = await client.get("/health")
             assert resp.status_code == 200
             assert resp.json()["status"] == "ok"
-
-    async def test_metrics(self, app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as client:
-            resp = await client.get("/metrics")
-            assert resp.status_code == 200
-            assert resp.json() == {
-                "active_connections": 0,
-                "redis_ready_checks_total": 0,
-                "redis_ready_failures_total": 0,
-                "redis_ownership_refresh_total": 0,
-                "redis_ownership_refresh_failures_total": 0,
-                "redis_ownership_refresh_conflicts_total": 0,
-                "redis_last_prepare_ms": None,
-                "redis_last_commit_ms": None,
-            }
 
     async def test_docs_routes_disabled_by_default(
         self, mock_orchestrator, shutdown, registry
@@ -310,13 +292,10 @@ class TestHealthEndpoints:
         ) as client:
             first = await client.get("/ready")
             second = await client.get("/ready")
-            metrics = await client.get("/metrics")
         assert first.status_code == 200
         assert second.status_code == 200
         assert fake_r.ping.await_count == 2
         fake_r.aclose.assert_not_awaited()
-        assert metrics.json()["redis_ready_checks_total"] == 2
-        assert metrics.json()["redis_ready_failures_total"] == 0
 
     async def test_ready_503_when_redis_fails(self, mock_orchestrator, shutdown, registry):
         fake_r = MagicMock()
@@ -334,11 +313,9 @@ class TestHealthEndpoints:
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
             resp = await client.get("/ready")
-            metrics = await client.get("/metrics")
         assert resp.status_code == 503
         assert "not_ready" in resp.json().get("status", "")
         fake_r.aclose.assert_not_awaited()
-        assert metrics.json()["redis_ready_failures_total"] == 1
 
     async def test_ready_logs_warning_when_redis_close_fails(
         self, mock_orchestrator, shutdown, registry
@@ -1276,34 +1253,6 @@ class TestWebSocket:
         }
         assert slow_log["bottleneck_hint"] == "ack_build_ms=0.55ms (~4.5% of orchestrator_ms)"
 
-    def test_metrics_track_last_redis_timings(self, mock_orchestrator, shutdown, registry):
-        async def timed_handle(_raw_json, _conversation_id=""):
-            return OrchestratorResult(
-                response=build_transcript_ack("conv-1", 0),
-                disconnect=False,
-                timings_ms={
-                    "prepare_ms": 0.22,
-                    "redis_commit_ms": 0.44,
-                    "orchestrator_ms": 12.34,
-                },
-            )
-
-        mock_orchestrator.handle_message.side_effect = timed_handle
-        app = create_app(mock_orchestrator, shutdown, registry)
-        client = TestClient(app)
-
-        with client.websocket_connect(
-            "/ws/v1/realtime-transcriptions?conversationId=conv-1"
-        ) as ws:
-            ws.send_text(orjson.dumps(_ongoing_message()).decode())
-            resp = orjson.loads(ws.receive_text())
-            assert resp["metaData"]["eventType"] == "TRANSCRIPT_ACK"
-
-        metrics = client.get("/metrics")
-        assert metrics.status_code == 200
-        assert metrics.json()["redis_last_prepare_ms"] == 0.22
-        assert metrics.json()["redis_last_commit_ms"] == 0.44
-
     def test_ws_does_not_log_slow_message_when_threshold_disabled(
         self, mock_orchestrator, shutdown, registry
     ):
@@ -1466,7 +1415,6 @@ async def test_ownership_refresh_loop_error_closes_ws():
     ws.send_text = AsyncMock()
     ws.close = AsyncMock()
     owner = ScriptedOwnerBackend([RuntimeError("owner store down")])
-    metrics = RuntimeMetrics()
 
     await _ownership_refresh_loop(
         ws,
@@ -1474,14 +1422,10 @@ async def test_ownership_refresh_loop_error_closes_ws():
         ownership_guard=owner,
         ownership_token="owner-a",
         refresh_interval_sec=0.01,
-        runtime_metrics=metrics,
     )
 
     ws.send_text.assert_awaited()
     ws.close.assert_awaited_once_with(code=wh.WsCloseCode.TRY_AGAIN_LATER)
-    assert metrics.redis_ownership_refresh_total == 1
-    assert metrics.redis_ownership_refresh_failures_total == 1
-    assert metrics.redis_ownership_refresh_conflicts_total == 0
 
 
 @pytest.mark.asyncio
@@ -1493,7 +1437,6 @@ async def test_ownership_refresh_loop_conflict_closes_ws():
     ws.send_text = AsyncMock()
     ws.close = AsyncMock()
     owner = ScriptedOwnerBackend([False])
-    metrics = RuntimeMetrics()
 
     await _ownership_refresh_loop(
         ws,
@@ -1501,14 +1444,10 @@ async def test_ownership_refresh_loop_conflict_closes_ws():
         ownership_guard=owner,
         ownership_token="owner-a",
         refresh_interval_sec=0.01,
-        runtime_metrics=metrics,
     )
 
     ws.send_text.assert_awaited()
     ws.close.assert_awaited_once_with(code=wh.WsCloseCode.POLICY_VIOLATION)
-    assert metrics.redis_ownership_refresh_total == 1
-    assert metrics.redis_ownership_refresh_failures_total == 0
-    assert metrics.redis_ownership_refresh_conflicts_total == 1
 
 
 class TestConnectionRegistry:

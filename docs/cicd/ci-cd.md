@@ -222,7 +222,6 @@ The service exposes HTTP probes suitable for ALB and ECS:
 |------|------|
 | `GET /health` | Liveness: process is up |
 | `GET /ready` | Readiness: Redis and Kafka are reachable |
-| `GET /metrics` | Runtime metrics, such as active WebSocket counts |
 
 Before listening for traffic, `main` runs `_check_redis` and `_check_kafka`. If either check fails, startup aborts.
 

@@ -7,7 +7,7 @@
 - The service **does not** auto-create Kafka topics. Provision `KAFKA_TOPIC` (name and partition count) yourself before running the service; changing partition count later requires repartitioning or a new topic
 - `WS_PING_INTERVAL` and `WS_PING_TIMEOUT` are applied when building the Uvicorn server in `service_runtime.create_uvicorn_server` (`ws="websockets"`) and control RFC WebSocket Ping/Pong keepalive, not business JSON behavior
 - If handshake JWT authentication is enabled, `AUTH_ENABLED`, `AUTH_JWT_SIGNING_MATERIAL`, and `AUTH_JWT_ALGORITHM` must also be set. The concurrency profile does not change those values; they are shared across all three profiles.
-- `HTTP_ENABLE_DOCS` only controls `/docs`, `/redoc`, and `/openapi.json`. It does not protect `/health`, `/ready`, or `/metrics`; those HTTP routes should be limited at the edge or on the internal network.
+- `HTTP_ENABLE_DOCS` only controls `/docs`, `/redoc`, and `/openapi.json`. It does not protect `/health` or `/ready`; those HTTP routes should be limited at the edge or on the internal network.
 - `REDIS_SEQUENCE_STATE_KEY_PREFIX` and `REDIS_OWNERSHIP_GUARD_KEY_PREFIX` below match the **service default** (no account/environment namespace). In AWS ElastiCache (and similar), replace with prefixes that satisfy **your** user ACL key patterns for that environment.
 
 ---

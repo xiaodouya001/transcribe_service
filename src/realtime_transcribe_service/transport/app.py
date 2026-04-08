@@ -19,7 +19,6 @@ from realtime_transcribe_service.constants import (
     WS_PATH,
 )
 from realtime_transcribe_service.schemas.error_scenarios import ProtocolErrorScenario
-from realtime_transcribe_service.transport.metrics import RuntimeMetrics
 from realtime_transcribe_service.transport.registry import ConnectionRegistry
 from realtime_transcribe_service.transport.session import (
     OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
@@ -310,7 +309,7 @@ def _create_transport_fastapi_app(
     http_enable_docs: bool = False,
     openapi_root_path: str = "",
 ) -> FastAPI:
-    """Build the inner FastAPI app (paths are ``/health``, ``/ws/v1/...`` without ALB prefix)."""
+    """Build the inner FastAPI app (paths are ``/health``, ``/ready``, ``/ws/v1/...`` without ALB prefix)."""
     app = FastAPI(
         title=APP_TITLE,
         description=APP_TITLE,
@@ -327,8 +326,6 @@ def _create_transport_fastapi_app(
     app.state.ownership_guard = ownership_guard
     app.state.redis_client = redis_client
     app.state.log_slow_message_threshold_ms = log_slow_message_threshold_ms
-    runtime_metrics = RuntimeMetrics()
-    app.state.runtime_metrics = runtime_metrics
 
     app.add_middleware(
         _WsGuardMiddleware,
@@ -349,7 +346,6 @@ def _create_transport_fastapi_app(
         if redis_client is not None or redis_url:
             from realtime_transcribe_service.config.logging_config import redact_text_for_logs
 
-            runtime_metrics.redis_ready_checks_total += 1
             client = redis_client
             owns_client = False
             try:
@@ -369,7 +365,6 @@ def _create_transport_fastapi_app(
                     owns_client = True
                 await cast(Awaitable[Any], client.ping())
             except Exception as e:
-                runtime_metrics.redis_ready_failures_total += 1
                 log_error = redact_text_for_logs(str(e), extra_secret=redis_password)
                 log.warning(
                     "Ready: Redis check failed",
@@ -396,17 +391,12 @@ def _create_transport_fastapi_app(
             return JSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})
         return {"status": "ready"}
 
-    @app.get("/metrics")
-    async def metrics():
-        return runtime_metrics.snapshot(registry.active_count)
-
     app.add_api_websocket_route(
         WS_PATH,
         build_ws_endpoint(
             orchestrator=orchestrator,
             registry=registry,
             ownership_guard=ownership_guard,
-            runtime_metrics=runtime_metrics,
             ownership_guard_refresh_interval_sec=ownership_guard_refresh_interval_sec,
             log_ws_error_frames=log_ws_error_frames,
             log_slow_message_threshold_ms=log_slow_message_threshold_ms,

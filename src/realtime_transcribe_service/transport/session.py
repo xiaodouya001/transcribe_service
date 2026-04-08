@@ -20,7 +20,6 @@ from realtime_transcribe_service.constants import (
 from realtime_transcribe_service.schemas.error_codes import WsCloseCode  # noqa: F401
 from realtime_transcribe_service.schemas.events import ResponseEventType
 from realtime_transcribe_service.schemas.error_scenarios import ProtocolErrorScenario
-from realtime_transcribe_service.transport.metrics import RuntimeMetrics
 
 if TYPE_CHECKING:  # pragma: no cover
     from realtime_transcribe_service.orchestrator.protocols import OrchestratorBackend
@@ -239,7 +238,6 @@ def build_ws_endpoint(
     orchestrator: OrchestratorBackend,
     registry: ConnectionRegistry,
     ownership_guard: ConversationOwnershipGuardBackend | None,
-    runtime_metrics: RuntimeMetrics,
     ownership_guard_refresh_interval_sec: float = OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
     log_ws_error_frames: bool = False,
     log_slow_message_threshold_ms: float = 0.0,
@@ -306,7 +304,6 @@ def build_ws_endpoint(
                     ownership_guard=owner,
                     ownership_token=ownership_token,
                     refresh_interval_sec=ownership_guard_refresh_interval_sec,
-                    runtime_metrics=runtime_metrics,
                     log_ws_error_frames=log_ws_error_frames,
                 )
             )
@@ -316,7 +313,6 @@ def build_ws_endpoint(
                 ws,
                 orchestrator,
                 conversationId,
-                runtime_metrics=runtime_metrics,
                 log_ws_error_frames=log_ws_error_frames,
                 log_slow_message_threshold_ms=log_slow_message_threshold_ms,
             )
@@ -358,7 +354,6 @@ async def _run_ws_message_loop(
     orchestrator: OrchestratorBackend,
     conversation_id: str,
     *,
-    runtime_metrics: RuntimeMetrics | None = None,
     log_ws_error_frames: bool = False,
     log_slow_message_threshold_ms: float = 0.0,
 ) -> None:
@@ -441,8 +436,6 @@ async def _run_ws_message_loop(
                     return
 
         result = await orchestrator.handle_message(raw_json, conversation_id)
-        if runtime_metrics is not None:
-            runtime_metrics.observe_orchestrator_timings(result.timings_ms)
         server_processing_ms = _elapsed_ms(t0)
         resp = result.response
         if (
@@ -506,7 +499,6 @@ async def _ownership_refresh_loop(
     ownership_guard: ConversationOwnershipGuardBackend,
     ownership_token: str,
     refresh_interval_sec: float = OWNERSHIP_GUARD_REFRESH_INTERVAL_SEC,
-    runtime_metrics: RuntimeMetrics | None = None,
     log_ws_error_frames: bool = False,
 ) -> None:
     """Refresh conversation ownership in the background to keep Redis off the hot path."""
@@ -514,12 +506,8 @@ async def _ownership_refresh_loop(
     while True:
         await asyncio.sleep(refresh_interval)
         try:
-            if runtime_metrics is not None:
-                runtime_metrics.redis_ownership_refresh_total += 1
             owned = await ownership_guard.claim_or_refresh(conversation_id, ownership_token)
         except Exception as exc:
-            if runtime_metrics is not None:
-                runtime_metrics.redis_ownership_refresh_failures_total += 1
             log.error(
                 "Transport: Conversation ownership guard store unavailable",
                 conversation_id=conversation_id,
@@ -532,8 +520,6 @@ async def _ownership_refresh_loop(
             )
             return
         if not owned:
-            if runtime_metrics is not None:
-                runtime_metrics.redis_ownership_refresh_conflicts_total += 1
             log.warning(
                 "Transport: Concurrent sender conflict",
                 conversation_id=conversation_id,
