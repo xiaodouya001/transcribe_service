@@ -145,7 +145,7 @@ See [kafka-ui-usage.md](../ops/kafka-ui-usage.md) for Kafka UI details.
 poetry run pytest
 ```
 
-The repository-level run collects the service tests from `tests/`.
+The repository-level run collects the service tests from `tests/` and the CI/CD helper tests from `ci-cd/tests/`, following `pyproject.toml` `testpaths`.
 
 ### 4.2 Test strategy
 
@@ -153,7 +153,7 @@ Default tests do not require a live Kafka or Redis instance:
 
 | Component | Mock strategy |
 |------|-----------|
-| Main service unit tests (`tests/`) | Redis state machine via [fakeredis[lua]](https://github.com/cunla/fakeredis-py), Kafka via `unittest.mock.AsyncMock`, and ASGI flows via `starlette.testclient.TestClient` |
+| Service tests (`tests/`) and CI/CD helper tests (`ci-cd/tests/`) | Redis state machine via [fakeredis[lua]](https://github.com/cunla/fakeredis-py), Kafka via `unittest.mock.AsyncMock`, and ASGI flows via `starlette.testclient.TestClient` |
 
 ### 4.3 Coverage
 

@@ -24,9 +24,12 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 def _require_env(name: str) -> str:
     value = os.getenv(name)
-    if value is None or not value.strip():
+    if value is None:
         pytest.fail(f"Environment variable {name} is required when RUN_REAL_KAFKA_TEST=true")
-    return value.strip()
+    normalized = value.strip()
+    if not normalized:
+        pytest.fail(f"Environment variable {name} is required when RUN_REAL_KAFKA_TEST=true")
+    return normalized
 
 
 @pytest.mark.asyncio

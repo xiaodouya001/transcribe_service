@@ -210,7 +210,7 @@ Startup is fail-fast:
 
 For local development only, `.env` remains supported and should set `APP_ENV=local`.
 
-This deployment mode assumes that upstream systems connect directly over WebSocket. Legacy client-side STT provider settings such as `STT_PROVIDER_URL` are not part of this service.
+This deployment mode assumes that upstream systems connect directly over WebSocket.
 
 ---
 

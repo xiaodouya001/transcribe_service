@@ -229,7 +229,7 @@ Scope meanings:
 
 | Location                   | Keys                                                                                                     | Notes                                                                                    |
 | -------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| ECS task `environment`     | `APP_ENV`, `AWS_REGION`, `AWS_SECRETS_MANAGER_SECRET_ID`                                                 | Bootstrap only. These values tell the process how to load the real application config    |
+| ECS task `environment`     | `APP_ENV`, `AWS_REGION`, optional `AWS_DEFAULT_REGION`, `AWS_SECRETS_MANAGER_SECRET_ID`                 | Bootstrap only. These values tell the process how to load the real application config    |
 | Secrets Manager JSON       | All supported app keys such as `REDIS_`*, `KAFKA_`*, `AUTH_*`, `HTTP_*`, `WS_*`, `LOG_*`, `STOP_TIMEOUT` | Highest precedence for application keys in `APP_ENV=deployed`                            |
 | Unsupported in secret body | `APP_ENV`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `AWS_SECRETS_MANAGER_SECRET_ID`                           | Bootstrap keys keep their original process values and must not be supplied by the secret |
 

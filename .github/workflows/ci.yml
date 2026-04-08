@@ -25,6 +25,9 @@ jobs:
       - name: Install Poetry
         run: pip install poetry
 
+      - name: Configure Poetry virtualenv
+        run: poetry config virtualenvs.in-project true
+
       - name: Install dependencies
         run: poetry install --with dev --no-interaction
 
@@ -53,6 +56,9 @@ jobs:
 
       - name: Install Poetry
         run: pip install poetry
+
+      - name: Configure Poetry virtualenv
+        run: poetry config virtualenvs.in-project true
 
       - name: Install dependencies
         run: poetry install --with dev --no-interaction

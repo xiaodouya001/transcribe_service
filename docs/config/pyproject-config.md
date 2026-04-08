@@ -78,7 +78,7 @@ python -m realtime_transcribe_service.main
 - Dependencies: `[project].dependencies`
 - Configuration: `.env` values such as `APP_ENV`, `REDIS_URL`, and `KAFKA_BOOTSTRAP_SERVERS`
 
-This service runs as a WebSocket server. Upstream systems connect to `ws://.../ws/v1/realtime-transcriptions?conversationId=...`. Legacy client-side settings such as `STT_PROVIDER_URL` are not part of this runtime model.
+This service runs as a WebSocket server. In local development, you can connect to `ws://.../ws/v1/realtime-transcriptions?conversationId=...`. For production or external integrations, the V1 contract is `wss://.../ws/v1/realtime-transcriptions?conversationId=...`, typically with TLS terminated by the ingress or load balancer rather than this process itself.
 
 ### 2.2 Development and testing
 

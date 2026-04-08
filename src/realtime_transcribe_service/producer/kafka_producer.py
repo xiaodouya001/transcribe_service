@@ -66,7 +66,7 @@ class KafkaProducer:
                 connection_profile=self._connection.profile_label,
             )
             comp = None if self._compression_type == "none" else self._compression_type
-            self._producer = AIOKafkaProducer(
+            producer = AIOKafkaProducer(
                 **self._client_kwargs,
                 compression_type=comp,
                 enable_idempotence=True,
@@ -74,12 +74,15 @@ class KafkaProducer:
                 linger_ms=self._linger_ms,
                 max_batch_size=self._batch_size,
             )
+            self._producer = producer
             try:
-                await self._producer.start()
+                await producer.start()
             except Exception:
                 await self.close()
                 raise
-        return self._producer
+        producer = self._producer
+        assert producer is not None
+        return producer
 
     async def ensure_ready(self) -> None:
         """Verify Kafka connectivity during startup."""
